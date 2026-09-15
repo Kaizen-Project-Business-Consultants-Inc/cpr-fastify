@@ -68,7 +68,11 @@ const AdminShell: React.FC<AdminShellProps> = ({
     if (onNavigate) {
       onNavigate(path);
     } else {
-      navigate('../' + path, { relative: 'path' });
+      if (path.startsWith('/')) {
+        navigate(path);
+      } else {
+        navigate('../' + path, { relative: 'path' });
+      }
     }
   };
 
