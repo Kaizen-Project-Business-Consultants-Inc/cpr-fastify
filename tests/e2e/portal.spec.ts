@@ -12,19 +12,11 @@ import { test, expect } from '@playwright/test';
 import { loginAs, USERS } from './fixtures';
 import type { BrowserContext, Page } from '@playwright/test';
 
-/** Find the logout element across all portal layouts:
- *  - IconButton aria-label="logout" (Instructor, Organization)
- *  - ListItem aria-label="Logout from application" (generic Layout: HR)
- *  - Button/ListItemText with text "Logout" (Accountant, Sysadmin, Vendor)
- *  - MenuItem with text "Logout" (CourseAdmin — inside dropdown menu)
+/** Find the logout element — all portals now use AdminShell sidebar with a
+ *  ButtonBase containing "Logout" text.
  */
 function logoutLocator(pg: Page) {
-  return pg.locator([
-    '[aria-label="logout"]',
-    '[aria-label="Logout from application"]',
-    'button:has-text("Logout")',
-    '.MuiListItemText-root:has-text("Logout")',
-  ].join(', '));
+  return pg.locator('button:has-text("Logout"), [role="button"]:has-text("Logout")');
 }
 
 // ── Instructor ───────────────────────────────────────────────────────────────
@@ -66,8 +58,7 @@ test.describe.serial('Instructor (login, portal, logout)', () => {
 
   test('logout redirects to /login', async () => {
     await pg.goto('/instructor/dashboard', { waitUntil: 'domcontentloaded' });
-    // Instructor has IconButton aria-label="logout" in the header
-    const btn = pg.locator('[aria-label="logout"]');
+    const btn = logoutLocator(pg);
     await expect(btn.first()).toBeVisible({ timeout: 15000 });
     await btn.first().click();
     await pg.waitForURL(/login/, { timeout: 10000 });
@@ -103,8 +94,8 @@ test.describe.serial('Accountant (login, portal, logout)', () => {
       await pg.goto('/accounting/dashboard');
       await pg.waitForLoadState('domcontentloaded');
     }
-    // Accounting portal uses horizontal tabs: "Billing & Receivables"
-    const tab = pg.getByText('Billing & Receivables');
+    // Accounting portal uses AdminShell sidebar — click "Ready for Billing"
+    const tab = pg.getByText('Ready for Billing');
     await expect(tab).toBeVisible({ timeout: 30000 });
     await tab.click();
     await pg.waitForLoadState('domcontentloaded');
@@ -113,8 +104,7 @@ test.describe.serial('Accountant (login, portal, logout)', () => {
 
   test('logout redirects to /login', async () => {
     await pg.goto('/accounting/dashboard', { waitUntil: 'domcontentloaded' });
-    // Accountant has an outlined Button with text "Logout"
-    const btn = pg.locator('button:has-text("Logout")');
+    const btn = logoutLocator(pg);
     await expect(btn.first()).toBeVisible({ timeout: 15000 });
     await btn.first().click();
     await pg.waitForURL(/login/, { timeout: 10000 });
@@ -212,16 +202,9 @@ test.describe.serial('Admin (login, portal, logout)', () => {
 
   test('logout via user menu redirects to /login', async () => {
     await pg.goto('/admin/dashboard', { waitUntil: 'domcontentloaded' });
-    // CourseAdmin logout is behind a person icon menu
-    const accountBtn = pg.locator('[aria-label="account"], [aria-label="Account"], .MuiAvatar-root')
-      .or(pg.locator('button').filter({ has: pg.locator('svg[data-testid="AccountCircleIcon"]') }));
-    await expect(accountBtn.first()).toBeVisible({ timeout: 15000 });
-    await accountBtn.first().click();
-    // Wait for menu to open, then click "Logout" menu item
-    const logoutMenuItem = pg.getByRole('menuitem', { name: /logout/i })
-      .or(pg.locator('.MuiMenuItem-root:has-text("Logout")'));
-    await expect(logoutMenuItem.first()).toBeVisible({ timeout: 5000 });
-    await logoutMenuItem.first().click();
+    const btn = logoutLocator(pg);
+    await expect(btn.first()).toBeVisible({ timeout: 15000 });
+    await btn.first().click();
     await pg.waitForURL(/login/, { timeout: 10000 });
     await expect(pg).toHaveURL(/login/);
   });
@@ -265,8 +248,7 @@ test.describe.serial('Organization (login, portal, logout)', () => {
 
   test('logout redirects to /login', async () => {
     await pg.goto('/organization/dashboard', { waitUntil: 'domcontentloaded' });
-    // Organization has IconButton aria-label="logout"
-    const btn = pg.locator('[aria-label="logout"]');
+    const btn = logoutLocator(pg);
     await expect(btn.first()).toBeVisible({ timeout: 15000 });
     await btn.first().click();
     await pg.waitForURL(/login/, { timeout: 10000 });
@@ -357,8 +339,7 @@ test.describe.serial('HR (login, portal, logout)', () => {
 
   test('logout redirects to /login', async () => {
     await pg.goto('/hr', { waitUntil: 'domcontentloaded' });
-    // HR portal has an IconButton with LogoutIcon (no aria-label)
-    const btn = pg.locator('button:has(svg[data-testid="LogoutIcon"])');
+    const btn = logoutLocator(pg);
     await expect(btn.first()).toBeVisible({ timeout: 15000 });
     await btn.first().click();
     await pg.waitForURL(/login/, { timeout: 10000 });
@@ -407,15 +388,9 @@ test.describe.serial('CourseAdmin (login, portal, logout)', () => {
 
   test('logout via user menu redirects to /login', async () => {
     await pg.goto('/admin/dashboard', { waitUntil: 'domcontentloaded' });
-    // CourseAdmin logout is behind person icon menu
-    const accountBtn = pg.locator('[aria-label="account"], [aria-label="Account"], .MuiAvatar-root')
-      .or(pg.locator('button').filter({ has: pg.locator('svg[data-testid="AccountCircleIcon"]') }));
-    await expect(accountBtn.first()).toBeVisible({ timeout: 15000 });
-    await accountBtn.first().click();
-    const logoutMenuItem = pg.getByRole('menuitem', { name: /logout/i })
-      .or(pg.locator('.MuiMenuItem-root:has-text("Logout")'));
-    await expect(logoutMenuItem.first()).toBeVisible({ timeout: 5000 });
-    await logoutMenuItem.first().click();
+    const btn = logoutLocator(pg);
+    await expect(btn.first()).toBeVisible({ timeout: 15000 });
+    await btn.first().click();
     await pg.waitForURL(/login/, { timeout: 10000 });
     await expect(pg).toHaveURL(/login/);
   });
