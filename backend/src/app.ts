@@ -1,4 +1,4 @@
-import { readFileSync, existsSync } from 'fs';
+import { readFileSync, existsSync, statSync } from 'fs';
 import { resolve } from 'path';
 import { randomUUID } from 'crypto';
 import Fastify from 'fastify';
@@ -126,14 +126,32 @@ export async function buildApp() {
     });
   }
 
-  // SPA fallback: serve index.html for non-API routes (frontend routing)
+  // SPA fallback: serve index.html for non-API routes (frontend routing).
+  // index.html is re-read whenever its mtime changes so a frontend deploy takes
+  // effect without a backend restart (a cached copy once pointed browsers at
+  // JS chunks that had already been deleted — see docs/AUDIT_2026-09-17.md).
   if (existsSync(indexPath)) {
-    const indexHtml = readFileSync(indexPath, 'utf-8');
+    let cachedHtml = '';
+    let cachedMtime = 0;
+    const loadIndexHtml = (): string => {
+      try {
+        const mtime = statSync(indexPath).mtimeMs;
+        if (mtime !== cachedMtime) {
+          cachedHtml = readFileSync(indexPath, 'utf-8');
+          cachedMtime = mtime;
+        }
+      } catch {
+        // keep whatever we had if the file is momentarily missing mid-deploy
+      }
+      return cachedHtml;
+    };
+    loadIndexHtml();
     app.setNotFoundHandler((request, reply) => {
       if (request.url.startsWith('/api/')) {
         return reply.status(404).send({ error: 'Not Found' });
       }
-      reply.type('text/html').send(indexHtml);
+      reply.header('Cache-Control', 'no-cache');
+      reply.type('text/html').send(loadIndexHtml());
     });
   }
 
