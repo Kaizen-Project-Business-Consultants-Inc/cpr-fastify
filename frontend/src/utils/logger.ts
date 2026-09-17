@@ -36,7 +36,6 @@ const shouldSuppress = (message: string) => {
 const logger = {
   debug: (...args: any[]) => {
     if (isDevelopment && !shouldSuppress(args.join(' '))) {
-      console.debug('[DEBUG]', ...args);
     }
   },
 

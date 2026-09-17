@@ -137,7 +137,6 @@ class AnalyticsService {
     this.userId = userId;
 
     if (this.isEnabled) {
-      console.log('[Analytics] User identified:', { userId, properties });
 
       // TODO: Integrate with actual analytics service
       // gtag('config', 'GA_MEASUREMENT_ID', { user_id: userId });
@@ -181,7 +180,6 @@ class AnalyticsService {
     }
 
     if (this.isEnabled) {
-      console.log('[Analytics] Event tracked:', analyticsEvent);
 
       // TODO: Send to actual analytics service
       // gtag('event', event, properties);
@@ -282,7 +280,6 @@ class AnalyticsService {
    */
   trackPerformance(metric: PerformanceMetric) {
     if (this.isEnabled) {
-      console.log('[Analytics] Performance metric:', metric);
 
       // TODO: Send to performance monitoring service
       // Sentry.addBreadcrumb({ message: `Performance: ${metric.name}`, data: metric });
@@ -347,7 +344,6 @@ class AnalyticsService {
    */
   flush() {
     if (this.isEnabled) {
-      console.log('[Analytics] Flushing pending data');
       // TODO: Implement actual flush logic for analytics service
     }
   }

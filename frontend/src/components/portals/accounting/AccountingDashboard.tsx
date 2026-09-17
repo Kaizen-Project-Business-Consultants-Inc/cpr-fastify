@@ -77,7 +77,6 @@ const PendingActionsSidebar: React.FC = () => {
     const fetchPendingActions = async () => {
       try {
         setLoading(true);
-        console.log('🔍 [PENDING ACTIONS] Fetching real pending actions data...');
 
         const [paymentsResponse, invoicesResponse] = await Promise.all([
           api.get('/accounting/payment-verifications'),
@@ -87,8 +86,6 @@ const PendingActionsSidebar: React.FC = () => {
         const paymentsData = paymentsResponse.data;
         const invoicesData = invoicesResponse.data;
 
-        console.log('🔍 [PENDING ACTIONS] Payments data:', paymentsData);
-        console.log('🔍 [PENDING ACTIONS] Invoices data:', invoicesData);
 
         const pendingPaymentsCount =
           paymentsData.data?.payments?.filter(
@@ -103,10 +100,6 @@ const PendingActionsSidebar: React.FC = () => {
             )
           ).length || 0;
 
-        console.log('🔍 [PENDING ACTIONS] Counts:', {
-          pendingPayments: pendingPaymentsCount,
-          pendingInvoices: pendingInvoicesCount,
-        });
 
         const realData: PendingAction[] = [
           {
@@ -131,7 +124,6 @@ const PendingActionsSidebar: React.FC = () => {
           },
         ];
 
-        console.log('🔍 [PENDING ACTIONS] Setting real data:', realData);
         setPendingActions(realData);
       } catch (error: any) {
         console.error('🔍 [PENDING ACTIONS] Error fetching pending actions:', error);
@@ -155,7 +147,6 @@ const PendingActionsSidebar: React.FC = () => {
   const handleRefresh = async () => {
     try {
       setLoading(true);
-      console.log('🔍 [PENDING ACTIONS] Manual refresh triggered...');
 
       const [paymentsResponse, invoicesResponse] = await Promise.all([
         api.get('/accounting/payment-verifications'),
@@ -165,8 +156,6 @@ const PendingActionsSidebar: React.FC = () => {
       const paymentsData = paymentsResponse.data;
       const invoicesData = invoicesResponse.data;
 
-      console.log('🔍 [PENDING ACTIONS] Refresh - Payments data:', paymentsData);
-      console.log('🔍 [PENDING ACTIONS] Refresh - Invoices data:', invoicesData);
 
       const pendingPaymentsCount =
         paymentsData.data?.payments?.filter(
@@ -181,10 +170,6 @@ const PendingActionsSidebar: React.FC = () => {
           )
         ).length || 0;
 
-      console.log('🔍 [PENDING ACTIONS] Refresh - Counts:', {
-        pendingPayments: pendingPaymentsCount,
-        pendingInvoices: pendingInvoicesCount,
-      });
 
       const realData: PendingAction[] = [
         {
@@ -209,7 +194,6 @@ const PendingActionsSidebar: React.FC = () => {
         },
       ];
 
-      console.log('🔍 [PENDING ACTIONS] Refresh - Setting real data:', realData);
       setPendingActions(realData);
     } catch (error: any) {
       console.error('🔍 [PENDING ACTIONS] Error refreshing pending actions:', error);
@@ -323,7 +307,6 @@ const PendingActionsSidebar: React.FC = () => {
 };
 
 const AccountingDashboard: React.FC = () => {
-  console.log('[AccountingDashboard] Component starting to render');
 
   try {
     const [dashboardData, setDashboardData] = useState<DashboardData | null>(null);
@@ -365,7 +348,6 @@ const AccountingDashboard: React.FC = () => {
 
     const handlePeriodChange = (event: SelectChangeEvent) => {
       setSelectedPeriod(event.target.value);
-      console.log('Period changed to:', event.target.value);
     };
 
     const fetchDashboardData = async () => {

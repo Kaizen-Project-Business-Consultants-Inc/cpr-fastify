@@ -31,23 +31,6 @@ export class UserRepository extends BaseRepository<User> {
     return rows[0] ?? null;
   }
 
-  async findByEmail(email: string): Promise<User | null> {
-    const rows = await this.query<User>(
-      'SELECT * FROM users WHERE email = ?',
-      [email]
-    );
-    return rows[0] ?? null;
-  }
-
-  async findByRole(role: string, options?: { limit?: number; offset?: number }): Promise<User[]> {
-    const limit = options?.limit ?? 50;
-    const offset = options?.offset ?? 0;
-    return this.query<User>(
-      'SELECT * FROM users WHERE role = ? AND status = ? ORDER BY username LIMIT ? OFFSET ?',
-      [role, 'active', limit, offset]
-    );
-  }
-
   async updatePassword(id: number, passwordHash: string): Promise<boolean> {
     return this.update(id, { password_hash: passwordHash } as Partial<User>);
   }

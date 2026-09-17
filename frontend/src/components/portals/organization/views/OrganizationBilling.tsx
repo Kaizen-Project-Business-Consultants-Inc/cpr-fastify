@@ -223,9 +223,7 @@ const OrganizationBilling: React.FC<OrganizationBillingProps> = ({
   const loadAttendanceData = async (courseRequestId: number) => {
     setLoadingAttendance(true);
     try {
-      console.log('Loading attendance data for course request:', courseRequestId);
       const response = await api.get(`/courses/org/students/${courseRequestId}`);
-      console.log('Attendance data response:', response);
 
       if (response.data && response.data.data) {
         const students = Array.isArray(response.data.data) ? response.data.data : [];
@@ -245,9 +243,7 @@ const OrganizationBilling: React.FC<OrganizationBillingProps> = ({
   const loadPaymentHistory = async (invoiceId: number) => {
     setLoadingPaymentHistory(true);
     try {
-      console.log('Loading payment history for invoice:', invoiceId);
       const response = await api.get(`/organization/invoices/${invoiceId}/payments`);
-      console.log('Payment history response:', response);
 
       // Handle different response structures
       let paymentsData = [];
@@ -262,9 +258,6 @@ const OrganizationBilling: React.FC<OrganizationBillingProps> = ({
         paymentsData = [];
       }
 
-      console.log('Raw payment data structure:', paymentsData);
-      console.log('Payment data sample:', paymentsData[0]);
-      console.log('Processed payment history data:', paymentsData);
 
       // Filter out invalid payments and remove duplicates
       const validPayments = paymentsData.filter((payment: any) => {
@@ -287,7 +280,6 @@ const OrganizationBilling: React.FC<OrganizationBillingProps> = ({
           status: payment.status || 'pending_verification'
         }));
 
-      console.log('Filtered unique payments:', uniquePayments);
       setPaymentHistory(uniquePayments);
     } catch (error: any) {
       console.error('Error loading payment history:', error);
@@ -299,11 +291,6 @@ const OrganizationBilling: React.FC<OrganizationBillingProps> = ({
 
   // Handle invoice click with payment history
   const handleInvoiceClick = async (invoice: Invoice) => {
-    console.log('Invoice clicked:', invoice);
-    console.log('Invoice fields:', Object.keys(invoice));
-    console.log('Invoice created_at:', invoice.created_at);
-    console.log('Invoice invoice_date:', invoice.invoice_date);
-    console.log('Invoice created_at type:', typeof invoice.created_at);
 
     setSelectedInvoice(invoice);
     setDialogOpen(true);
@@ -354,7 +341,6 @@ const OrganizationBilling: React.FC<OrganizationBillingProps> = ({
   const handlePaymentSubmit = async () => {
     // CRITICAL: Set ref FIRST to prevent race condition from rapid clicks
     if (isSubmittingRef.current) {
-      console.log('Payment already in progress, ignoring duplicate click');
       return;
     }
     isSubmittingRef.current = true;
@@ -437,13 +423,8 @@ const OrganizationBilling: React.FC<OrganizationBillingProps> = ({
 
   // Handle payment dialog open
   const handlePaymentDialogOpen = (invoice: Invoice) => {
-    console.log('=== handlePaymentDialogOpen START ===');
-    console.log('Function called with invoice:', invoice);
-    console.log('Current paymentDialogOpen state:', paymentDialogOpen);
-    console.log('Current dialogOpen state:', dialogOpen);
 
     if (invoice) {
-      console.log('Invoice exists, proceeding...');
 
       // Set payment form data
       const formData = {
@@ -454,32 +435,20 @@ const OrganizationBilling: React.FC<OrganizationBillingProps> = ({
         notes: '',
       };
 
-      console.log('Setting payment form data:', formData);
       setPaymentForm(formData);
 
-      console.log('About to set paymentDialogOpen to true');
       // Open payment dialog immediately
       setPaymentDialogOpen(true);
-      console.log('setPaymentDialogOpen(true) called');
 
       // Check state immediately after
-      console.log('State immediately after setPaymentDialogOpen:', {
-        paymentDialogOpen: paymentDialogOpen,
-        dialogOpen: dialogOpen
-      });
 
       // Check state after a micro delay
       setTimeout(() => {
-        console.log('=== MICRO DELAY CHECK ===');
-        console.log('paymentDialogOpen after micro delay:', paymentDialogOpen);
-        console.log('dialogOpen after micro delay:', dialogOpen);
       }, 0);
 
     } else {
-      console.log('Invoice is null/undefined, not proceeding');
     }
 
-    console.log('=== handlePaymentDialogOpen END ===');
   };
 
   // Handle payment dialog close
@@ -507,36 +476,21 @@ const OrganizationBilling: React.FC<OrganizationBillingProps> = ({
 
   // Check if payment can be submitted
   const canSubmitPayment = (invoice: Invoice | null) => {
-    console.log('=== canSubmitPayment called ===');
-    console.log('invoice:', invoice);
 
     if (!invoice) {
-      console.log('No invoice provided, returning false');
       return false;
     }
 
     const status = invoice.payment_status || invoice.status;
     const balanceDue = Number(invoice.balance_due || 0);
 
-    console.log('Invoice details:', {
-      status: status,
-      balanceDue: balanceDue,
-      payment_status: invoice.payment_status,
-      status_field: invoice.status
-    });
 
     const balanceCheck = balanceDue > 0;
     const statusCheck = status !== 'paid' && status !== 'payment_submitted';
     const olderInvoicesCheck = !hasOlderUnpaidInvoices(invoice);
 
-    console.log('Checks:', {
-      balanceCheck: balanceCheck,
-      statusCheck: statusCheck,
-      olderInvoicesCheck: olderInvoicesCheck
-    });
 
     const result = balanceCheck && statusCheck && olderInvoicesCheck;
-    console.log('Final result:', result);
 
     return result;
   };
@@ -628,9 +582,6 @@ const OrganizationBilling: React.FC<OrganizationBillingProps> = ({
     // Try different date fields
     const currentInvoiceDate = new Date(currentInvoice.created_at || currentInvoice.invoice_date || currentInvoice.created_at);
     if (isNaN(currentInvoiceDate.getTime())) {
-      console.log('hasOlderUnpaidInvoices: Invalid date for invoice:', currentInvoice.invoice_number);
-      console.log('hasOlderUnpaidInvoices: created_at:', currentInvoice.created_at);
-      console.log('hasOlderUnpaidInvoices: invoice_date:', currentInvoice.invoice_date);
       // If we can't determine the date, don't block payment
       return false;
     }
@@ -691,7 +642,6 @@ const OrganizationBilling: React.FC<OrganizationBillingProps> = ({
       link.click();
       link.remove();
       window.URL.revokeObjectURL(url);
-      console.log('PDF downloaded successfully.');
     } catch (error: any) {
       console.error('Error downloading PDF:', error);
       setPaymentError('Failed to download PDF.');
@@ -1193,33 +1143,16 @@ const OrganizationBilling: React.FC<OrganizationBillingProps> = ({
           {selectedInvoice && canSubmitPayment(selectedInvoice) && (
             <PrimaryButton
               onClick={(e) => {
-                console.log('=== SUBMIT PAYMENT BUTTON CLICKED ===');
-                console.log('Event:', e);
-                console.log('Event type:', e.type);
-                console.log('Event target:', e.target);
-                console.log('Event currentTarget:', e.currentTarget);
-                console.log('selectedInvoice:', selectedInvoice);
-                console.log('canSubmitPayment result:', canSubmitPayment(selectedInvoice));
-                console.log('submittingPayment:', submittingPayment);
-                console.log('isSubmittingRef.current:', isSubmittingRef.current);
-                console.log('paymentDialogOpen:', paymentDialogOpen);
-                console.log('dialogOpen:', dialogOpen);
 
                 // Force the function call with the invoice directly
                 if (selectedInvoice) {
                   handlePaymentDialogOpen(selectedInvoice);
                 } else {
-                  console.log('ERROR: selectedInvoice is null in button click');
                 }
 
-                console.log('=== AFTER handlePaymentDialogOpen ===');
-                console.log('paymentDialogOpen should now be true');
 
                 // Add a timeout to check state
                 setTimeout(() => {
-                  console.log('=== TIMEOUT CHECK ===');
-                  console.log('paymentDialogOpen after timeout:', paymentDialogOpen);
-                  console.log('dialogOpen after timeout:', dialogOpen);
                 }, 100);
               }}
               sx={{ mr: 'auto' }}

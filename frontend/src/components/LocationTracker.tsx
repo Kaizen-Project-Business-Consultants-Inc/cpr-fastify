@@ -23,13 +23,10 @@ const LocationTracker: React.FC = () => {
         !fullLocation.includes('/reset-password') &&
         !fullLocation.match(/\/\w+\/dashboard$/) // Don't save default dashboard routes
       ) {
-        console.log('[TRACE] LocationTracker - Saving location:', fullLocation);
         tokenService.saveCurrentLocation(fullLocation);
       } else {
-        console.log('[TRACE] LocationTracker - Skipping location save for:', fullLocation);
       }
     } else {
-      console.log('[TRACE] LocationTracker - No user, skipping location save');
     }
   }, [location, user]);
 

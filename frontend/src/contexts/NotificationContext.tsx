@@ -88,7 +88,6 @@ export const NotificationProvider: React.FC<NotificationProviderProps> = ({ chil
       // Handle rate limiting
       if (axiosErr.response?.status === 429) {
         backoffDelay.current = Math.min(backoffDelay.current * 2 || 60000, maxBackoff);
-        console.log(`Rate limited. Backing off for ${backoffDelay.current / 1000}s`);
       } else {
         setError(axiosErr.response?.data?.message || 'Failed to fetch notifications');
       }
@@ -117,7 +116,6 @@ export const NotificationProvider: React.FC<NotificationProviderProps> = ({ chil
       // Handle rate limiting with exponential backoff
       if (axiosErr.response?.status === 429) {
         backoffDelay.current = Math.min(backoffDelay.current * 2 || 60000, maxBackoff);
-        console.log(`Rate limited. Backing off for ${backoffDelay.current / 1000}s`);
       }
     } finally {
       isFetchingUnreadCount.current = false;

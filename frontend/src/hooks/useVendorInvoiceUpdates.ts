@@ -1,8 +1,12 @@
-import { useEffect, useCallback } from 'react';
-import { io, Socket } from 'socket.io-client';
-import { WS_URL } from '../config';
-
-interface VendorInvoiceUpdate {
+/**
+ * Vendor-invoice real-time updates.
+ *
+ * The Express-era app pushed these over socket.io; the Fastify backend has no
+ * socket server, so the previous implementation opened a connection that never
+ * succeeded. Until a push channel exists (see TODO WS-1), this hook reports
+ * `isConnected: false` and screens fall back to polling/refresh as they already do.
+ */
+export interface VendorInvoiceUpdate {
   invoiceId: number;
   newStatus?: string;
   notes?: string;
@@ -17,42 +21,7 @@ interface UseVendorInvoiceUpdatesProps {
   onRefresh?: () => void;
 }
 
-export const useVendorInvoiceUpdates = ({
-  onStatusUpdate,
-  onNotesUpdate,
-  onRefresh
-}: UseVendorInvoiceUpdatesProps = {}) => {
-  const socket: Socket = io(WS_URL);
-
-  const handleStatusUpdate = useCallback((update: VendorInvoiceUpdate) => {
-    console.log('🔄 Real-time status update received:', update);
-    onStatusUpdate?.(update);
-    onRefresh?.();
-  }, [onStatusUpdate, onRefresh]);
-
-  const handleNotesUpdate = useCallback((update: VendorInvoiceUpdate) => {
-    console.log('📝 Real-time notes update received:', update);
-    onNotesUpdate?.(update);
-    onRefresh?.();
-  }, [onNotesUpdate, onRefresh]);
-
-  useEffect(() => {
-    // Listen for status updates
-    socket.on('vendor_invoice_status_updated', handleStatusUpdate);
-    
-    // Listen for notes updates
-    socket.on('vendor_invoice_notes_updated', handleNotesUpdate);
-
-    // Cleanup on unmount
-    return () => {
-      socket.off('vendor_invoice_status_updated', handleStatusUpdate);
-      socket.off('vendor_invoice_notes_updated', handleNotesUpdate);
-      socket.disconnect();
-    };
-  }, [socket, handleStatusUpdate, handleNotesUpdate]);
-
-  return {
-    socket,
-    isConnected: socket.connected
-  };
-}; 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+export const useVendorInvoiceUpdates = (_props: UseVendorInvoiceUpdatesProps = {}) => {
+  return { socket: null, isConnected: false } as const;
+};

@@ -76,7 +76,6 @@ const ATTENDANCE_TABLE_COLUMNS = [
 ];
 
 const PaymentVerificationView = () => {
-  console.log('🔍 [PAYMENT VERIFICATION] Component function called');
   const [selectedPayment, setSelectedPayment] = useState<Payment | null>(null);
   const [paymentDialogOpen, setPaymentDialogOpen] = useState(false);
   const [dialogMode, setDialogMode] = useState('view'); // 'view' or 'action'
@@ -109,9 +108,7 @@ const PaymentVerificationView = () => {
   const { data: paymentsData, isLoading, error } = useQuery({
     queryKey: ['pending-payment-verifications'],
     queryFn: async () => {
-      console.log('🔍 [PAYMENT VERIFICATION] Making API call to /accounting/payment-verifications');
       const response = await api.get('/accounting/payment-verifications');
-      console.log('🔍 [PAYMENT VERIFICATION] API Response:', response.data);
 
       // Filter to only show payments that are actually pending verification
       const pendingPayments = response.data.data.payments?.filter((payment: any) =>
@@ -120,7 +117,6 @@ const PaymentVerificationView = () => {
         !payment.verifiedByAccountingAt
       ) || [];
 
-      console.log('🔍 [PAYMENT VERIFICATION] Filtered payments:', pendingPayments);
 
       return {
         ...response.data.data,
@@ -135,9 +131,7 @@ const PaymentVerificationView = () => {
 
     setLoadingAttendance(true);
     try {
-      console.log('Loading attendance data for course request:', courseRequestId);
       const response = await api.get(`/courses/${courseRequestId}/students`);
-      console.log('Attendance data response:', response);
 
       if (response.data && response.data.data) {
         const students = Array.isArray(response.data.data) ? response.data.data : [];
@@ -159,9 +153,7 @@ const PaymentVerificationView = () => {
 
     setLoadingPaymentHistory(true);
     try {
-      console.log('Loading payment history for invoice:', invoiceId);
       const response = await api.get(`/accounting/invoices/${invoiceId}/payments`);
-      console.log('Payment history response:', response);
 
       if (response.data && response.data.success && Array.isArray(response.data.data)) {
         setPaymentHistory(response.data.data);
@@ -182,7 +174,6 @@ const PaymentVerificationView = () => {
   // Verify payment mutation
   const verifyPaymentMutation = useMutation({
     mutationFn: async ({ paymentId, action, notes }: { paymentId: string; action: string; notes: string }) => {
-      console.log('🔍 [VERIFY PAYMENT] Starting verification:', { paymentId, action, notes });
       const response = await api.post(
         `/accounting/payments/${paymentId}/verify`,
         {
@@ -190,11 +181,9 @@ const PaymentVerificationView = () => {
           notes,
         }
       );
-      console.log('🔍 [VERIFY PAYMENT] Response:', response.data);
       return response.data;
     },
     onSuccess: (data) => {
-      console.log('🔍 [VERIFY PAYMENT] Success callback triggered:', data);
       queryClient.invalidateQueries({ queryKey: ['pending-payment-verifications'] });
       queryClient.invalidateQueries({ queryKey: ['accounting-invoices'] });
       setVerificationNotes('');
@@ -243,30 +232,14 @@ const PaymentVerificationView = () => {
   };
 
   const handleVerificationSubmit = () => {
-    console.log('🔍 [HANDLE VERIFY SUBMIT] Called with:', {
-      selectedPayment,
-      verificationAction,
-      verificationNotes
-    });
 
     if (!selectedPayment) {
-      console.log('🔍 [HANDLE VERIFY SUBMIT] No selected payment, returning');
       return;
     }
 
-    console.log('🔍 [HANDLE VERIFY SUBMIT] Payment ID field check:', {
-      payment_id: selectedPayment.paymentId,
-      id: selectedPayment.id,
-      allFields: Object.keys(selectedPayment)
-    });
 
     const paymentId = selectedPayment.paymentId || selectedPayment.id;
 
-    console.log('🔍 [HANDLE VERIFY SUBMIT] Calling mutation with:', {
-      paymentId,
-      action: verificationAction,
-      notes: verificationNotes,
-    });
 
     verifyPaymentMutation.mutate({
       paymentId: String(paymentId ?? ''),
@@ -368,15 +341,8 @@ const PaymentVerificationView = () => {
   };
 
   // Debug logging
-  console.log('🔍 [PAYMENT VERIFICATION] Component state:', {
-    isLoading,
-    error: error?.message,
-    paymentsData,
-    paymentsCount: paymentsData?.payments?.length
-  });
 
   // Force a console log to see if component is rendering
-  console.log('🔍 [PAYMENT VERIFICATION] Component is rendering');
 
   if (isLoading) {
     return (

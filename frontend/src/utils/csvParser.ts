@@ -18,12 +18,8 @@ export interface ParsedCSVResult {
 }
 
 export const parseCSV = (csvContent: string, courseRequestId?: number, organizationId?: number): ParsedCSVResult => {
-  console.log('[TRACE] CSV Parser - Starting CSV parsing');
-  console.log('[TRACE] CSV Parser - Course request ID:', courseRequestId);
-  console.log('[TRACE] CSV Parser - Organization ID:', organizationId);
   
   const lines = csvContent.split('\n').filter(line => line.trim());
-  console.log('[TRACE] CSV Parser - Total lines:', lines.length);
   
   if (lines.length < 2) {
     return {
@@ -39,12 +35,9 @@ export const parseCSV = (csvContent: string, courseRequestId?: number, organizat
   const headerLine = lines[0];
   const dataLines = lines.slice(1);
   
-  console.log('[TRACE] CSV Parser - Header line:', headerLine);
-  console.log('[TRACE] CSV Parser - Data lines count:', dataLines.length);
 
   // Parse headers
   const headers = headerLine.split(',').map(h => h.trim().toLowerCase());
-  console.log('[TRACE] CSV Parser - Parsed headers:', headers);
 
   // Validate required headers
   const requiredHeaders = ['first_name', 'last_name'];
@@ -67,7 +60,6 @@ export const parseCSV = (csvContent: string, courseRequestId?: number, organizat
   // Parse each data row
   dataLines.forEach((line, index) => {
     const rowNumber = index + 2; // +2 because we start from line 2 (after header)
-    console.log(`[TRACE] CSV Parser - Processing row ${rowNumber}:`, line);
     
     try {
       const values = line.split(',').map(v => v.trim());
@@ -103,7 +95,6 @@ export const parseCSV = (csvContent: string, courseRequestId?: number, organizat
             student.phone = value || undefined;
             break;
           default:
-            console.log(`[TRACE] CSV Parser - Unknown header: ${header}, value: ${value}`);
         }
       });
 
@@ -119,7 +110,6 @@ export const parseCSV = (csvContent: string, courseRequestId?: number, organizat
         return;
       }
 
-      console.log(`[TRACE] CSV Parser - Valid student data:`, student);
       students.push(student);
       
     } catch (error: any) {
@@ -137,7 +127,6 @@ export const parseCSV = (csvContent: string, courseRequestId?: number, organizat
     invalidRows: dataLines.length - students.length
   };
 
-  console.log('[TRACE] CSV Parser - Parsing completed:', result);
   return result;
 };
 

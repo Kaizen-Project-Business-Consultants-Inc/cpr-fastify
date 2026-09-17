@@ -1,4 +1,4 @@
-import { toast } from 'react-toastify';
+import { emitToast } from './toastBridge';
 import logger from '../utils/logger';
 
 export interface AppError {
@@ -177,51 +177,22 @@ export class ErrorHandler {
 
   // Show error toast with consistent styling
   showErrorToast(error: AppError): void {
-    toast.error(error.userMessage || error.message, {
-      position: 'top-right',
-      autoClose: 5000,
-      hideProgressBar: false,
-      closeOnClick: true,
-      pauseOnHover: true,
-      draggable: true,
-      toastId: error.code // Prevent duplicate toasts
-    });
+    emitToast('error', error.userMessage || error.message, { duration: 5000 });
   }
 
   // Show success toast
   showSuccessToast(message: string): void {
-    toast.success(message, {
-      position: 'top-right',
-      autoClose: 3000,
-      hideProgressBar: false,
-      closeOnClick: true,
-      pauseOnHover: true,
-      draggable: true
-    });
+    emitToast('success', message, { duration: 3000 });
   }
 
   // Show warning toast
   showWarningToast(message: string): void {
-    toast.warning(message, {
-      position: 'top-right',
-      autoClose: 4000,
-      hideProgressBar: false,
-      closeOnClick: true,
-      pauseOnHover: true,
-      draggable: true
-    });
+    emitToast('warning', message, { duration: 4000 });
   }
 
   // Show info toast
   showInfoToast(message: string): void {
-    toast.info(message, {
-      position: 'top-right',
-      autoClose: 4000,
-      hideProgressBar: false,
-      closeOnClick: true,
-      pauseOnHover: true,
-      draggable: true
-    });
+    emitToast('info', message, { duration: 4000 });
   }
 
   // Redirect to login page

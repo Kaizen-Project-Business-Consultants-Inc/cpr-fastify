@@ -116,14 +116,12 @@ const PaidVendorInvoices: React.FC = () => {
   // Real-time updates
   const { isConnected } = useVendorInvoiceUpdates({
     onStatusUpdate: (update) => {
-      console.log('Real-time status update received in admin paid invoices:', update);
       // Refresh if an invoice becomes paid
       if (update.newStatus === 'paid') {
         fetchPaidInvoices();
       }
     },
     onNotesUpdate: (update) => {
-      console.log('Real-time notes update received in admin paid invoices:', update);
     },
     onRefresh: fetchPaidInvoices
   });

@@ -33,7 +33,6 @@ const TokenValidationProvider: React.FC<TokenValidationProviderProps> = ({
       // Don't validate if we're on login page (user might be in process of logging in)
       const currentPath = window.location.pathname;
       if (currentPath === '/login' || currentPath === '/logout') {
-        console.log('[TOKEN VALIDATION PROVIDER] Skipping validation on login/logout page');
         setValidationState(prev => ({ ...prev, isValidating: false, error: null }));
         return;
       }
@@ -42,19 +41,16 @@ const TokenValidationProvider: React.FC<TokenValidationProviderProps> = ({
       const now = new Date();
       const lastValidated = validationState.lastValidated;
       if (lastValidated && (now.getTime() - lastValidated.getTime()) < 30000) {
-        console.log('[TOKEN VALIDATION PROVIDER] Skipping validation - validated recently');
         return;
       }
 
       // Don't validate if there's no token (user might be logging out)
       const token = tokenService.getAccessToken();
       if (!token) {
-        console.log('[TOKEN VALIDATION PROVIDER] No token found, skipping validation');
         setValidationState(prev => ({ ...prev, isValidating: false, error: null }));
         return;
       }
 
-      console.log('[TOKEN VALIDATION PROVIDER] Starting validation');
       setValidationState(prev => ({ ...prev, isValidating: true, error: null }));
 
       try {
@@ -68,7 +64,6 @@ const TokenValidationProvider: React.FC<TokenValidationProviderProps> = ({
         });
 
         if (!result.isValid && result.requiresReauth) {
-          console.log('[TOKEN VALIDATION PROVIDER] Token invalid, clearing tokens');
           tokenService.clearTokens();
           tokenService.clearSavedLocation();
           sessionStorage.removeItem('location_restoration_attempted');
@@ -97,11 +92,9 @@ const TokenValidationProvider: React.FC<TokenValidationProviderProps> = ({
       // Don't validate if there's no token (user might be logging out)
       const token = tokenService.getAccessToken();
       if (!token) {
-        console.log('[TOKEN VALIDATION PROVIDER] No token found, skipping periodic validation');
         return;
       }
 
-      console.log('[TOKEN VALIDATION PROVIDER] Periodic validation check');
       const result = await validateTokenOnPageLoad();
       
       setValidationState(prev => ({
@@ -112,7 +105,6 @@ const TokenValidationProvider: React.FC<TokenValidationProviderProps> = ({
       }));
 
       if (!result.isValid && result.requiresReauth) {
-        console.log('[TOKEN VALIDATION PROVIDER] Periodic check failed, clearing tokens');
         tokenService.clearTokens();
         tokenService.clearSavedLocation();
         sessionStorage.removeItem('location_restoration_attempted');
@@ -129,7 +121,6 @@ const TokenValidationProvider: React.FC<TokenValidationProviderProps> = ({
     const token = tokenService.getAccessToken();
     
     if (currentPath === '/login' || currentPath === '/logout' || !token) {
-      console.log('[TOKEN VALIDATION PROVIDER] Not showing error UI - on login page or no token');
       return null;
     }
 

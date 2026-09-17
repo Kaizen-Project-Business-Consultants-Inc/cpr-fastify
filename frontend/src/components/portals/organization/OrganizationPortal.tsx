@@ -196,35 +196,24 @@ const OrganizationPortal: React.FC<OrganizationPortalProps> = ({
 
   // Handle view students click
   const handleViewStudentsClick = (courseId: string | number) => {
-    console.log('View students for course:', courseId);
     // TODO: Implement view students functionality
     // This could open a dialog or navigate to a student list view
   };
 
   // Handle upload students click
   const handleUploadStudentsClick = (courseId: string | number) => {
-    console.log('[TRACE] OrganizationPortal - handleUploadStudentsClick called');
-    console.log('[TRACE] OrganizationPortal - Course ID:', courseId);
-    console.log('[TRACE] OrganizationPortal - Setting selected course ID and opening dialog');
     setSelectedCourseId(courseId);
     setCsvDialogOpen(true);
-    console.log('[TRACE] OrganizationPortal - Dialog should now be open');
   };
 
   // Handle CSV upload success - accepts UploadResult from CSVUploadDialog
   const handleCSVUploadSuccess = (data: { fileName: string; content: string; parsed: unknown; response: unknown }) => {
-    console.log('[TRACE] OrganizationPortal - handleCSVUploadSuccess called');
-    console.log('[TRACE] OrganizationPortal - Selected course ID:', selectedCourseId);
-    console.log('[TRACE] OrganizationPortal - Upload data:', data);
-    console.log('[TRACE] OrganizationPortal - CSV upload successful for course:', selectedCourseId, data.fileName);
 
     // Refresh the courses data to show updated student count
     queryClient.invalidateQueries({ queryKey: ['organization-courses', user?.organizationId] });
 
-    console.log('[TRACE] OrganizationPortal - Closing dialog and resetting state');
     setCsvDialogOpen(false);
     setSelectedCourseId(null);
-    console.log('[TRACE] OrganizationPortal - Upload process completed');
   };
 
   // Handle header refresh — invalidate all org queries
@@ -247,89 +236,6 @@ const OrganizationPortal: React.FC<OrganizationPortalProps> = ({
     queryClient.invalidateQueries({ queryKey: ['organization-paid-invoices-summary', user?.organizationId] });
   };
 
-  // Render current view
-  // const renderCurrentView = () => {
-  //   if (loading) {
-  //     return (
-  //       <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '60vh' }}>
-  //         <CircularProgress />
-  //       </Box>
-  //     );
-  //   }
-
-  //   if (error) {
-  //     return (
-  //       <Box sx={{ p: 3 }}>
-  //         <Alert severity="error" sx={{ mb: 3 }}>
-  //           {error}
-  //         </Alert>
-  //       </Box>
-  //     );
-  //   }
-
-  //   switch (currentView) {
-  //     case 'dashboard':
-  //       return (
-  //         <OrganizationDashboard
-  //           organizationData={organizationData}
-  //           courses={courses}
-  //           billingSummary={billingSummary}
-  //         />
-  //       );
-  //     case 'courses':
-  //       return (
-  //         <OrganizationCourses
-  //           courses={courses}
-  //           onViewStudentsClick={handleViewStudentsClick}
-  //           onUploadStudentsClick={handleUploadStudentsClick}
-  //         />
-  //       );
-  //     case 'archive':
-  //       return (
-  //         <OrganizationArchive
-  //           courses={archivedCourses}
-  //           onViewStudentsClick={handleViewStudentsClick}
-  //         />
-  //       );
-  //     case 'schedule':
-  //       return (
-  //         <ScheduleCourseForm onCourseScheduled={handleCourseScheduled} />
-  //       );
-  //     case 'billing':
-  //       return (
-  //         <OrganizationBilling
-  //           invoices={invoices}
-  //           billingSummary={billingSummary}
-  //         />
-  //       );
-  //     case 'profile':
-  //       return (
-  //         <OrganizationProfile
-  //           organizationData={organizationData}
-  //         />
-  //       );
-  //     case 'pricing':
-  //       return (
-  //         <OrganizationPricing
-  //           organizationId={user?.organizationId || 0}
-  //         />
-  //       );
-  //     case 'analytics':
-  //       return (
-  //         <OrganizationAnalytics
-  //           courses={courses}
-  //           invoices={invoices}
-  //           organizationData={organizationData}
-  //         />
-  //       );
-  //     default:
-  //       return (
-  //         <Box sx={{ p: 3 }}>
-  //           <Typography variant="h6">View not found</Typography>
-  //         </Box>
-  //       );
-  //   }
-  // };
 
   return (
     <>

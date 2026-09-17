@@ -185,10 +185,8 @@ const VendorInvoiceManagement: React.FC = () => {
   // Real-time updates
   const { isConnected } = useVendorInvoiceUpdates({
     onStatusUpdate: (update) => {
-      console.log('Real-time status update received in accounting portal:', update);
     },
     onNotesUpdate: (update) => {
-      console.log('Real-time notes update received in accounting portal:', update);
     },
     onRefresh: fetchInvoices
   });

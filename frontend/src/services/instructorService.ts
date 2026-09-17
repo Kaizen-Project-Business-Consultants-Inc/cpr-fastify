@@ -36,9 +36,7 @@ export const useInstructorAvailability = () => {
     queryKey: INSTRUCTOR_QUERY_KEYS.availability,
     queryFn: async () => {
       const response = await instructorApi.getAvailability();
-      console.log('[DEBUG] Availability API response:', response);
       const extractedData = extractData(response);
-      console.log('[DEBUG] Extracted availability data:', extractedData);
       return extractedData;
     },
     enabled: !!user?.id,
@@ -53,14 +51,9 @@ export const useInstructorClasses = () => {
   return useQuery({
     queryKey: INSTRUCTOR_QUERY_KEYS.classes,
     queryFn: async () => {
-      console.log('[DEBUG] useInstructorClasses - Making API call to /instructor/classes/active');
       const response = await instructorApi.getClassesActive();
-      console.log('[DEBUG] useInstructorClasses - Raw API response:', response);
       const extractedData = extractData(response);
-      console.log('[DEBUG] useInstructorClasses - Extracted data:', extractedData);
-      console.log('[DEBUG] useInstructorClasses - Data length:', Array.isArray(extractedData) ? extractedData.length : 'not array');
       if (Array.isArray(extractedData)) {
-        console.log('[DEBUG] useInstructorClasses - First few items:', extractedData.slice(0, 3));
       }
       return extractedData;
     },

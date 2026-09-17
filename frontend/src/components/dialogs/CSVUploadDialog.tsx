@@ -46,25 +46,15 @@ const CSVUploadDialog: React.FC<CSVUploadDialogProps> = ({
   const [parseResult, setParseResult] = useState<ParsedCSVResult | null>(null);
 
   const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
-    console.log('[TRACE] CSVUploadDialog - handleFileSelect called');
     const file = event.target.files?.[0];
-    console.log('[TRACE] CSVUploadDialog - Selected file:', file);
     
     if (file) {
-      console.log('[TRACE] CSVUploadDialog - File details:', {
-        name: file.name,
-        type: file.type,
-        size: file.size,
-        lastModified: file.lastModified
-      });
       
       if (file.type === 'text/csv' || file.name.endsWith('.csv')) {
-        console.log('[TRACE] CSVUploadDialog - File validation passed');
         setSelectedFile(file);
         setError(null);
         setParseResult(null);
       } else {
-        console.log('[TRACE] CSVUploadDialog - File validation failed');
         setError('Please select a valid CSV file');
         setSelectedFile(null);
         setParseResult(null);

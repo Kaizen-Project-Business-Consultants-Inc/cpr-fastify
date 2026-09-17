@@ -184,7 +184,6 @@ const InvoiceDetailDialog = ({
     try {
       const response = await api.get(`/courses/${courseId}/students`);
       setStudents(response.data.data || []);
-      console.log('[InvoiceDetailDialog] Students loaded successfully:', response.data.data?.length || 0);
     } catch (error: any) {
       console.error('[InvoiceDetailDialog] Error fetching students:', error);
       setStudents([]);

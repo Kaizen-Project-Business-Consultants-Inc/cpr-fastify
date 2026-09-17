@@ -57,11 +57,6 @@ const ReadyForBillingTable = ({
     
     try {
       // Debug user information
-      console.log('[ReadyForBillingTable] User info:', { 
-        user: user?.username, 
-        role: user?.role, 
-        userId: user?.id 
-      });
       
       // Use different endpoints based on user role
       if (user?.role === 'instructor') {
@@ -72,7 +67,6 @@ const ReadyForBillingTable = ({
         endpoint = `/accounting/courses/${courseId}/students`;
       }
       
-      console.log(`[ReadyForBillingTable] Fetching students using endpoint: ${endpoint} for role: ${user?.role}`);
       const response = await api.get(endpoint);
       
       // Normalize the data format based on the endpoint used
@@ -90,7 +84,6 @@ const ReadyForBillingTable = ({
       }
       
       setStudents(normalizedStudents);
-      console.log('[ReadyForBillingTable] Students loaded successfully:', normalizedStudents.length);
     } catch (error: any) {
       console.error('[ReadyForBillingTable] Error fetching students:', error);
       console.error('[ReadyForBillingTable] Error details:', {
@@ -117,13 +110,11 @@ const ReadyForBillingTable = ({
   const handleCreateInvoice = async () => {
     if (!selectedCourse) return;
 
-    console.log('🔍 [INVOICE] Starting invoice creation for course:', selectedCourse.courseId);
     setCreatingInvoice(prev => ({ ...prev, [selectedCourse.courseId]: true }));
     setInvoiceSuccess(false);
 
     try {
       await onCreateInvoice(selectedCourse.courseId);
-      console.log('✅ [INVOICE] Invoice creation completed successfully');
 
       // Show success state briefly before closing
       setInvoiceSuccess(true);

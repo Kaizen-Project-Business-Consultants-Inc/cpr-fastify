@@ -1,4 +1,3 @@
-console.log('[INVOICE UPLOAD] Module loaded');
 
 import React, { useState, useEffect } from 'react';
 import {

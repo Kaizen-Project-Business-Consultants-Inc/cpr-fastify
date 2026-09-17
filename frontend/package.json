@@ -21,7 +21,6 @@
     "test:portals": "vitest run src/components/portals/**/*.test.{ts,tsx}"
   },
   "dependencies": {
-    "@date-io/date-fns": "^2.17.0",
     "@emotion/react": "^11.14.0",
     "@emotion/styled": "^11.14.1",
     "@monaco-editor/react": "^4.7.0",
@@ -29,40 +28,31 @@
     "@mui/material": "^5.18.0",
     "@mui/x-date-pickers": "^6.20.2",
     "@tanstack/react-query": "^5.80.7",
-    "@types/dompurify": "^3.0.5",
-    "@types/react-toastify": "^4.0.2",
     "axios": "^1.20.0",
     "country-flag-icons": "^1.6.17",
     "date-fns": "^2.30.0",
     "dompurify": "^3.3.1",
-    "papaparse": "^5.5.3",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
-    "react-dropzone": "^15.0.0",
-    "react-intersection-observer": "^9.16.0",
     "react-phone-number-input": "^3.4.12",
     "react-router-dom": "^6.30.1",
-    "react-toastify": "^11.0.5",
-    "recharts": "^2.15.4",
-    "socket.io-client": "^4.8.1"
+    "recharts": "^2.15.4"
   },
   "devDependencies": {
     "@testing-library/jest-dom": "^6.6.3",
     "@testing-library/react": "^16.3.0",
-    "@testing-library/user-event": "^14.5.2",
     "@types/react": "^18.3.23",
     "@types/react-dom": "^18.3.7",
     "@vitejs/plugin-react": "^4.2.1",
-    "@vitest/coverage-v8": "^3.1.4",
-    "@vitest/ui": "^3.1.4",
+    "@vitest/coverage-v8": "^2.1.9",
+    "@vitest/ui": "^2.1.9",
     "audit-ci": "^7.1.0",
     "jsdom": "^24.0.0",
     "prettier": "^3.5.3",
     "snyk": "^1.1299.0",
     "typescript": "^5.3.3",
     "vite": "^5.4.0",
-    "vitest": "^2.1.2",
-    "zod": "^3.23.8"
+    "vitest": "^2.1.2"
   },
   "optionalDependencies": {
     "@rollup/rollup-linux-x64-gnu": "^4.28.1"

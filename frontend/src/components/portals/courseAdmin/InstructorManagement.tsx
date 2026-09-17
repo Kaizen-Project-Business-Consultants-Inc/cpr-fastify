@@ -28,7 +28,6 @@ import StatusChip from '../../gtacpr/StatusChip';
 import { PrimaryButton, GhostButton } from '../../gtacpr/Buttons';
 import UserAvatar from '../../gtacpr/UserAvatar';
 
-console.log('[InstructorManagement] Module loaded');
 
 interface Instructor {
   id: number;
@@ -217,7 +216,6 @@ const InstructorManagement: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    console.log('🔍 [ERROR STATE] Error changed:', error);
     if (error) {
       window.scrollTo({ top: 0, behavior: 'smooth' });
     }
@@ -779,26 +777,19 @@ The course status has been updated to "Confirmed" and moved to the confirmed cou
 
   const handleReadyForBilling = async (courseId: number) => {
     try {
-      console.log('🔍 [BILLING] Starting validation for course:', courseId);
 
       const validationResponse = await api.get(`/courses/${courseId}/validate-billing`);
-      console.log('🔍 [BILLING] Validation response:', validationResponse.data);
 
       const validationData = validationResponse.data.data;
-      console.log('🔍 [BILLING] Validation data:', validationData);
 
       if (!validationData.isValid) {
-        console.log('❌ [BILLING] Validation failed, showing error');
         const errorMessage = validationData.validationErrors.join('\n• ');
         const fullErrorMessage = `Cannot send to billing:\n• ${errorMessage}`;
-        console.log('🔍 [BILLING] Setting error message:', fullErrorMessage);
         setError(fullErrorMessage);
         return;
       }
 
-      console.log('✅ [BILLING] Validation passed, proceeding with billing');
       const response = await api.put(`/courses/${courseId}/ready-for-billing`);
-      console.log('✅ [BILLING] Billing successful:', response.data);
       setSuccess('Course sent to billing successfully');
       queryClient.invalidateQueries({ queryKey: ['completedCourses'] });
     } catch (err: unknown) {
@@ -1801,6 +1792,4 @@ The course status has been updated to "Confirmed" and moved to the confirmed cou
   );
 };
 
-console.log('[InstructorManagement] Component defined');
 export default InstructorManagement;
-console.log('[InstructorManagement] Module exported');

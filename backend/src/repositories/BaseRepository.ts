@@ -103,15 +103,6 @@ export class BaseRepository<T> {
     return result.affectedRows > 0;
   }
 
-  async count(where?: string, params?: unknown[]): Promise<number> {
-    const extraWhere = where ? `AND ${where}` : '';
-    const [rows] = await getPool().query<RowDataPacket[]>(
-      `SELECT COUNT(*) as count FROM ${this.table} WHERE 1=1 ${this.softDeleteFilter} ${this.orgFilter} ${extraWhere}`,
-      [...this.orgParams, ...(params ?? [])]
-    );
-    return rows[0].count;
-  }
-
   // --- Raw query escape hatch (not org-scoped — caller is responsible) ---
 
   async query<R = T>(sql: string, params?: unknown[]): Promise<R[]> {

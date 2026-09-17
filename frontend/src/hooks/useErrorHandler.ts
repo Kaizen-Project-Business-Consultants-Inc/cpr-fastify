@@ -40,7 +40,6 @@ export const useErrorHandler = (options: UseErrorHandlerOptions = {}): ErrorHand
 
   // Mock showSnackbar function - this should be replaced with actual implementation
   const showSnackbar = useCallback((message: string, severity: 'error' | 'warning' | 'info' = 'error') => {
-    console.log(`[${severity.toUpperCase()}] ${message}`);
   }, []);
 
   /**

@@ -81,10 +81,4 @@ export class ProfileChangeRepository extends BaseRepository<ProfileChange> {
     );
   }
 
-  async updateStatus(id: number, status: string, hrComment?: string): Promise<void> {
-    await this.execute(
-      `UPDATE profile_changes SET status = ?, hr_comment = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
-      [status, hrComment ?? null, id]
-    );
-  }
 }

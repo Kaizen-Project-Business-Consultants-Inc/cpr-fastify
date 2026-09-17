@@ -30,10 +30,8 @@ import {
 import { useAuth } from '../contexts/AuthContext';
 import { api } from '../services/api';
 
-console.log('Login.tsx - Component loading');
 
 const Login = () => {
-  console.log('Login - Rendering component');
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -49,25 +47,13 @@ const Login = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    console.log('[DEEP TRACE] Login form submitted:', {
-      username,
-      timestamp: new Date().toISOString()
-    });
     setIsLoading(true);
     // DO NOT clear error on submit - let it stay visible
 
     try {
       const trimmedUsername = username.trim();
-      console.log('[DEEP TRACE] Attempting login:', {
-        username: trimmedUsername,
-        timestamp: new Date().toISOString()
-      });
 
       await login(trimmedUsername, password);
-      console.log('[DEEP TRACE] Login successful:', {
-        username: trimmedUsername,
-        timestamp: new Date().toISOString()
-      });
       // Only clear error on successful login
       setError(null);
       setErrorCode(null);
@@ -432,5 +418,4 @@ const Login = () => {
   );
 };
 
-console.log('Login.tsx - Exporting component');
 export default Login;

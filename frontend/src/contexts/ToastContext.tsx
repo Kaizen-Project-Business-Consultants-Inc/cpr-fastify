@@ -8,6 +8,7 @@ import React, {
 } from 'react';
 import logger from '../utils/logger';
 import analytics from '../services/analytics';
+import { registerToastHandler } from '../services/toastBridge';
 
 // Toast types and priorities
 export type ToastType = 'success' | 'error' | 'warning' | 'info' | 'loading';
@@ -421,6 +422,12 @@ export const ToastProvider: React.FC<ToastProviderProps> = ({
     getToastsByType,
     getToastsByPriority,
   };
+
+  // Expose showToast to non-React code (services/errorHandler.ts)
+  useEffect(() => {
+    registerToastHandler(showToast);
+    return () => registerToastHandler(null);
+  }, [showToast]);
 
   return (
     <ToastContext.Provider value={value}>{children}</ToastContext.Provider>

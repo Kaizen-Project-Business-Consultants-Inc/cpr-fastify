@@ -64,12 +64,4 @@ export class CourseStudentRepository extends BaseRepository<CourseStudent> {
     return students.length;
   }
 
-  async countAttended(courseRequestId: number): Promise<number> {
-    const rows = await this.query<{ count: number }>(
-      `SELECT COUNT(*) as count FROM course_students
-       WHERE course_request_id = ? AND attended = true`,
-      [courseRequestId]
-    );
-    return rows[0]?.count ?? 0;
-  }
 }

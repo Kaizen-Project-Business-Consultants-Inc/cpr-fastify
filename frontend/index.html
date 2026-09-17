@@ -9,7 +9,6 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <title>CPR Training System</title>
     <script>
-      console.log('[Debug] Document loading started');
       window.onerror = function(msg, url, lineNo, columnNo, error) {
         console.error('[Global Error]', { msg, url, lineNo, columnNo, error });
         return false;
@@ -20,18 +19,6 @@
     <div id="root">
       <div id="loading-indicator">Initial Loading...</div>
     </div>
-    <script>
-      console.log('[Debug] Body loaded, before main script');
-      document.addEventListener('DOMContentLoaded', () => {
-        console.log('[Debug] DOMContentLoaded fired');
-      });
-      window.addEventListener('load', () => {
-        console.log('[Debug] Window load event fired');
-      });
-    </script>
     <script type="module" src="/src/main.tsx"></script>
-    <script>
-      console.log('[Debug] After main script tag');
-    </script>
   </body>
 </html>

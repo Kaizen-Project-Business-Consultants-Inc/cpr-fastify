@@ -176,7 +176,6 @@ const InvoiceHistoryTable = ({ invoices = [], onRefresh }: { invoices?: any[]; o
     if (!onRefresh) return () => {};
     
     const interval = setInterval(() => {
-      console.log('🔄 Auto-refreshing invoice list...');
       onRefresh();
     }, 30000); // 30 seconds
     
@@ -194,11 +193,7 @@ const InvoiceHistoryTable = ({ invoices = [], onRefresh }: { invoices?: any[]; o
 
   const handleDownloadPDF = async (invoiceId: any, invoiceNumber: any) => {
     try {
-      console.log(`[PDF Download] Starting download for invoice ${invoiceId}`);
 
-      console.log(
-        `[PDF Download] Fetching PDF from: ${API_URL}/accounting/invoices/${invoiceId}/pdf`
-      );
 
       const response = await fetch(
         `${API_URL}/accounting/invoices/${invoiceId}/pdf`,
@@ -208,11 +203,6 @@ const InvoiceHistoryTable = ({ invoices = [], onRefresh }: { invoices?: any[]; o
         }
       );
 
-      console.log(`[PDF Download] Response status: ${response.status}`);
-      console.log(
-        `[PDF Download] Response headers:`,
-        Object.fromEntries(response.headers.entries())
-      );
 
       if (!response.ok) {
         const errorText = await response.text();
@@ -224,7 +214,6 @@ const InvoiceHistoryTable = ({ invoices = [], onRefresh }: { invoices?: any[]; o
 
       // Check if the response is actually a PDF
       const contentType = response.headers.get('content-type');
-      console.log(`[PDF Download] Content-Type: ${contentType}`);
 
       if (!contentType || !contentType.includes('application/pdf')) {
         console.error('Response is not a PDF:', contentType);
@@ -235,9 +224,6 @@ const InvoiceHistoryTable = ({ invoices = [], onRefresh }: { invoices?: any[]; o
 
       // Get the PDF blob
       const blob = await response.blob();
-      console.log(
-        `[PDF Download] Blob created, size: ${blob.size} bytes, type: ${blob.type}`
-      );
 
       // Verify the blob size
       if (blob.size === 0) {
@@ -249,13 +235,10 @@ const InvoiceHistoryTable = ({ invoices = [], onRefresh }: { invoices?: any[]; o
       const nav = window.navigator as Navigator & { msSaveOrOpenBlob?: (blob: Blob, filename: string) => boolean };
       if (nav.msSaveOrOpenBlob) {
         // For IE/Edge
-        console.log('[PDF Download] Using IE/Edge download method');
         nav.msSaveOrOpenBlob(blob, `Invoice-${invoiceNumber}.pdf`);
       } else {
         // For modern browsers - try multiple methods
-        console.log('[PDF Download] Using modern browser download method');
         const url = window.URL.createObjectURL(blob);
-        console.log(`[PDF Download] Object URL created: ${url}`);
 
         // Method 1: Try programmatic download
         try {
@@ -266,7 +249,6 @@ const InvoiceHistoryTable = ({ invoices = [], onRefresh }: { invoices?: any[]; o
 
           // Add to DOM, click, and remove
           document.body.appendChild(link);
-          console.log('[PDF Download] Link added to DOM, triggering click');
 
           // Try to trigger download
           link.click();
@@ -279,7 +261,6 @@ const InvoiceHistoryTable = ({ invoices = [], onRefresh }: { invoices?: any[]; o
           });
           link.dispatchEvent(clickEvent);
 
-          console.log('[PDF Download] Click events dispatched');
 
           // Clean up after a short delay
           setTimeout(() => {
@@ -287,7 +268,6 @@ const InvoiceHistoryTable = ({ invoices = [], onRefresh }: { invoices?: any[]; o
               document.body.removeChild(link);
             }
             window.URL.revokeObjectURL(url);
-            console.log('[PDF Download] Cleanup completed');
           }, 1000);
         } catch (downloadError) {
           console.error(
@@ -296,10 +276,8 @@ const InvoiceHistoryTable = ({ invoices = [], onRefresh }: { invoices?: any[]; o
           );
 
           // Method 2: Fallback - open in new tab
-          console.log('[PDF Download] Trying fallback: opening in new tab');
           const newWindow = window.open(url, '_blank');
           if (newWindow) {
-            console.log('[PDF Download] PDF opened in new tab');
             // Clean up after user has time to save
             setTimeout(() => {
               window.URL.revokeObjectURL(url);
@@ -315,7 +293,6 @@ const InvoiceHistoryTable = ({ invoices = [], onRefresh }: { invoices?: any[]; o
         }
       }
 
-      console.log('[PDF Download] Download initiated successfully');
     } catch (error: any) {
       console.error('[PDF Download] Error:', error);
       alert(`Failed to download PDF: ${error.message}`);

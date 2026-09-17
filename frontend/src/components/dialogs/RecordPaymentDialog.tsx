@@ -72,9 +72,6 @@ const RecordPaymentDialog = ({
     setError('');
     setIsSubmitting(true);
 
-    console.log('🔍 [RecordPaymentDialog] Starting payment submission...');
-    console.log('🔍 [RecordPaymentDialog] Invoice:', invoice);
-    console.log('🔍 [RecordPaymentDialog] Payment data:', paymentData);
 
     // Basic Validation
     const amount = parseFloat(paymentData.amountPaid);
@@ -90,7 +87,6 @@ const RecordPaymentDialog = ({
     }
 
     try {
-      console.log('🔍 [RecordPaymentDialog] Calling recordPayment API...');
       logger.info(`Recording payment for invoice: ${invoice?.invoiceid}`);
       
       const paymentPayload = {
@@ -101,11 +97,9 @@ const RecordPaymentDialog = ({
         notes: paymentData.notes,
       };
       
-      console.log('🔍 [RecordPaymentDialog] Payment payload:', paymentPayload);
       
       await recordPayment(invoice?.invoiceid, paymentPayload);
       
-      console.log('🔍 [RecordPaymentDialog] Payment recorded successfully!');
       logger.info(`Payment recorded successfully for invoice: ${invoice?.invoiceid}`);
       onSuccess(paymentData.notes || 'Payment recorded successfully.'); // Notify parent
     } catch (err: any) {

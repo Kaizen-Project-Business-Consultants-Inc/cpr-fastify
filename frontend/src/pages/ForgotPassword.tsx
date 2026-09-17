@@ -14,10 +14,8 @@ import {
 import { ArrowBack as ArrowBackIcon } from '@mui/icons-material';
 import { requestPasswordReset } from '../services/api';
 
-console.log('[Debug] ForgotPassword.tsx - Component loading');
 
 const ForgotPassword = () => {
-  console.log('[Debug] ForgotPassword - Rendering component');
   const [email, setEmail] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -26,7 +24,6 @@ const ForgotPassword = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    console.log('[Debug] ForgotPassword - Handling form submission');
 
     // Basic validation
     if (!email) {
@@ -44,10 +41,8 @@ const ForgotPassword = () => {
     try {
       setError(null);
       setIsLoading(true);
-      console.log('[Debug] ForgotPassword - Requesting password reset');
 
       await requestPasswordReset(email);
-      console.log('[Debug] ForgotPassword - Password reset request successful');
       setIsSuccess(true);
     } catch (err: any) {
       console.error(
@@ -65,7 +60,6 @@ const ForgotPassword = () => {
   };
 
   const handleBackToLogin = () => {
-    console.log('[Debug] ForgotPassword - Navigating back to login');
     navigate('/login');
   };
 
@@ -190,5 +184,4 @@ const ForgotPassword = () => {
   );
 };
 
-console.log('[Debug] ForgotPassword.tsx - Exporting component');
 export default ForgotPassword;

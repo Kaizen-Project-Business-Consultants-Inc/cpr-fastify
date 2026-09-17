@@ -12,10 +12,8 @@ import {
 } from '@mui/material';
 import { api } from '../services/api';
 
-console.log('[Debug] ResetPassword.tsx - Component loading');
 
 const ResetPassword = () => {
-  console.log('[Debug] ResetPassword - Rendering component');
   const [searchParams] = useSearchParams();
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -27,9 +25,6 @@ const ResetPassword = () => {
 
   useEffect(() => {
     if (!token) {
-      console.log(
-        '[Debug] ResetPassword - No token found, redirecting to forgot password'
-      );
       navigate('/forgot-password');
     }
   }, [token, navigate]);
@@ -43,7 +38,6 @@ const ResetPassword = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    console.log('[Debug] ResetPassword - Handling form submission');
 
     // Validate passwords
     const passwordError = validatePassword(password);
@@ -65,14 +59,12 @@ const ResetPassword = () => {
     try {
       setError(null);
       setIsLoading(true);
-      console.log('[Debug] ResetPassword - Attempting to reset password');
 
       const response = await api.post('/auth/reset-password', {
         token,
         newPassword: password,
       });
 
-      console.log('[Debug] ResetPassword - Password reset successful');
       setIsSuccess(true);
 
       // Redirect to login after 3 seconds
@@ -200,5 +192,4 @@ const ResetPassword = () => {
   );
 };
 
-console.log('[Debug] ResetPassword.tsx - Exporting component');
 export default ResetPassword;

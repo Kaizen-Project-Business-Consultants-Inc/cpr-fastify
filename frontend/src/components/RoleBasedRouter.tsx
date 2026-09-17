@@ -46,9 +46,6 @@ const RoleBasedRouter: React.FC = () => {
 
       const targetRoute = roleRoutes[user.role as keyof typeof roleRoutes];
       if (targetRoute) {
-        console.log(
-          `[Debug] RoleBasedRouter - Redirecting ${user.role} to ${targetRoute}`
-        );
         navigate(targetRoute, { replace: true });
       }
     }

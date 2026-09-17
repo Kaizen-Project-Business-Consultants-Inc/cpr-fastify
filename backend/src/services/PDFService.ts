@@ -51,16 +51,6 @@ export interface PaymentPDFData {
   course_date?: string;
 }
 
-export interface CertPDFData {
-  firstName: string;
-  lastName: string;
-  courseName: string;
-  certificationNumber: string;
-  issueDate: string;
-  expirationDate: string;
-  instructorName: string;
-}
-
 const BLUE = '#2196F3';
 const GREEN = '#4CAF50';
 const ORANGE = '#ff9800';
@@ -346,85 +336,4 @@ ${raw(attendanceSection)}
     });
   }
 
-  static async generateCertificatePDF(cert: CertPDFData): Promise<Buffer> {
-    return new Promise((resolve, reject) => {
-      try {
-        const doc = new PDFDocument({ size: 'A4', layout: 'landscape', margin: 60, bufferPages: true });
-        const chunks: Buffer[] = [];
-        doc.on('data', (chunk) => chunks.push(chunk));
-        doc.on('end', () => resolve(Buffer.concat(chunks)));
-        doc.on('error', reject);
-
-        const pageW = doc.page.width;
-        const pageH = doc.page.height;
-        const margin = 60;
-        const innerW = pageW - margin * 2;
-
-        // Decorative border
-        doc.rect(20, 20, pageW - 40, pageH - 40).lineWidth(4).strokeColor(BLUE).stroke();
-        doc.rect(28, 28, pageW - 56, pageH - 56).lineWidth(1.5).strokeColor(BLUE).stroke();
-
-        doc.fontSize(14).fillColor(BLUE).font('Helvetica-Bold')
-          .text('GTA CPR TRAINING SERVICES', margin, 55, { align: 'center', width: innerW });
-
-        const ruleY = 80;
-        doc.moveTo(margin + 60, ruleY).lineTo(pageW - margin - 60, ruleY).lineWidth(1.5).strokeColor(BLUE).stroke();
-
-        doc.fontSize(28).fillColor(BLUE).font('Helvetica-Bold')
-          .text('CERTIFICATE OF COMPLETION', margin, 95, { align: 'center', width: innerW });
-
-        doc.fontSize(13).fillColor('#444444').font('Helvetica')
-          .text('This certifies that', margin, 148, { align: 'center', width: innerW });
-
-        const studentName = `${cert.firstName} ${cert.lastName}`;
-        doc.fontSize(30).fillColor('#1a1a2e').font('Helvetica-Bold')
-          .text(studentName, margin, 170, { align: 'center', width: innerW });
-
-        const nameLineY = 210;
-        const nameLineW = Math.min(studentName.length * 14, innerW - 100);
-        const nameLineX = (pageW - nameLineW) / 2;
-        doc.moveTo(nameLineX, nameLineY).lineTo(nameLineX + nameLineW, nameLineY).lineWidth(1).strokeColor('#aaaaaa').stroke();
-
-        doc.fontSize(13).fillColor('#444444').font('Helvetica')
-          .text('has successfully completed', margin, 220, { align: 'center', width: innerW });
-
-        doc.fontSize(20).fillColor(BLUE).font('Helvetica-Bold')
-          .text(cert.courseName, margin, 243, { align: 'center', width: innerW });
-
-        doc.moveTo(margin + 100, 275).lineTo(pageW - margin - 100, 275).lineWidth(0.5).strokeColor('#cccccc').stroke();
-
-        // Details row
-        const colW = innerW / 3;
-        const detailY = 290;
-        doc.fontSize(9).fillColor(GRAY).font('Helvetica');
-        doc.text('DATE OF ISSUE', margin, detailY, { width: colW, align: 'center' });
-        doc.text('EXPIRY DATE', margin + colW, detailY, { width: colW, align: 'center' });
-        doc.text('INSTRUCTOR', margin + colW * 2, detailY, { width: colW, align: 'center' });
-
-        doc.fontSize(12).fillColor('#1a1a2e').font('Helvetica-Bold');
-        doc.text(formatDate(cert.issueDate), margin, detailY + 14, { width: colW, align: 'center' });
-        doc.text(formatDate(cert.expirationDate), margin + colW, detailY + 14, { width: colW, align: 'center' });
-        doc.text(cert.instructorName, margin + colW * 2, detailY + 14, { width: colW, align: 'center' });
-
-        // Signature line
-        const sigY = 380;
-        doc.moveTo(margin + 40, sigY).lineTo(margin + 220, sigY).lineWidth(1).strokeColor('#888888').stroke();
-        doc.fontSize(9).fillColor(GRAY).font('Helvetica')
-          .text('Authorized Signature', margin + 40, sigY + 4, { width: 180, align: 'center' });
-
-        // Cert number
-        doc.fontSize(9).fillColor(GRAY).font('Helvetica')
-          .text('Certificate No.', pageW - margin - 220, sigY - 14, { width: 180, align: 'center' });
-        doc.fontSize(11).fillColor('#1a1a2e').font('Helvetica-Bold')
-          .text(cert.certificationNumber, pageW - margin - 220, sigY, { width: 180, align: 'center' });
-
-        // Footer
-        doc.fontSize(8).fillColor(GRAY).font('Helvetica')
-          .text(`Verify this certificate at ${APP_URL.replace('https://', '').replace('http://', '')}/verify`,
-            margin, pageH - 48, { align: 'center', width: innerW });
-
-        doc.end();
-      } catch (error) { reject(error); }
-    });
-  }
 }
