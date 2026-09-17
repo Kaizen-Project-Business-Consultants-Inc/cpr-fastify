@@ -16,30 +16,37 @@ export const USERS = {
   courseadmin: { username: 'courseadmin',  password: testPassword, portal: '/admin/dashboard'        },
 } as const;
 
+// The API allows 10 logins per minute per IP and the suite performs ~20 logins from
+// one runner. Space them so we stay under the limit instead of tripping it and
+// waiting out the window.
+const LOGIN_SPACING_MS = 7000;
+const RATE_LIMIT_BACKOFF_MS = 65000;
+
 /** Log in via the login form and wait for navigation away from /login.
  *  Retries up to 3 times if rate-limited (429). */
 export async function loginAs(page: Page, username: string, password: string) {
   for (let attempt = 0; attempt < 3; attempt++) {
+    await page.waitForTimeout(LOGIN_SPACING_MS);
     await page.goto('/login');
-    await page.waitForSelector('input[name="username"]');
+    await page.waitForSelector('input[name="username"]', { timeout: 30000 });
     await page.fill('input[name="username"]', username);
     await page.fill('input[name="password"]', password);
 
     const [response] = await Promise.all([
       page.waitForResponse(
         resp => resp.url().includes('/auth/login') && resp.request().method() === 'POST',
-        { timeout: 15000 }
+        { timeout: 30000 }
       ),
       page.click('button[type="submit"]'),
     ]);
 
     if (response.status() === 429) {
-      // Rate limited — wait and retry
-      await page.waitForTimeout(30000);
+      // Rate limited — wait out the 1-minute window and retry
+      await page.waitForTimeout(RATE_LIMIT_BACKOFF_MS);
       continue;
     }
 
-    await page.waitForURL(url => !url.pathname.includes('/login'), { timeout: 20000 });
+    await page.waitForURL(url => !url.pathname.includes('/login'), { timeout: 30000 });
     await page.waitForLoadState('domcontentloaded');
     return;
   }

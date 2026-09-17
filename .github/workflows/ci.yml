@@ -80,9 +80,16 @@ jobs:
           cache-dependency-path: package-lock.json
 
       - run: npm ci --legacy-peer-deps
-      - run: cd backend && npx tsc
-      - name: Remove sourcemaps from backend build
-        run: find backend/dist -name '*.map' -delete
+      - name: Type-check and bundle backend (self-contained dist/index.js)
+        run: cd backend && npx tsc --noEmit && node build.mjs
+      - name: Smoke-test the bundle (must reach the DB connect step, not a module error)
+        run: |
+          cd backend
+          OUT=$(NODE_ENV=production DB_HOST=127.0.0.1 DB_PORT=1 DB_USER=x DB_PASSWORD=x DB_NAME=x \
+            JWT_ACCESS_SECRET=0123456789012345678901234567890123 JWT_REFRESH_SECRET=0123456789012345678901234567890123 \
+            FRONTEND_URL=http://localhost timeout 60 node dist/index.js 2>&1 || true)
+          echo "$OUT" | tail -3 | cut -c1-300
+          echo "$OUT" | grep -q "ECONNREFUSED" || { echo "Bundle did not reach DB connect — module resolution problem?"; exit 1; }
 
       - uses: actions/download-artifact@v5
         with:
@@ -154,9 +161,16 @@ jobs:
 
       # Build backend
       - run: npm ci --legacy-peer-deps
-      - run: cd backend && npx tsc
-      - name: Remove sourcemaps from backend build
-        run: find backend/dist -name '*.map' -delete
+      - name: Type-check and bundle backend (self-contained dist/index.js)
+        run: cd backend && npx tsc --noEmit && node build.mjs
+      - name: Smoke-test the bundle (must reach the DB connect step, not a module error)
+        run: |
+          cd backend
+          OUT=$(NODE_ENV=production DB_HOST=127.0.0.1 DB_PORT=1 DB_USER=x DB_PASSWORD=x DB_NAME=x \
+            JWT_ACCESS_SECRET=0123456789012345678901234567890123 JWT_REFRESH_SECRET=0123456789012345678901234567890123 \
+            FRONTEND_URL=http://localhost timeout 60 node dist/index.js 2>&1 || true)
+          echo "$OUT" | tail -3 | cut -c1-300
+          echo "$OUT" | grep -q "ECONNREFUSED" || { echo "Bundle did not reach DB connect — module resolution problem?"; exit 1; }
 
       # Download frontend build from previous job
       - uses: actions/download-artifact@v5
@@ -238,6 +252,7 @@ jobs:
 
   e2e:
     name: E2E (Playwright vs staging)
+    timeout-minutes: 30
     needs: [deploy-staging]
     if: github.ref == 'refs/heads/master' && github.event_name == 'push'
     runs-on: ubuntu-latest
