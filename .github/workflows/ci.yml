@@ -41,12 +41,96 @@ jobs:
       - run: npm ci --legacy-peer-deps
         working-directory: .
       - run: npx vitest run
+
+      # Production build
       - run: VITE_API_URL=https://cpr.kpbc.ca/api/v1 npx vite build
       - uses: actions/upload-artifact@v5
         with:
           name: frontend-dist
           path: frontend/dist
           retention-days: 3
+
+      # Staging build (same code, staging API URL). The staging server cannot
+      # build the frontend itself (vite exceeds its memory limit).
+      - run: rm -rf dist && VITE_API_URL=https://stagecprapp.kpbc.ca/api/v1 npx vite build
+      - uses: actions/upload-artifact@v5
+        with:
+          name: frontend-dist-staging
+          path: frontend/dist
+          retention-days: 3
+
+  deploy-staging:
+    name: Deploy to staging
+    needs: [backend, frontend]
+    if: github.ref == 'refs/heads/master' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    environment: staging
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - run: npm ci --legacy-peer-deps
+      - run: cd backend && npx tsc
+      - name: Remove sourcemaps from backend build
+        run: find backend/dist -name '*.map' -delete
+
+      - uses: actions/download-artifact@v5
+        with:
+          name: frontend-dist-staging
+          path: frontend/dist
+
+      - name: Deploy backend via FTPS
+        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+        with:
+          server: ${{ secrets.FTP_SERVER }}
+          username: ${{ secrets.FTP_USERNAME }}
+          password: ${{ secrets.FTP_PASSWORD }}
+          protocol: ftps
+          local-dir: backend/dist/
+          server-dir: stagecprapp.kpbc.ca/backend/dist/
+          dangerous-clean-slate: false
+
+      - name: Deploy frontend via FTPS
+        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+        with:
+          server: ${{ secrets.FTP_SERVER }}
+          username: ${{ secrets.FTP_USERNAME }}
+          password: ${{ secrets.FTP_PASSWORD }}
+          protocol: ftps
+          local-dir: frontend/dist/
+          server-dir: stagecprapp.kpbc.ca/public/
+          dangerous-clean-slate: false
+
+      # Passenger restarts the app when tmp/restart.txt's mtime changes.
+      # Uploading the file over FTPS updates the mtime; this replaces the old
+      # cPanel JSON-API call, which the host rejects (returns its login page).
+      - name: Restart application (touch tmp/restart.txt)
+        run: |
+          echo "restart-$(date +%s)" > /tmp/restart.txt
+          curl --fail --silent --show-error -T /tmp/restart.txt --ssl-reqd --insecure \
+            "ftps://${{ secrets.FTP_SERVER }}/stagecprapp.kpbc.ca/tmp/restart.txt" \
+            --user "${{ secrets.FTP_USERNAME }}:${{ secrets.FTP_PASSWORD }}" --create-dirs
+          echo "restart.txt touched"
+
+      - name: Health check
+        run: |
+          echo "Waiting 30s for Passenger to restart..."
+          sleep 30
+          for i in 1 2 3 4 5 6 7 8; do
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 -H "Accept: application/json" https://stagecprapp.kpbc.ca/api/v1/health) || STATUS="000"
+            echo "Attempt $i: HTTP $STATUS"
+            if [ "$STATUS" = "200" ]; then
+              echo "Health check: OK"
+              exit 0
+            fi
+            sleep 20
+          done
+          echo "Health check FAILED after 8 attempts"
+          exit 1
 
   deploy:
     name: Deploy to production
@@ -118,13 +202,16 @@ jobs:
             -v 2>&1 | grep -E "< |> |Upload|226|550" || true
           echo ".htaccess uploaded"
 
-      # Restart Passenger
-      - name: Restart application
+      # Passenger restarts the app when tmp/restart.txt's mtime changes.
+      # Uploading the file over FTPS updates the mtime; this replaces the old
+      # cPanel JSON-API call, which the host rejects (returns its login page).
+      - name: Restart application (touch tmp/restart.txt)
         run: |
-          curl -sk -u "${{ secrets.FTP_USERNAME }}:${{ secrets.FTP_PASSWORD }}" \
-            "https://${{ secrets.FTP_SERVER }}:2083/json-api/cpanel?cpanel_jsonapi_version=2&cpanel_jsonapi_module=Fileman&cpanel_jsonapi_func=savefile&dir=/home/${{ secrets.FTP_USERNAME }}/cpr.kpbc.ca/tmp&filename=restart.txt&content=restart$(date +%s)" \
-            > /dev/null 2>&1
-          echo "Passenger restarted"
+          echo "restart-$(date +%s)" > /tmp/restart.txt
+          curl --fail --silent --show-error -T /tmp/restart.txt --ssl-reqd --insecure \
+            "ftps://${{ secrets.FTP_SERVER }}/cpr.kpbc.ca/tmp/restart.txt" \
+            --user "${{ secrets.FTP_USERNAME }}:${{ secrets.FTP_PASSWORD }}" --create-dirs
+          echo "restart.txt touched"
 
       # Health check — Passenger can take up to 3 min to restart
       - name: Health check
@@ -140,17 +227,17 @@ jobs:
             fi
             sleep 20
           done
-          echo "Health check FAILED after 6 attempts"
+          echo "Health check FAILED after 8 attempts"
           exit 1
 
   notify:
     name: Email notification
-    needs: [backend, frontend, deploy]
+    needs: [backend, frontend, deploy, deploy-staging]
     if: always() && github.ref == 'refs/heads/master' && github.event_name == 'push'
     runs-on: ubuntu-latest
     steps:
       - name: Send success email
-        if: needs.deploy.result == 'success'
+        if: needs.deploy.result == 'success' && needs.deploy-staging.result == 'success'
         uses: dawidd6/action-send-mail@v4
         with:
           server_address: smtp.gmail.com
@@ -161,7 +248,7 @@ jobs:
           to: ${{ secrets.NOTIFY_EMAIL }}
           from: "CPR CI/CD <${{ secrets.SMTP_USERNAME }}>"
           body: |
-            Deployment to cpr.kpbc.ca completed successfully.
+            Deployment to cpr.kpbc.ca and stagecprapp.kpbc.ca completed successfully.
 
             Commit: ${{ github.sha }}
             Message: ${{ github.event.head_commit.message }}
@@ -169,7 +256,7 @@ jobs:
             Run: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
 
       - name: Send failure email
-        if: needs.backend.result == 'failure' || needs.frontend.result == 'failure' || needs.deploy.result == 'failure'
+        if: needs.backend.result == 'failure' || needs.frontend.result == 'failure' || needs.deploy.result == 'failure' || needs.deploy-staging.result == 'failure'
         uses: dawidd6/action-send-mail@v4
         with:
           server_address: smtp.gmail.com
@@ -180,7 +267,7 @@ jobs:
           to: ${{ secrets.NOTIFY_EMAIL }}
           from: "CPR CI/CD <${{ secrets.SMTP_USERNAME }}>"
           body: |
-            Deployment to cpr.kpbc.ca FAILED.
+            Deployment FAILED.
 
             Commit: ${{ github.sha }}
             Message: ${{ github.event.head_commit.message }}
@@ -188,6 +275,7 @@ jobs:
 
             Backend: ${{ needs.backend.result }}
             Frontend: ${{ needs.frontend.result }}
-            Deploy: ${{ needs.deploy.result }}
+            Deploy (production): ${{ needs.deploy.result }}
+            Deploy (staging): ${{ needs.deploy-staging.result }}
 
             Check logs: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
