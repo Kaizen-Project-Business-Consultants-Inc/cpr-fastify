@@ -20,7 +20,9 @@ for (const role of ROLES) {
     let pg: Page;
 
     test.beforeAll(async ({ browser }) => {
-      test.setTimeout(180000);
+      test.setTimeout(300000);
+      // Space logins out: the API allows 10 logins/min per IP and this file logs in as 8 roles.
+      await new Promise((r) => setTimeout(r, 8000));
       ctx = await browser.newContext({ ignoreHTTPSErrors: true });
       pg = await ctx.newPage();
       await loginAs(pg, USERS[role].username, USERS[role].password);
