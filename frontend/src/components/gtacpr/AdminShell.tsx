@@ -209,6 +209,31 @@ const AdminShell: React.FC<AdminShellProps> = ({
         })}
       </Box>
 
+      {/* Help & support */}
+      <Box sx={{ padding: '0 12px 2px' }}>
+        <ButtonBase
+          component="a"
+          href="mailto:admin@kpbc.ca?subject=CPR%20Training%20Portal%20support"
+          aria-label="Email support"
+          sx={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '11px',
+            padding: '9px 12px',
+            borderRadius: '8px',
+            width: '100%',
+            justifyContent: 'flex-start',
+            '&:hover': { backgroundColor: SIDEBAR_HOVER },
+            '&:focus-visible': { outline: `2px solid ${RED}`, outlineOffset: '2px' },
+          }}
+        >
+          <Box sx={{ width: 7, height: 7, borderRadius: '50%', backgroundColor: SIDEBAR_DOT, flexShrink: 0 }} />
+          <Typography sx={{ fontSize: '13.5px', fontWeight: 500, color: SIDEBAR_TEXT_MUTED }}>
+            Help &amp; Support
+          </Typography>
+        </ButtonBase>
+      </Box>
+
       {/* Logout */}
       <Box sx={{ padding: '0 12px 8px' }}>
         <ButtonBase
