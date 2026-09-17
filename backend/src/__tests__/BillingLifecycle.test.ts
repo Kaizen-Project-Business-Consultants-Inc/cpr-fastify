@@ -29,7 +29,7 @@ vi.mock('../services/InvoiceNumberService.js', () => ({
   })),
 }));
 
-import { BillingService, BillingError } from '../services/BillingService.js';
+import { BillingService} from '../services/BillingService.js';
 import { InvoiceRepository } from '../repositories/InvoiceRepository.js';
 import { CoursePricingRepository } from '../repositories/CoursePricingRepository.js';
 

@@ -3,6 +3,7 @@ import { tokenService } from './tokenService';
 import { AxiosError } from 'axios';
 
 const isDev = import.meta.env.DEV;
+// eslint-disable-next-line no-console
 const log = (...args: unknown[]) => { if (isDev) console.log(...args); };
 const logError = (...args: unknown[]) => { if (isDev) console.error(...args); };
 
@@ -162,6 +163,7 @@ export const authService = {
    * @throws Error if registration fails
    */
   async register(username: string, email: string, password: string): Promise<LoginResponse> {
+    // eslint-disable-next-line no-useless-catch
     try {
       const response = await api.post<ApiResponse<LoginResponse>>('/auth/register', {
         username,
@@ -297,6 +299,7 @@ export const authService = {
     } catch (error: unknown) {
       logError('[AUTH] Password recovery error');
       const errObj = error as { response?: { data?: { message?: string } } };
+      // eslint-disable-next-line preserve-caught-error
       throw new Error(errObj.response?.data?.message || 'Failed to send recovery email');
     }
   },

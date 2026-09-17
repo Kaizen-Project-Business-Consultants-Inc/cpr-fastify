@@ -4,7 +4,7 @@ import { InvoiceRepository, Invoice, InvoiceWithDetails, DashboardData } from '.
 import { CoursePricingRepository, CoursePricing } from '../repositories/CoursePricingRepository.js';
 import { InvoiceNumberService } from './InvoiceNumberService.js';
 import { getHSTRate } from '../utils/taxConfig.js';
-import { PaginationParams, PaginatedResult } from '../utils/pagination.js';
+import { PaginationParams } from '../utils/pagination.js';
 import type { PaymentRow } from '../types/billing.js';
 
 const INVOICE_DUE_DAYS = 30;

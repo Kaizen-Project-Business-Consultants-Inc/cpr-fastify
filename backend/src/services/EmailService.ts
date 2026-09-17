@@ -1,61 +1,12 @@
 import { env } from '../config/env.js';
-import { getPool } from '../config/database.js';
 import { logger } from '../config/logger.js';
 import { safeHtml } from '../utils/html.js';
 
-const APP_URL = env.FRONTEND_URL;
 
 function formatDate(dateStr: string): string {
   return new Date(dateStr).toLocaleDateString('en-US', {
     year: 'numeric', month: 'long', day: 'numeric',
   });
-}
-
-interface ClassDetails {
-  date: string;
-  startTime: string;
-  endTime: string;
-  location: string;
-  organization?: string;
-  courseName?: string;
-  courseType?: string;
-  students: number | string;
-}
-
-interface CourseDetails {
-  courseName?: string;
-  date: string;
-  startTime: string;
-  endTime: string;
-  location: string;
-  organization?: string;
-  students: number | string;
-  instructorName?: string;
-}
-
-interface InvoiceData {
-  invoiceNumber: string;
-  organizationName: string;
-  amount: number;
-  invoiceDate?: string;
-  courseDate?: string;
-  courseName?: string;
-  courseType?: string;
-  location?: string;
-  studentsAttended?: number;
-  studentsBilled?: number;
-  totalStudents?: number;
-  dueDate?: string;
-  portalUrl?: string;
-}
-
-interface InvoiceReminderData {
-  organizationName: string;
-  invoiceNumber: string;
-  dueDate: string;
-  amount: number;
-  daysUntilDue: number;
-  invoiceId: number;
 }
 
 const EMAIL_TEMPLATES = {

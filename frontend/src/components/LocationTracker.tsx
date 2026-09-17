@@ -24,9 +24,7 @@ const LocationTracker: React.FC = () => {
         !fullLocation.match(/\/\w+\/dashboard$/) // Don't save default dashboard routes
       ) {
         tokenService.saveCurrentLocation(fullLocation);
-      } else {
       }
-    } else {
     }
   }, [location, user]);
 

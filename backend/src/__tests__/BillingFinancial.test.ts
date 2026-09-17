@@ -1,7 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 // Mock database
-const mockQuery = vi.fn();
 const mockPoolQuery = vi.fn();
 vi.mock('../config/database.js', () => ({
   getPool: () => ({ query: mockPoolQuery }),

@@ -104,6 +104,7 @@ class AnalyticsService {
    */
   private initialize() {
     // Initialize analytics (Google Analytics, Mixpanel, etc.)
+    // eslint-disable-next-line no-console
     console.log('[Analytics] Service initialized', {
       sessionId: this.sessionId,
       timestamp: new Date().toISOString(),

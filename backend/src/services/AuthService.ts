@@ -47,7 +47,7 @@ export class AuthService {
     await this.clearAttempts(key);
 
     const tokens = this.generateTokens(user);
-    const { password_hash, ...safeUser } = user;
+    const { password_hash: _password_hash, ...safeUser } = user;
 
     return { user: safeUser, tokens };
   }

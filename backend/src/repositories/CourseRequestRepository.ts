@@ -1,6 +1,4 @@
 import { BaseRepository } from './BaseRepository.js';
-import { getPool } from '../config/database.js';
-import { RowDataPacket, ResultSetHeader } from 'mysql2/promise';
 
 export interface CourseRequest {
   id: number;

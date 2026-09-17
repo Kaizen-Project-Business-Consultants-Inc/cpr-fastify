@@ -34,7 +34,7 @@ export async function registerRoutes(app: FastifyInstance) {
   // Client-side error collector (unauthenticated, rate-limited)
   app.post('/client-errors', {
     config: { rateLimit: { max: 20, timeWindow: '1 minute' } },
-  }, async (request, reply) => {
+  }, async (request, _reply) => {
     const body = request.body as Record<string, unknown>;
     logger.warn({
       clientError: true,

@@ -53,8 +53,6 @@ export const useInstructorClasses = () => {
     queryFn: async () => {
       const response = await instructorApi.getClassesActive();
       const extractedData = extractData(response);
-      if (Array.isArray(extractedData)) {
-      }
       return extractedData;
     },
     enabled: !!user?.id,

@@ -2,6 +2,7 @@ import { API_URL } from '../config';
 
 // Development-only logging utility
 const isDev = import.meta.env.DEV || import.meta.env.MODE === 'development';
+// eslint-disable-next-line no-console
 const devLog = (...args: unknown[]) => { if (isDev) console.log(...args); };
 
 devLog('Initializing tokenService');

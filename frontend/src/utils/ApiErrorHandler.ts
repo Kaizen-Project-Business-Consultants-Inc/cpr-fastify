@@ -292,6 +292,7 @@ export class ApiErrorHandler {
 
     const isRetryable = retryableCodes.includes(code);
 
+    // eslint-disable-next-line no-useless-assignment
     let suggestion = '';
     if (code.includes('NETWORK') || code.includes('CONNECTION')) {
       suggestion = 'Please check your internet connection and try again';

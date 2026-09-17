@@ -84,7 +84,7 @@ export async function vendorRoutes(app: FastifyInstance) {
   // ===== Profile =====
   app.get('/profile', { preHandler: vendorRole }, async (request, reply) => {
     try {
-      const { vendorId, email } = await getVendorIdForUser(pool, request.userId);
+      const { email } = await getVendorIdForUser(pool, request.userId);
       const [rows] = await pool.query<any[]>('SELECT * FROM vendors WHERE contact_email = ?', [email]);
       return { success: true, data: rows[0] };
     } catch (err: any) {

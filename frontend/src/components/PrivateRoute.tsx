@@ -5,6 +5,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { tokenService } from '../services/tokenService';
 
 const isDev = import.meta.env.DEV;
+// eslint-disable-next-line no-console
 const devLog = (...args: unknown[]) => { if (isDev) console.log(...args); };
 
 interface PrivateRouteProps {

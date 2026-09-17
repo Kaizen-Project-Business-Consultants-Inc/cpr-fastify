@@ -38,6 +38,7 @@ export const SnackbarProvider: React.FC<{ children: React.ReactNode }> = ({
   const showSnackbar = useCallback(
     (message: string | any, severity: AlertColor) => {
       // Handle different message formats
+      // eslint-disable-next-line no-useless-assignment
       let displayMessage = '';
 
       if (typeof message === 'string') {

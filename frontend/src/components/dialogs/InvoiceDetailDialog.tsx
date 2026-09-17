@@ -326,7 +326,7 @@ const InvoiceDetailDialog = ({
     try {
       const response = await postInvoiceToOrganization(invoiceId);
       if (response && response.success) {
-        let message = response.message || 'Invoice posted to organization and complete invoice PDF with attendance sent via email.';
+        const message = response.message || 'Invoice posted to organization and complete invoice PDF with attendance sent via email.';
         if (onActionSuccess) onActionSuccess(message);
         // Refresh invoice data to show updated status
         const updatedInvoice = await getInvoiceDetails(invoiceId) as InvoiceData;
@@ -353,7 +353,7 @@ const InvoiceDetailDialog = ({
     try {
       const response = await emailInvoice(invoiceId);
       if (response && response.success) {
-        let message = response.message || 'Email queued successfully.';
+        const message = response.message || 'Email queued successfully.';
         setPreviewUrl(response.previewUrl || null);
         if (onActionSuccess) onActionSuccess(message);
       } else {

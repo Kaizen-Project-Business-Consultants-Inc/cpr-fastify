@@ -5,6 +5,7 @@ import { tokenService } from '../services/tokenService';
 import api from '../services/api';
 
 const isDev = import.meta.env.DEV;
+// eslint-disable-next-line no-console
 const log = (...args: unknown[]) => { if (isDev) console.log(...args); };
 
 interface User {
@@ -308,7 +309,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, [user]);
 
   // Enhanced page load validation — runs once on mount
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+   
   useEffect(() => {
     log('[TRACE] Auth context - Initial page load validation');
     checkAuth();

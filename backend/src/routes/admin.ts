@@ -903,7 +903,6 @@ export async function adminRoutes(app: FastifyInstance) {
   function buildWSIBQuery(query: Record<string, string>) {
     const conditions: string[] = ['cr.deleted_at IS NULL'];
     const params: unknown[] = [];
-    const havingConditions: string[] = [];
 
     if (query.org_id) {
       conditions.push('s.organization_id = ?');

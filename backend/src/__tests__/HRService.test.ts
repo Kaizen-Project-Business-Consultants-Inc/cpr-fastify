@@ -14,7 +14,7 @@ vi.mock('../config/database.js', () => ({
   getPool: () => ({ query: mockQuery, getConnection: () => Promise.resolve(mockConn) }),
 }));
 
-import { HRService, HRError } from '../services/HRService.js';
+import { HRService } from '../services/HRService.js';
 import { ProfileChangeRepository } from '../repositories/ProfileChangeRepository.js';
 import { UserRepository } from '../repositories/UserRepository.js';
 
@@ -157,7 +157,7 @@ describe('HRService', () => {
       vi.mocked(profileChangeRepo.create).mockResolvedValue(11);
       vi.mocked(profileChangeRepo.findById).mockResolvedValue({ id: 11, user_id: 99 } as any);
 
-      const result = await service.submitProfileChange(1, 'hr', {
+      await service.submitProfileChange(1, 'hr', {
         fieldName: 'phone', newValue: '555-9999', changeType: 'instructor', targetUserId: 99,
       });
 

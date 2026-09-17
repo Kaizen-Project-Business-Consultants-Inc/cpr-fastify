@@ -446,7 +446,6 @@ const OrganizationBilling: React.FC<OrganizationBillingProps> = ({
       setTimeout(() => {
       }, 0);
 
-    } else {
     }
 
   };
@@ -1147,7 +1146,6 @@ const OrganizationBilling: React.FC<OrganizationBillingProps> = ({
                 // Force the function call with the invoice directly
                 if (selectedInvoice) {
                   handlePaymentDialogOpen(selectedInvoice);
-                } else {
                 }
 
 

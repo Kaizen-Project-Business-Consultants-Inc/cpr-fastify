@@ -22,7 +22,11 @@ jobs:
           cache-dependency-path: package-lock.json
       - run: npm ci --legacy-peer-deps
         working-directory: .
+      - name: Audit production dependencies
+        run: npm audit --omit=dev --audit-level=high
+        working-directory: .
       - run: npx tsc --noEmit
+      - run: npx eslint src/
       - run: npx vitest run
 
   frontend:
@@ -40,6 +44,8 @@ jobs:
           cache-dependency-path: package-lock.json
       - run: npm ci --legacy-peer-deps
         working-directory: .
+      - run: npx tsc --noEmit
+      - run: npx eslint .
       - run: npx vitest run
 
       # Production build
@@ -230,9 +236,35 @@ jobs:
           echo "Health check FAILED after 8 attempts"
           exit 1
 
+  e2e:
+    name: E2E (Playwright vs staging)
+    needs: [deploy-staging]
+    if: github.ref == 'refs/heads/master' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - run: npm ci --legacy-peer-deps
+      - run: npx playwright install --with-deps chromium
+      - name: Run E2E suite against staging
+        env:
+          BASE_URL: https://stagecprapp.kpbc.ca
+          E2E_TEST_PASSWORD: ${{ secrets.E2E_TEST_PASSWORD }}
+        run: npx playwright test --project=chromium --reporter=line
+      - uses: actions/upload-artifact@v5
+        if: failure()
+        with:
+          name: playwright-report
+          path: playwright-report
+          retention-days: 7
+
   notify:
     name: Email notification
-    needs: [backend, frontend, deploy, deploy-staging]
+    needs: [backend, frontend, deploy, deploy-staging, e2e]
     if: always() && github.ref == 'refs/heads/master' && github.event_name == 'push'
     runs-on: ubuntu-latest
     steps:

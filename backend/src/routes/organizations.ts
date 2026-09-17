@@ -7,7 +7,7 @@ import { CourseRequestRepository } from '../repositories/CourseRequestRepository
 import { CourseStudentRepository } from '../repositories/CourseStudentRepository.js';
 import { UserRepository } from '../repositories/UserRepository.js';
 import { getPool } from '../config/database.js';
-import { requireAuth, requireRole } from '../plugins/auth.js';
+import { requireRole } from '../plugins/auth.js';
 import { toCSV } from '../utils/csv.js';
 
 const updateProfileSchema = z.object({

@@ -348,7 +348,7 @@ export async function timesheetRoutes(app: FastifyInstance) {
     return { success: true, data: { weekStartDate: previousMondayStr, instructorsWithoutTimesheet: rows } };
   });
 
-  app.post('/reminders/send', { preHandler: hrRole }, async (request, reply) => {
+  app.post('/reminders/send', { preHandler: hrRole }, async (request, _reply) => {
     const { instructorIds } = z.object({ instructorIds: z.array(z.number().int().positive()).min(1) }).parse(request.body);
 
     const today = new Date();

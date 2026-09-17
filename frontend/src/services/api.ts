@@ -44,6 +44,7 @@ interface DashboardStatsResponse {
 
 // Development-only logging utility - prevents sensitive data from being logged in production
 const isDev = import.meta.env.DEV || import.meta.env.MODE === 'development';
+// eslint-disable-next-line no-console
 const devLog = (...args: unknown[]) => { if (isDev) console.log(...args); };
 const devWarn = (...args: unknown[]) => { if (isDev) console.warn(...args); };
 
@@ -1275,7 +1276,7 @@ export const vendorApi = {
   uploadInvoice: async (formData: FormData) => {
     devLog('🚀 [VENDOR API] uploadInvoice called with FormData:', formData);
     devLog('📁 [VENDOR API] FormData entries:');
-    for (let [key, value] of formData.entries()) {
+    for (const [key, value] of formData.entries()) {
       devLog(`  ${key}:`, value instanceof File ? `File(${value.name}, ${value.size} bytes)` : value);
     }
 

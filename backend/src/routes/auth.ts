@@ -31,10 +31,6 @@ const loginSchema = z.object({
   password: z.string().min(1),
 });
 
-const refreshSchema = z.object({
-  refreshToken: z.string().min(1),
-});
-
 const changePasswordSchema = z.object({
   currentPassword: z.string().min(1),
   newPassword: z.string().min(8),
@@ -127,7 +123,7 @@ export async function authRoutes(app: FastifyInstance) {
   app.get('/me', { preHandler: [requireAuth] }, async (request) => {
     const user = await userRepo.findById(request.userId!);
     if (!user) return { success: false, error: { message: 'User not found' } };
-    const { password_hash, ...safeUser } = user;
+    const { password_hash: _password_hash, ...safeUser } = user;
     const enrichedUser = await enrichUser(safeUser as Record<string, unknown>);
     return { success: true, data: { user: enrichedUser } };
   });

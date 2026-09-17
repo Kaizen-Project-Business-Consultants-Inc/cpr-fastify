@@ -21,7 +21,7 @@ interface UseVendorInvoiceUpdatesProps {
   onRefresh?: () => void;
 }
 
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
+ 
 export const useVendorInvoiceUpdates = (_props: UseVendorInvoiceUpdatesProps = {}) => {
   return { socket: null, isConnected: false } as const;
 };

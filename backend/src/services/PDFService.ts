@@ -1,9 +1,7 @@
 import PDFDocument from 'pdfkit';
 import { getHSTRate, getHSTLabel } from '../utils/taxConfig.js';
-import { env } from '../config/env.js';
 import { safeHtml, raw } from '../utils/html.js';
 
-const APP_URL = env.FRONTEND_URL;
 
 export interface InvoicePDFData {
   invoice_id: number;
@@ -110,7 +108,7 @@ export class PDFService {
 
         const leftCol = 50;
         const rightCol = 300;
-        let currentY = doc.y;
+        const currentY = doc.y;
 
         // Left: Invoice Details
         doc.fontSize(12).fillColor(BLUE).text('Invoice Details', leftCol, currentY);
@@ -256,7 +254,6 @@ ${raw(attendanceSection)}
 
         const paymentDate = formatDate(payment.payment_date);
         const receiptDate = formatDate(payment.payment_created_at);
-        const courseDate = payment.course_date ? formatDate(payment.course_date) : 'N/A';
 
         // Header
         doc.fontSize(20).fillColor(GREEN).text('GTA CPR TRAINING SERVICES', { align: 'center' });
@@ -272,7 +269,7 @@ ${raw(attendanceSection)}
 
         const leftCol = 50;
         const rightCol = 300;
-        let currentY = doc.y;
+        const currentY = doc.y;
 
         doc.fontSize(12).fillColor(GREEN).text('Receipt Details', leftCol, currentY);
         doc.moveTo(leftCol, doc.y + 2).lineTo(200, doc.y + 2).strokeColor('#eeeeee').lineWidth(1).stroke();

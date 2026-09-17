@@ -1,0 +1,15 @@
+# Normalise line endings: LF in the repository, native on checkout is disabled
+# so Windows and Linux (CI) see identical files.
+* text=auto eol=lf
+
+# Binary files
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.pdf binary
+*.docx binary
+*.woff binary
+*.woff2 binary
+*.ttf binary

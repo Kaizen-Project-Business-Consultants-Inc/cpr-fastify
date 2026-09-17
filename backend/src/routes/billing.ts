@@ -8,7 +8,7 @@ import { getPool } from '../config/database.js';
 import { requireAuth, requireRole } from '../plugins/auth.js';
 import { parsePagination } from '../utils/pagination.js';
 import { toCSV } from '../utils/csv.js';
-import type { InvoiceRow, InvoicePDFRow, StudentAttendanceRow, RevenueMonthRow, AgingInvoiceRow } from '../types/billing.js';
+import type { InvoicePDFRow, StudentAttendanceRow, RevenueMonthRow } from '../types/billing.js';
 import { RowDataPacket } from 'mysql2/promise';
 
 // --- Schemas ---
@@ -513,7 +513,7 @@ export async function billingRoutes(app: FastifyInstance) {
   });
 
   // Get sequence for a specific org
-  app.get('/invoice-sequences/:orgId', { preHandler: acctRole }, async (request, reply) => {
+  app.get('/invoice-sequences/:orgId', { preHandler: acctRole }, async (request, _reply) => {
     const { orgId } = request.params as { orgId: string };
     const seq = await invoiceNumberService.getSequence(parseInt(orgId));
     return { success: true, data: seq };

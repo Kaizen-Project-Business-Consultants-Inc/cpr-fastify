@@ -1,3 +1,4 @@
+/* eslint-disable no-console */
 const isDevelopment = import.meta.env.DEV;
 
 // Log suppression configuration
@@ -36,6 +37,7 @@ const shouldSuppress = (message: string) => {
 const logger = {
   debug: (...args: any[]) => {
     if (isDevelopment && !shouldSuppress(args.join(' '))) {
+      console.debug('[DEBUG]', ...args);
     }
   },
 
