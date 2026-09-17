@@ -9,7 +9,6 @@ import multipart from '@fastify/multipart';
 import rateLimit from '@fastify/rate-limit';
 import sensible from '@fastify/sensible';
 import fastifyStatic from '@fastify/static';
-import compress from '@fastify/compress';
 import { env } from './config/env.js';
 import { logger } from './config/logger.js';
 import { getPool } from './config/database.js';
@@ -31,7 +30,14 @@ export async function buildApp() {
   await app.register(sensible);
   // gzip/brotli for API JSON and the SPA bundle (Apache on the host does not compress
   // the proxied app). Small responses are left alone.
-  await app.register(compress, { global: true, encodings: ['br', 'gzip'], threshold: 1024 });
+  // Loaded dynamically: CI deploys code over FTP without installing node_modules on the
+  // host, so a newly added package must not be able to take the app down.
+  try {
+    const compress = (await import('@fastify/compress')).default;
+    await app.register(compress, { global: true, encodings: ['br', 'gzip'], threshold: 1024 });
+  } catch (err) {
+    logger.warn({ err: (err as Error).message }, '@fastify/compress not available — responses will be uncompressed');
+  }
   await app.register(helmet, {
     contentSecurityPolicy: env.NODE_ENV === 'production' ? {
       directives: {
