@@ -135,12 +135,14 @@ export async function buildApp() {
       decorateReply: false,
       // Vite emits content-hashed files under /assets — cache them for a year.
       // index.html is served by the SPA fallback below with no-cache.
-      setHeaders: (res, filePath) => {
-        if (/[\\/]assets[\\/]/.test(filePath)) {
-          res.header('Cache-Control', 'public, max-age=31536000, immutable');
-        } else {
-          res.header('Cache-Control', 'no-cache');
-        }
+      // NOTE: @fastify/static v9 passes the raw http.ServerResponse here, v10 passes a
+      // FastifyReply. The host may run either (deps are not installed by CI), so
+      // support both instead of assuming one.
+      setHeaders: (res: unknown, filePath: string) => {
+        const value = /[\\/]assets[\\/]/.test(filePath) ? 'public, max-age=31536000, immutable' : 'no-cache';
+        const r = res as { setHeader?: (k: string, v: string) => void; header?: (k: string, v: string) => void };
+        if (typeof r.setHeader === 'function') r.setHeader('Cache-Control', value);
+        else if (typeof r.header === 'function') r.header('Cache-Control', value);
       },
     });
   }
