@@ -25,7 +25,7 @@ test.describe.serial('Instructor (login, portal, logout)', () => {
   let pg: Page;
 
   test.beforeAll(async ({ browser }) => {
-    test.setTimeout(120000);
+    test.setTimeout(180000);
     ctx = await browser.newContext({ ignoreHTTPSErrors: true });
     pg = await ctx.newPage();
     await loginAs(pg, USERS.instructor.username, USERS.instructor.password);
@@ -72,7 +72,7 @@ test.describe.serial('Accountant (login, portal, logout)', () => {
   let pg: Page;
 
   test.beforeAll(async ({ browser }) => {
-    test.setTimeout(120000);
+    test.setTimeout(180000);
     ctx = await browser.newContext({ ignoreHTTPSErrors: true });
     pg = await ctx.newPage();
     await loginAs(pg, USERS.accountant.username, USERS.accountant.password);
@@ -118,7 +118,7 @@ test.describe.serial('Sysadmin (login, portal, logout)', () => {
   let pg: Page;
 
   test.beforeAll(async ({ browser }) => {
-    test.setTimeout(120000);
+    test.setTimeout(180000);
     ctx = await browser.newContext({ ignoreHTTPSErrors: true });
     pg = await ctx.newPage();
     await loginAs(pg, USERS.sysadmin.username, USERS.sysadmin.password);
@@ -165,7 +165,7 @@ test.describe.serial('Admin (login, portal, logout)', () => {
   let pg: Page;
 
   test.beforeAll(async ({ browser }) => {
-    test.setTimeout(120000);
+    test.setTimeout(180000);
     ctx = await browser.newContext({ ignoreHTTPSErrors: true });
     pg = await ctx.newPage();
     await loginAs(pg, USERS.admin.username, USERS.admin.password);
@@ -216,7 +216,7 @@ test.describe.serial('Organization (login, portal, logout)', () => {
   let pg: Page;
 
   test.beforeAll(async ({ browser }) => {
-    test.setTimeout(120000);
+    test.setTimeout(180000);
     ctx = await browser.newContext({ ignoreHTTPSErrors: true });
     pg = await ctx.newPage();
     await loginAs(pg, USERS.orguser.username, USERS.orguser.password);
@@ -262,7 +262,7 @@ test.describe.serial('Vendor (login, portal, logout)', () => {
   let pg: Page;
 
   test.beforeAll(async ({ browser }) => {
-    test.setTimeout(120000);
+    test.setTimeout(180000);
     ctx = await browser.newContext({ ignoreHTTPSErrors: true });
     pg = await ctx.newPage();
     await loginAs(pg, USERS.vendor.username, USERS.vendor.password);
@@ -309,7 +309,7 @@ test.describe.serial('HR (login, portal, logout)', () => {
   let pg: Page;
 
   test.beforeAll(async ({ browser }) => {
-    test.setTimeout(120000);
+    test.setTimeout(180000);
     ctx = await browser.newContext({ ignoreHTTPSErrors: true });
     pg = await ctx.newPage();
     await loginAs(pg, USERS.hr.username, USERS.hr.password);
@@ -353,7 +353,7 @@ test.describe.serial('CourseAdmin (login, portal, logout)', () => {
   let pg: Page;
 
   test.beforeAll(async ({ browser }) => {
-    test.setTimeout(120000);
+    test.setTimeout(180000);
     ctx = await browser.newContext({ ignoreHTTPSErrors: true });
     pg = await ctx.newPage();
     await loginAs(pg, USERS.courseadmin.username, USERS.courseadmin.password);

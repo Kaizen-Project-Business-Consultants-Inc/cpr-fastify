@@ -28,7 +28,13 @@ export async function loginAs(page: Page, username: string, password: string) {
   for (let attempt = 0; attempt < 3; attempt++) {
     await page.waitForTimeout(LOGIN_SPACING_MS);
     await page.goto('/login');
-    await page.waitForSelector('input[name="username"]', { timeout: 30000 });
+    // Shared hosting can be slow to serve the first page load; give it time and reload once.
+    try {
+      await page.waitForSelector('input[name="username"]', { timeout: 45000 });
+    } catch {
+      await page.reload({ waitUntil: 'domcontentloaded' });
+      await page.waitForSelector('input[name="username"]', { timeout: 45000 });
+    }
     await page.fill('input[name="username"]', username);
     await page.fill('input[name="password"]', password);
 

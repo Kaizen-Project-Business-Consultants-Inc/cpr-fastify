@@ -201,27 +201,6 @@ jobs:
           server-dir: cpr.kpbc.ca/public/
           dangerous-clean-slate: false
 
-      # Ensure public/.htaccess exists for SPA routing
-      - name: Deploy .htaccess via FTPS
-        run: |
-          cat > /tmp/.htaccess << 'HTEOF'
-          RewriteEngine On
-          RewriteCond %{REQUEST_FILENAME} -f [OR]
-          RewriteCond %{REQUEST_FILENAME} -d
-          RewriteRule ^ - [L]
-          RewriteRule ^ index.html [L]
-          HTEOF
-          # Remove leading whitespace from heredoc
-          sed -i 's/^          //' /tmp/.htaccess
-          echo "=== .htaccess content ==="
-          cat /tmp/.htaccess
-          echo "=== Uploading via FTPS ==="
-          curl -T /tmp/.htaccess --ssl-reqd --insecure \
-            "ftp://${{ secrets.FTP_SERVER }}/cpr.kpbc.ca/public/.htaccess" \
-            --user "${{ secrets.FTP_USERNAME }}:${{ secrets.FTP_PASSWORD }}" \
-            -v 2>&1 | grep -E "< |> |Upload|226|550" || true
-          echo ".htaccess uploaded"
-
       # Passenger restarts the app when tmp/restart.txt's mtime changes.
       # Uploading the file over FTPS updates the mtime; this replaces the old
       # cPanel JSON-API call, which the host rejects (returns its login page).
