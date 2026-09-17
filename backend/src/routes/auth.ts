@@ -5,6 +5,26 @@ import { UserRepository } from '../repositories/UserRepository.js';
 import { requireAuth } from '../plugins/auth.js';
 import { getPool } from '../config/database.js';
 import { logAudit } from '../utils/auditLog.js';
+import { env } from '../config/env.js';
+import { emailService } from '../services/EmailService.js';
+import { logger } from '../config/logger.js';
+import bcrypt from 'bcryptjs';
+import { createHash, randomBytes } from 'node:crypto';
+
+const forgotPasswordSchema = z.object({
+  email: z.string().email().optional(),
+  username: z.string().min(1).optional(),
+}).refine((d) => d.email || d.username, { message: 'Email or username is required' });
+
+const resetPasswordSchema = z.object({
+  token: z.string().min(32),
+  // Frontend pages send either `newPassword` or `password`; accept both.
+  newPassword: z.string().min(8).optional(),
+  password: z.string().min(8).optional(),
+}).refine((d) => d.newPassword || d.password, { message: 'Password is required' });
+
+const RESET_TOKEN_TTL_MS = 60 * 60 * 1000; // 1 hour
+const hashToken = (token: string) => createHash('sha256').update(token).digest('hex');
 
 const loginSchema = z.object({
   username: z.string().min(1),
@@ -117,6 +137,73 @@ export async function authRoutes(app: FastifyInstance) {
     logAudit({ userId: request.userId ?? undefined, action: 'logout', ipAddress: request.ip });
     reply.clearCookie('refreshToken', { path: '/api/v1/auth/refresh' });
     return { success: true, data: { message: 'Logged out' } };
+  });
+
+  // POST /api/v1/auth/forgot-password — request a reset link by email or username.
+  // Always returns 200 with the same message so account existence is not revealed.
+  const GENERIC_MESSAGE = 'If an account matches, a password reset link has been sent to the email on file.';
+  async function handleForgotPassword(request: any, reply: any) {
+    const body = forgotPasswordSchema.parse(request.body);
+    const pool = getPool();
+
+    const [rows] = await pool.query<any[]>(
+      `SELECT id, username, email, status FROM users
+       WHERE ${body.email ? 'email = ?' : 'username = ?'} LIMIT 1`,
+      [body.email ?? body.username]
+    );
+    const user = rows[0];
+
+    if (user && user.email && user.status !== 'inactive' && user.status !== 'deleted') {
+      const token = randomBytes(32).toString('hex');
+      const expiresAt = new Date(Date.now() + RESET_TOKEN_TTL_MS);
+      // Invalidate any outstanding tokens for this user, then store the new one (hashed).
+      await pool.query('UPDATE password_resets SET used_at = NOW() WHERE user_id = ? AND used_at IS NULL', [user.id]);
+      await pool.query(
+        'INSERT INTO password_resets (user_id, token_hash, expires_at) VALUES (?, ?, ?)',
+        [user.id, hashToken(token), expiresAt]
+      );
+      const resetLink = `${env.FRONTEND_URL}/reset-password?token=${token}`;
+      try {
+        await emailService.sendPasswordResetEmail(user.email, user.username, resetLink);
+      } catch (err) {
+        logger.error({ err, userId: user.id }, 'Failed to send password reset email');
+      }
+      logAudit({ userId: user.id, username: user.username, action: 'password_reset_requested', ipAddress: request.ip });
+    } else {
+      logAudit({ username: body.username ?? body.email, action: 'password_reset_requested_unknown', ipAddress: request.ip });
+    }
+
+    return reply.send({ success: true, message: GENERIC_MESSAGE });
+  }
+  app.post('/forgot-password', authRateLimit, handleForgotPassword);
+  // Alias used by the /recover-password page
+  app.post('/recover-password', authRateLimit, handleForgotPassword);
+
+  // POST /api/v1/auth/reset-password — consume a reset token and set a new password
+  app.post('/reset-password', authRateLimit, async (request, reply) => {
+    const body = resetPasswordSchema.parse(request.body);
+    const newPassword = (body.newPassword ?? body.password)!;
+    const pool = getPool();
+
+    const [rows] = await pool.query<any[]>(
+      `SELECT pr.id, pr.user_id, pr.expires_at, pr.used_at, u.username
+       FROM password_resets pr JOIN users u ON u.id = pr.user_id
+       WHERE pr.token_hash = ? LIMIT 1`,
+      [hashToken(body.token)]
+    );
+    const row = rows[0];
+    if (!row || row.used_at || new Date(row.expires_at).getTime() < Date.now()) {
+      return reply.status(400).send({ error: 'This reset link is invalid or has expired. Please request a new one.' });
+    }
+
+    const hash = await bcrypt.hash(newPassword, env.BCRYPT_SALT_ROUNDS);
+    await pool.query('UPDATE users SET password_hash = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?', [hash, row.user_id]);
+    await pool.query('UPDATE password_resets SET used_at = NOW() WHERE id = ?', [row.id]);
+    // Sign out every existing session for this user
+    await authService.invalidateUserTokens(row.user_id);
+
+    logAudit({ userId: row.user_id, username: row.username, action: 'password_reset_completed', entityType: 'user', entityId: row.user_id, ipAddress: request.ip });
+    return { success: true, message: 'Your password has been reset. You can now sign in with your new password.' };
   });
 
   // POST /api/v1/auth/change-password (authenticated)

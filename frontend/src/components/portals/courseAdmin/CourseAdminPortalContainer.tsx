@@ -62,7 +62,7 @@ const CourseAdminPortalContainer: React.FC = () => {
   const handlePasswordReset = useCallback(() => {
     handleMenuClose();
     analytics.trackCourseAdminAction('password_reset', {});
-    navigate('/reset-password');
+    navigate('/forgot-password');
   }, [navigate, handleMenuClose]);
 
   // Data fetching with React Query (placeholder for future implementation)

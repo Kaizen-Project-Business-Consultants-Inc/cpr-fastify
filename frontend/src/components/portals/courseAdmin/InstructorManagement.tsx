@@ -769,7 +769,7 @@ The course status has been updated to "Confirmed" and moved to the confirmed cou
 
   const getBillingButtonState = async (courseId: number) => {
     try {
-      const validationResponse = await api.get(`/courses/${courseId}/validate-billing-readiness`);
+      const validationResponse = await api.get(`/courses/${courseId}/validate-billing`);
       return validationResponse.data.data;
     } catch (err: any) {
       console.error('Error checking billing readiness:', err);
@@ -781,7 +781,7 @@ The course status has been updated to "Confirmed" and moved to the confirmed cou
     try {
       console.log('🔍 [BILLING] Starting validation for course:', courseId);
 
-      const validationResponse = await api.get(`/courses/${courseId}/validate-billing-readiness`);
+      const validationResponse = await api.get(`/courses/${courseId}/validate-billing`);
       console.log('🔍 [BILLING] Validation response:', validationResponse.data);
 
       const validationData = validationResponse.data.data;

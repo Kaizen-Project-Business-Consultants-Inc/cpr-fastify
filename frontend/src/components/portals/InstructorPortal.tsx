@@ -192,7 +192,7 @@ const InstructorPortal: React.FC<InstructorPortalProps> = ({
             <Routes>
               <Route
                 path='/'
-                element={<Navigate to='/dashboard' replace />}
+                element={<Navigate to='/instructor/dashboard' replace />}
               />
               <Route
                 path='/dashboard'
@@ -284,6 +284,7 @@ const InstructorPortal: React.FC<InstructorPortalProps> = ({
                   </ErrorBoundary>
                 }
               />
+              <Route path='*' element={<Navigate to='/instructor/dashboard' replace />} />
             </Routes>
           </Suspense>
       </InstructorLayout>

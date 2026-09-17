@@ -1,5 +1,5 @@
 import React, { useState, useRef } from 'react';
-import { useLocation, Routes, Route } from 'react-router-dom';
+import { useLocation, Routes, Route, Navigate } from 'react-router-dom';
 import { Alert, Snackbar } from '@mui/material';
 import ErrorBoundary from '../common/ErrorBoundary';
 import { AdminShell } from '../gtacpr';
@@ -58,9 +58,9 @@ const SystemAdminPortal = () => {
         eyebrow={config.eyebrow}
         title={config.title}
         portalName="Admin Console"
-        basePath="/sysadmin"
+        basePath="/sysadmin/dashboard"
         navItems={[
-          { label: 'System Dashboard', path: '/sysadmin' },
+          { label: 'System Dashboard', path: '/sysadmin/dashboard' },
           { label: 'Course Management', path: '/sysadmin/courses' },
           { label: 'Organizations', path: '/sysadmin/organizations' },
           { label: 'Organization Pricing', path: '/sysadmin/pricing' },
@@ -74,14 +74,17 @@ const SystemAdminPortal = () => {
         ]}
       >
         <Routes>
-          <Route
-            path="/"
-            element={
+          <Route path="/" element={
               <ErrorBoundary context="system_admin_dashboard" onError={handleError}>
                 <SystemAdminDashboard onShowSnackbar={showSnackbar} />
               </ErrorBoundary>
-            }
-          />
+            } />
+          <Route path="/dashboard" element={
+              <ErrorBoundary context="system_admin_dashboard" onError={handleError}>
+                <SystemAdminDashboard onShowSnackbar={showSnackbar} />
+              </ErrorBoundary>
+            } />
+          <Route path="*" element={<Navigate to="/sysadmin/dashboard" replace />} />
           <Route
             path="/courses"
             element={

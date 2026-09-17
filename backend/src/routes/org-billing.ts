@@ -691,8 +691,10 @@ export async function orgBillingRoutes(app: FastifyInstance) {
   });
 
   // Download payment receipt PDF
-  app.get('/payments/:id/receipt', { preHandler: orgRole }, async (request, reply) => {
+  app.get('/payments/:id/receipt', { preHandler: [requireRole('organization', 'accountant', 'admin', 'sysadmin')] }, async (request, reply) => {
     const { id } = request.params as { id: string };
+    // Organization users are scoped to their own org; staff may fetch any receipt.
+    const isOrgUser = request.userRole === 'organization';
     const orgId = request.userOrgId;
 
     const [rows] = await pool.query<any[]>(
@@ -706,8 +708,8 @@ export async function orgBillingRoutes(app: FastifyInstance) {
        JOIN organizations o ON i.organization_id = o.id
        LEFT JOIN course_requests cr ON i.course_request_id = cr.id
        LEFT JOIN class_types ct ON cr.course_type_id = ct.id
-       WHERE p.id = ? AND i.organization_id = ?`,
-      [parseInt(id), orgId]
+       WHERE p.id = ?${isOrgUser ? ' AND i.organization_id = ?' : ''}`,
+      isOrgUser ? [parseInt(id), orgId] : [parseInt(id)]
     );
     if (rows.length === 0) return reply.status(404).send({ error: 'Payment not found' });
 

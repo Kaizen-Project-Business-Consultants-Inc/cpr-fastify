@@ -146,7 +146,7 @@ const OrganizationCourses: React.FC<OrganizationCoursesProps> = ({
     setLoadingStudents(true);
     setStudentError(null);
     try {
-      const response = await api.get(`/organization/courses/${course.id}/students`);
+      const response = await api.get(`/courses/org/students/${course.id}`);
       if (response.data.success) {
         setStudents(response.data.data || []);
       } else {

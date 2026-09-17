@@ -224,7 +224,7 @@ const OrganizationBilling: React.FC<OrganizationBillingProps> = ({
     setLoadingAttendance(true);
     try {
       console.log('Loading attendance data for course request:', courseRequestId);
-      const response = await api.get(`/organization/courses/${courseRequestId}/students`);
+      const response = await api.get(`/courses/org/students/${courseRequestId}`);
       console.log('Attendance data response:', response);
 
       if (response.data && response.data.data) {
@@ -679,7 +679,7 @@ const OrganizationBilling: React.FC<OrganizationBillingProps> = ({
     }
 
     try {
-      const response = await api.get(`/organization/invoices/${selectedInvoice.id}/pdf`, {
+      const response = await api.get(`/invoices/${selectedInvoice.id}/pdf`, {
         responseType: 'blob', // Important for binary data
       });
 

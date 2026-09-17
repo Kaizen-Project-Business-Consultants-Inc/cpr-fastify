@@ -12,11 +12,9 @@ import {
   Tooltip,
   Chip,
   IconButton,
-  Link as MuiLink,
   Collapse,
   CircularProgress,
 } from '@mui/material';
-import { Link as RouterLink } from 'react-router-dom';
 import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
 import KeyboardArrowUpIcon from '@mui/icons-material/KeyboardArrowUp';
 import VisibilityIcon from '@mui/icons-material/Visibility';
@@ -420,13 +418,7 @@ const InvoiceHistoryTable = ({ invoices = [], onRefresh }: { invoices?: any[]; o
                 {formatDisplayDate(invoice.dueDate)}
               </TableCell>
               <TableCell>
-                <MuiLink
-                  component={RouterLink}
-                  to={`/accounting/organizations/${invoice.organizationId}`}
-                  underline='hover'
-                >
-                  {invoice.organizationName || '-'}
-                </MuiLink>
+                {invoice.organizationName || '-'}
               </TableCell>
               <TableCell>
                 {invoice.courseTypeName || '-'}

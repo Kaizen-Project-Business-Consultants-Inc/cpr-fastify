@@ -590,9 +590,6 @@ const VendorInvoiceApproval: React.FC = () => {
                       kind={getStatusKind(selectedInvoice.status)}
                       label={selectedInvoice.status.replace('_', ' ').toUpperCase()}
                     />
-                    <Typography sx={{ fontSize: 12, color: (theme) => theme.palette.text.secondary, display: 'block', mt: 1 }}>
-                      Raw status: {selectedInvoice.status}
-                    </Typography>
                   </Grid>
                   {selectedInvoice.approvedBy && (
                     <Grid item xs={12} md={6}>

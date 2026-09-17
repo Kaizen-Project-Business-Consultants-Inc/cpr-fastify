@@ -29,7 +29,6 @@ const ResetPassword = React.lazy(() => import('./pages/ResetPassword'));
 const RecoverPassword = React.lazy(() => import('./pages/RecoverPassword'));
 const PrivacyPolicy = React.lazy(() => import('./pages/PrivacyPolicy'));
 const TermsOfService = React.lazy(() => import('./pages/TermsOfService'));
-const TestCSV = React.lazy(() => import('./pages/TestCSV'));
 
 const LazyFallback = () => (
   <Box display="flex" justifyContent="center" alignItems="center" minHeight="60vh">
@@ -55,7 +54,6 @@ function App() {
                 <Route path='/recover-password' element={<RecoverPassword />} />
                 <Route path='/forgot-password' element={<ForgotPassword />} />
                 <Route path='/reset-password' element={<ResetPassword />} />
-                <Route path='/test-csv' element={<TestCSV />} />
                 <Route path='/privacy' element={<PrivacyPolicy />} />
                 <Route path='/terms' element={<TermsOfService />} />
                 <Route path='/' element={<RoleBasedRouter />} />

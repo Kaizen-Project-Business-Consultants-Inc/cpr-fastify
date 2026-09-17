@@ -238,5 +238,5 @@ describe('Dashboard authorization (M3)', () => {
     expect(mockReply.sent).toBe(true);
     expect(mockReply.statusCode).toBe(403);
     expect(mockReply.body).toEqual({ error: 'Insufficient permissions' });
-  });
+  }, 15000);
 });

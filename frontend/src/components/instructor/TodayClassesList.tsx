@@ -77,7 +77,7 @@ const TodayClassesList: React.FC<TodayClassesListProps> = ({ classes = [] }) => 
                       variant="contained"
                       size="small"
                       fullWidth
-                      onClick={() => navigate(`/instructor/attendance/${cls.id}`)}
+                      onClick={() => navigate('/instructor/class-attendance')}
                     >
                       Take Attendance
                     </Button>
@@ -86,7 +86,7 @@ const TodayClassesList: React.FC<TodayClassesListProps> = ({ classes = [] }) => 
                     <Button
                       variant="contained"
                       size="small"
-                      onClick={() => navigate(`/instructor/attendance/${cls.id}`)}
+                      onClick={() => navigate('/instructor/class-attendance')}
                     >
                       Take Attendance
                     </Button>

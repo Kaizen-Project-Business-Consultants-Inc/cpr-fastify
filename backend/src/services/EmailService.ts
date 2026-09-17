@@ -444,7 +444,7 @@ export class EmailService {
             <p><strong>Days Until Due:</strong> ${data.daysUntilDue} days</p>
           </div>
           <p>Please ensure payment is made by the due date to avoid any late fees.</p>
-          <p><a href="${APP_URL}/organization/bills-payable" style="display: inline-block; padding: 10px 20px; background-color: #1976d2; color: white; text-decoration: none; border-radius: 5px;">View Invoice</a></p>
+          <p><a href="${APP_URL}/organization/billing" style="display: inline-block; padding: 10px 20px; background-color: #1976d2; color: white; text-decoration: none; border-radius: 5px;">View Invoice</a></p>
           <p>If you have already made payment, please disregard this reminder.</p>
         </div>
         <div style="margin-top: 20px; text-align: center; font-size: 12px; color: #666;">
@@ -508,7 +508,7 @@ export class EmailService {
               <tr><td style="color: #666; font-size: 13px; padding: 4px 0;">Instructor</td><td style="font-weight: bold; font-size: 13px;">${cert.instructorName}</td></tr>
             </table>
           </div>
-          <p style="font-size: 13px; color: #666;">Verify this certificate at <strong>${APP_URL}/verify</strong> using certificate number <strong>${cert.certificationNumber}</strong>.</p>
+          <p style="font-size: 13px; color: #666;">Certificate number: <strong>${cert.certificationNumber}</strong>. Keep this email for your records.</p>
           <p>Thank you for training with us!</p>
         </div>
         <div style="text-align: center; padding: 15px; color: #999; font-size: 12px;">

@@ -588,16 +588,6 @@ const VendorInvoiceManagement: React.FC = () => {
                   Payment Processing
                 </Typography>
 
-                <Alert severity="info" sx={{ mb: 2 }}>
-                  <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>
-                    <strong>Debug Info:</strong><br />
-                    Balance Due: {selectedInvoice.balanceDue} (Type: {typeof selectedInvoice.balanceDue})<br />
-                    Total Paid: {selectedInvoice.totalPaid} (Type: {typeof selectedInvoice.totalPaid})<br />
-                    Total Amount: {selectedInvoice.total} (Type: {typeof selectedInvoice.total})<br />
-                    Status: {selectedInvoice.status}
-                  </Typography>
-                </Alert>
-
                 {parseFloat(selectedInvoice.balanceDue?.toString() || '0') > 0 ? (
                   <>
                     <Alert severity="info" sx={{ mb: 3 }}>

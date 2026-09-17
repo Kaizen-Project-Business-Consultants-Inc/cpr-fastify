@@ -201,7 +201,7 @@ const InstructorDashboard: React.FC = () => {
                     <Typography sx={{ fontSize: 13.5, fontWeight: 600, color: (theme) => theme.palette.text.primary }}>{cls.coursename || 'Course'}</Typography>
                     <Typography sx={{ fontSize: 12, color: (theme) => theme.palette.text.secondary }}>{formatDate(cls.date)} &bull; {cls.studentcount || 0} students</Typography>
                   </Box>
-                  <ButtonBase onClick={() => navigate(`/instructor/classes/${cls.id}`)} sx={{ fontSize: 12, fontWeight: 600, color: '#CC1F1F', '&:hover': { textDecoration: 'underline' }, '&:focus-visible': { outline: '2px solid #CC1F1F', outlineOffset: '2px' } }}>View</ButtonBase>
+                  <ButtonBase onClick={() => navigate('/instructor/classes')} sx={{ fontSize: 12, fontWeight: 600, color: '#CC1F1F', '&:hover': { textDecoration: 'underline' }, '&:focus-visible': { outline: '2px solid #CC1F1F', outlineOffset: '2px' } }}>View</ButtonBase>
                 </Box>
               ))}
             </Box>

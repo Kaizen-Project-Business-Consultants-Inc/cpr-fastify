@@ -1081,7 +1081,7 @@ export const adminApi = {
     return response.data;
   },
   getCourseStudents: async (courseId: number) => {
-    const response = await api.get(`/admin/courses/${courseId}/students`);
+    const response = await api.get(`/courses/${courseId}/students`);
     return response.data;
   },
 
@@ -1166,7 +1166,7 @@ export const emailTemplateApi = {
   preview: (id: number, variables: Record<string, unknown>) =>
     api.post(`/email-templates/${id}/preview`, { variables }),
   sendTest: (id: number, recipientEmail: string, variables: Record<string, unknown>) =>
-    api.post(`/email-templates/${id}/test`, {
+    api.post(`/email-templates/${id}/test-send`, {
       recipientEmail,
       variables,
     }),

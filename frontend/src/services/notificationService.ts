@@ -86,12 +86,12 @@ class NotificationService {
 
   // Mark notification as read
   async markAsRead(notificationId: number): Promise<void> {
-    await api.put(`/notifications/${notificationId}/read`);
+    await api.post(`/notifications/${notificationId}/read`);
   }
 
   // Mark all notifications as read
   async markAllAsRead(): Promise<void> {
-    await api.put('/notifications/read-all');
+    await api.post('/notifications/mark-all-read');
   }
 
   // Delete notification

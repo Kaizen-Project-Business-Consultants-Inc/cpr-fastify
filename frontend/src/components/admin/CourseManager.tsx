@@ -41,7 +41,7 @@ const CourseManager: React.FC<CourseManagerProps> = ({ showSnackbar }) => {
   const fetchCourses = async () => {
     setLoading(true);
     try {
-      const response = await api.get('/courses');
+      const response = await api.get('/sysadmin/courses');
       setCourses(response.data.data || []);
       setError(null);
     } catch (err: any) {
@@ -61,7 +61,7 @@ const CourseManager: React.FC<CourseManagerProps> = ({ showSnackbar }) => {
     if (window.confirm(`Delete course "${name}"? This cannot be undone.`)) {
       try {
         setError(null);
-        const response = await api.delete(`/courses/${id}`);
+        const response = await api.delete(`/sysadmin/courses/${id}`);
         if (response.data.success) {
           showSnackbar(`Course deleted successfully.`, 'success');
           fetchCourses();
@@ -78,10 +78,10 @@ const CourseManager: React.FC<CourseManagerProps> = ({ showSnackbar }) => {
   const handleSave = async (courseData: Omit<Course, 'id' | 'createdAt' | 'updatedAt'>) => {
     try {
       if (editingCourse) {
-        await api.put(`/courses/${editingCourse.id}`, courseData);
+        await api.put(`/sysadmin/courses/${editingCourse.id}`, courseData);
         showSnackbar('Course updated successfully', 'success');
       } else {
-        await api.post('/courses', courseData);
+        await api.post('/sysadmin/courses', courseData);
         showSnackbar('Course created successfully', 'success');
       }
       fetchCourses();

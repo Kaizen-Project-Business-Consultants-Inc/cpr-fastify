@@ -136,7 +136,7 @@ const PaymentVerificationView = () => {
     setLoadingAttendance(true);
     try {
       console.log('Loading attendance data for course request:', courseRequestId);
-      const response = await api.get(`/accounting/courses/${courseRequestId}/students`);
+      const response = await api.get(`/courses/${courseRequestId}/students`);
       console.log('Attendance data response:', response);
 
       if (response.data && response.data.data) {

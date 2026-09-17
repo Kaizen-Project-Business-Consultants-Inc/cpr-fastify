@@ -60,6 +60,7 @@ const AdminShell: React.FC<AdminShellProps> = ({
     if (path === basePath) {
       return lastSegment === basePath || location.pathname.endsWith('/' + basePath);
     }
+    if (path.startsWith('/')) return location.pathname === path || location.pathname.startsWith(path + '/');
     return lastSegment === path || location.pathname.endsWith('/' + path);
   };
 

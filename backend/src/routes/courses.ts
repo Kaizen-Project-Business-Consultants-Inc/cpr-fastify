@@ -163,8 +163,8 @@ export async function courseRoutes(app: FastifyInstance) {
     } catch (err) { return handleCourseError(err, reply); }
   });
 
-  // GET /courses/:id/students — admin views students
-  app.get('/:id/students', { preHandler: adminPreHandler }, async (request, reply) => {
+  // GET /courses/:id/students — admin and accounting view students
+  app.get('/:id/students', { preHandler: [requireRole('admin', 'sysadmin', 'superadmin', 'accountant')] }, async (request, reply) => {
     const { id } = request.params as { id: string };
     try {
       const students = await service.getStudents(parseInt(id));

@@ -182,7 +182,7 @@ const InvoiceDetailDialog = ({
 
     setLoadingStudents(true);
     try {
-      const response = await api.get(`/accounting/courses/${courseId}/students`);
+      const response = await api.get(`/courses/${courseId}/students`);
       setStudents(response.data.data || []);
       console.log('[InvoiceDetailDialog] Students loaded successfully:', response.data.data?.length || 0);
     } catch (error: any) {

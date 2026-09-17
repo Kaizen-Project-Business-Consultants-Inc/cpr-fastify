@@ -1,4 +1,5 @@
 import React from 'react';
+import { useLocation } from 'react-router-dom';
 import { AdminShell } from '../../gtacpr';
 
 interface User {
@@ -29,6 +30,8 @@ export interface OrganizationLayoutProps {
   drawerWidth: number;
 }
 
+const BASE = '/organization';
+
 const viewConfig: Record<string, { eyebrow: string; title: string }> = {
   dashboard: { eyebrow: 'Overview', title: 'Dashboard' },
   courses: { eyebrow: 'Training', title: 'My Courses' },
@@ -41,6 +44,9 @@ const viewConfig: Record<string, { eyebrow: string; title: string }> = {
   analytics: { eyebrow: 'Insights', title: 'Analytics' },
 };
 
+/** Turn a nav id ("courses") into an absolute portal path ("/organization/courses"). */
+const toPath = (id: string) => (id.startsWith('/') ? id : `${BASE}/${id}`);
+
 const OrganizationLayout: React.FC<OrganizationLayoutProps> = ({
   children,
   user,
@@ -51,11 +57,18 @@ const OrganizationLayout: React.FC<OrganizationLayoutProps> = ({
   navigationItems,
   drawerWidth,
 }) => {
-  const config = viewConfig[currentView || 'dashboard'] || { eyebrow: 'Organization', title: 'Organization Portal' };
+  const location = useLocation();
 
+  // Derive the active view from the URL when the parent does not pass one.
+  // /organization/billing -> "billing"; /organization -> "dashboard"
+  const urlView = location.pathname.replace(BASE, '').split('/').filter(Boolean)[0] || 'dashboard';
+  const view = currentView || urlView;
+  const config = viewConfig[view] || { eyebrow: 'Organization', title: 'Organization Portal' };
+
+  // All portals use absolute paths so AdminShell can call navigate(path) directly.
   const navItems = navigationItems.map((item) => ({
     label: item.label,
-    path: item.id,
+    path: toPath(item.id),
   }));
 
   const orgName = user?.organizationName
@@ -67,10 +80,10 @@ const OrganizationLayout: React.FC<OrganizationLayoutProps> = ({
       eyebrow={config.eyebrow}
       title={config.title}
       portalName="Organization Portal"
-      basePath="dashboard"
+      basePath={`${BASE}/dashboard`}
       navItems={navItems}
-      activePath={currentView}
-      onNavigate={onViewChange}
+      activePath={toPath(view)}
+      onNavigate={onViewChange ? (path) => onViewChange(path.replace(`${BASE}/`, '')) : undefined}
       subtitle={orgName}
     >
       {children}

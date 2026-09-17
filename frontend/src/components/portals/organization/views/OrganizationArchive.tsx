@@ -105,7 +105,7 @@ const OrganizationArchive: React.FC<OrganizationArchiveProps> = ({ courses }) =>
     setLoadingStudents(true);
     setStudentError(null);
     try {
-      const response = await api.get(`/organization/courses/${course.id}/students`);
+      const response = await api.get(`/courses/org/students/${course.id}`);
       if (response.data.success) {
         setStudents(response.data.data || []);
       } else {

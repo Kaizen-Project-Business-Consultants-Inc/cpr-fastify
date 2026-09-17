@@ -1,5 +1,4 @@
 import React, { useState } from 'react';
-import { Link as RouterLink } from 'react-router-dom';
 import {
   Table,
   TableBody,
@@ -250,7 +249,7 @@ const AccountsReceivableTable = ({
   const fetchStudents = async (courseId: any) => {
     setLoadingStudents(true);
     try {
-      const response = await api.get(`/accounting/courses/${courseId}/students`);
+      const response = await api.get(`/courses/${courseId}/students`);
       setStudents(response.data.data || []);
     } catch (error: any) {
       console.error('Error fetching students:', error);
@@ -386,13 +385,7 @@ const AccountsReceivableTable = ({
                     <TableCell>{formatDate(invoice.invoicedate)}</TableCell>
                     <TableCell>{formatDate(invoice.duedate)}</TableCell>
                     <TableCell>
-                      <Link
-                        component={RouterLink}
-                        to={`/accounting/organizations/${invoice.organizationid}`}
-                        underline='hover'
-                      >
-                        {invoice.organizationname || '-'}
-                      </Link>
+                      {invoice.organizationname || '-'}
                     </TableCell>
                     <TableCell align='right'>
                       {amounts.error ? (

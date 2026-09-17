@@ -79,7 +79,7 @@ const PaymentHistoryTable: React.FC<PaymentHistoryTableProps> = ({
   // Handle download receipt
   const handleDownloadReceipt = async (paymentId: number) => {
     try {
-      const response = await api.get(`/accounting/payments/${paymentId}/receipt`, {
+      const response = await api.get(`/payments/${paymentId}/receipt`, {
         responseType: 'blob'
       });
       

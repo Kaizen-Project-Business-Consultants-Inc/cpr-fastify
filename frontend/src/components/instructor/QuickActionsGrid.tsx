@@ -10,7 +10,6 @@ import {
 import {
   EventAvailable as EventAvailableIcon,
   Assignment as AssignmentIcon,
-  Download as DownloadIcon,
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 
@@ -41,13 +40,6 @@ const QuickActionsGrid: React.FC<QuickActionsGridProps> = ({
       buttonText: 'Submit Timesheet',
       route: '/instructor/timesheet',
       color: 'info'
-    },
-    {
-      icon: <DownloadIcon />,
-      title: 'Download Reports',
-      buttonText: 'Generate Reports',
-      route: '/instructor/reports',
-      color: 'success'
     }
   ]
 }) => {
