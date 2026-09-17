@@ -1,7 +1,7 @@
 import { buildApp } from './app.js';
 import { env } from './config/env.js';
 import { logger } from './config/logger.js';
-import { connectDatabase, closeDatabaseConnections } from './config/database.js';
+import { connectDatabase, closeDatabaseConnections, getPool } from './config/database.js';
 import { runMigrations } from './config/migrations.js';
 import { initTaxConfig } from './utils/taxConfig.js';
 import { CertReminderService } from './services/CertReminderService.js';
@@ -21,29 +21,46 @@ if (env.SENTRY_DSN) {
   }
 }
 
+const HOUR = 60 * 60 * 1000;
+
+/** Run a job on a timer without holding the process open on shutdown. */
+function schedule(name: string, fn: () => Promise<unknown>, intervalMs: number, initialDelayMs: number) {
+  const run = async () => {
+    try {
+      await fn();
+    } catch (err) {
+      logger.error({ err, job: name }, 'Scheduled job failed');
+    }
+  };
+  setTimeout(run, initialDelayMs).unref();
+  setInterval(run, intervalMs).unref();
+}
+
 async function start() {
   await connectDatabase();
   await runMigrations();
   await initTaxConfig();
 
-  // Schedule daily cert reminder check (runs at startup + every 24h)
+  // Daily certification-expiry reminders. Safe across Passenger workers: the service
+  // takes a MySQL named lock and claims each reminder before sending.
   const certReminders = new CertReminderService();
-  // Run first check 60 seconds after startup
-  setTimeout(async () => {
-    try {
-      await certReminders.sendReminders();
-    } catch (err) {
-      logger.error({ err }, 'Cert reminder startup check failed');
-    }
-  }, 60_000);
-  // Then every 24 hours
-  setInterval(async () => {
-    try {
-      await certReminders.sendReminders();
-    } catch (err) {
-      logger.error({ err }, 'Cert reminder daily check failed');
-    }
-  }, 24 * 60 * 60 * 1000);
+  schedule('cert-reminders', () => certReminders.sendReminders(), 24 * HOUR, 60_000);
+
+  // Housekeeping: login_attempts only matter for the 15-minute lockout window.
+  schedule(
+    'login-attempts-cleanup',
+    () => getPool().query('DELETE FROM login_attempts WHERE attempted_at < NOW() - INTERVAL 1 HOUR'),
+    HOUR,
+    5 * 60_000
+  );
+
+  // Expired / revoked refresh tokens can be pruned after their lifetime.
+  schedule(
+    'refresh-tokens-cleanup',
+    () => getPool().query('DELETE FROM refresh_tokens WHERE expires_at < NOW() - INTERVAL 7 DAY'),
+    6 * HOUR,
+    10 * 60_000
+  );
 
   const app = await buildApp();
   const address = await app.listen({ port: env.PORT, host: '0.0.0.0' });

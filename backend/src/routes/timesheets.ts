@@ -360,12 +360,12 @@ export async function timesheetRoutes(app: FastifyInstance) {
 
     const message = `Please submit your timesheet for the week of ${previousMondayStr}. Timesheets are due by end of week.`;
     try {
-      for (const id of instructorIds) {
-        await pool.query(
-          `INSERT INTO notifications (user_id, type, title, message) VALUES (?, 'timesheet_reminder', 'Timesheet Reminder', ?)`,
-          [id, message]
-        );
-      }
+      // Single multi-row insert (was one INSERT per instructor)
+      const placeholders = instructorIds.map(() => "(?, 'timesheet_reminder', 'Timesheet Reminder', ?)").join(', ');
+      await pool.query(
+        `INSERT INTO notifications (user_id, type, title, message) VALUES ${placeholders}`,
+        instructorIds.flatMap((id) => [id, message])
+      );
     } catch {
       // Notification table may not exist
     }

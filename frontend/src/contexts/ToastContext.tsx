@@ -388,7 +388,7 @@ export const ToastProvider: React.FC<ToastProviderProps> = ({
 
   // Cleanup expired toasts periodically
   useEffect(() => {
-    const interval = setInterval(clearExpired, 1000);
+    const interval = setInterval(clearExpired, 5000);
     return () => clearInterval(interval);
   }, [clearExpired]);
 

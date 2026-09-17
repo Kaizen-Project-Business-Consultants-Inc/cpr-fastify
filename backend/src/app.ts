@@ -9,6 +9,7 @@ import multipart from '@fastify/multipart';
 import rateLimit from '@fastify/rate-limit';
 import sensible from '@fastify/sensible';
 import fastifyStatic from '@fastify/static';
+import compress from '@fastify/compress';
 import { env } from './config/env.js';
 import { logger } from './config/logger.js';
 import { getPool } from './config/database.js';
@@ -28,6 +29,9 @@ export async function buildApp() {
 
   // Plugins
   await app.register(sensible);
+  // gzip/brotli for API JSON and the SPA bundle (Apache on the host does not compress
+  // the proxied app). Small responses are left alone.
+  await app.register(compress, { global: true, encodings: ['br', 'gzip'], threshold: 1024 });
   await app.register(helmet, {
     contentSecurityPolicy: env.NODE_ENV === 'production' ? {
       directives: {
@@ -123,6 +127,15 @@ export async function buildApp() {
       root: publicDir,
       prefix: '/',
       decorateReply: false,
+      // Vite emits content-hashed files under /assets — cache them for a year.
+      // index.html is served by the SPA fallback below with no-cache.
+      setHeaders: (res, filePath) => {
+        if (/[\\/]assets[\\/]/.test(filePath)) {
+          res.header('Cache-Control', 'public, max-age=31536000, immutable');
+        } else {
+          res.header('Cache-Control', 'no-cache');
+        }
+      },
     });
   }
 

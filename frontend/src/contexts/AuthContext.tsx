@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { authService } from '../services/authService';
 import { tokenService } from '../services/tokenService';
@@ -480,20 +480,23 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const isAuthenticated = !!user && !!tokenService.getAccessToken();
 
+  // Memoised: 40+ consumers re-rendered on every provider tick when this was an inline object.
+  const contextValue = useMemo(() => ({
+    user,
+    loading,
+    error,
+    isAuthenticated,
+    sessionStatus,
+    login,
+    logout,
+    checkAuth,
+    refreshSession,
+    validateTokenOnPageLoad,
+    register,
+  }), [user, loading, error, isAuthenticated, sessionStatus, login, logout, checkAuth, refreshSession, validateTokenOnPageLoad, register]);
+
   return (
-    <AuthContext.Provider value={{
-      user,
-      loading,
-      error,
-      isAuthenticated,
-      sessionStatus,
-      login,
-      logout,
-      checkAuth,
-      refreshSession,
-      validateTokenOnPageLoad,
-      register
-    }}>
+    <AuthContext.Provider value={contextValue}>
       {children}
     </AuthContext.Provider>
   );

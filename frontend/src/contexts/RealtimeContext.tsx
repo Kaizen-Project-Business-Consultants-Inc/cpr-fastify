@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import React, { createContext, useContext, useEffect, useState, useMemo } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { WS_URL } from '../config';
 
@@ -101,8 +101,10 @@ export const RealtimeProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     return () => eventSource.close();
   }, [queryClient]);
 
+  const value = useMemo(() => ({ isConnected, lastUpdate }), [isConnected, lastUpdate]);
+
   return (
-    <RealtimeContext.Provider value={{ isConnected, lastUpdate }}>
+    <RealtimeContext.Provider value={value}>
       {children}
     </RealtimeContext.Provider>
   );

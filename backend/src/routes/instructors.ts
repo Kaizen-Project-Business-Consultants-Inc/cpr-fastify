@@ -403,22 +403,23 @@ export async function instructorRoutes(app: FastifyInstance) {
         if (courseInfo.length === 0) return;
         const info = courseInfo[0];
 
-        const [admins] = await pool.query<any[]>(
-          `SELECT u.id, u.email FROM users u
-           WHERE u.organization_id = ? AND u.role IN ('org_admin', 'organization') AND u.status = 'active' AND u.email IS NOT NULL`,
-          [info.organization_id]
-        );
+        // One query for admins + their email preference (was an N+1 loop).
+        const adminsSql = (withPrefs: boolean) => `
+          SELECT u.id, u.email, ${withPrefs ? 'np.email_enabled' : 'NULL AS email_enabled'}
+          FROM users u
+          ${withPrefs ? "LEFT JOIN notification_preferences np ON np.user_id = u.id AND np.notification_type = 'course_status_change'" : ''}
+          WHERE u.organization_id = ? AND u.role IN ('org_admin', 'organization') AND u.status = 'active' AND u.email IS NOT NULL`;
+        let admins: any[] = [];
+        try {
+          [admins] = await pool.query<any[]>(adminsSql(true), [info.organization_id]);
+        } catch {
+          // notification_preferences table may not exist — send to everyone
+          [admins] = await pool.query<any[]>(adminsSql(false), [info.organization_id]);
+        }
 
         for (const admin of admins) {
-          // Check notification preference
-          let shouldSend = true;
-          try {
-            const [prefs] = await pool.query<any[]>(
-              'SELECT email_enabled FROM notification_preferences WHERE user_id = ? AND notification_type = ?',
-              [admin.id, 'course_status_change']
-            );
-            if (prefs.length > 0 && prefs[0].email_enabled === false) shouldSend = false;
-          } catch { /* table may not exist, send by default */ }
+          // MySQL returns BOOLEAN as 0/1; the old `=== false` check never matched.
+          const shouldSend = !(admin.email_enabled === 0 || admin.email_enabled === false);
 
           if (shouldSend) {
             emailService.sendCourseCompletedEmail(admin.email, {

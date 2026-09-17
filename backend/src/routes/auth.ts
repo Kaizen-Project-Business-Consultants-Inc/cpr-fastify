@@ -129,8 +129,10 @@ export async function authRoutes(app: FastifyInstance) {
   });
 
   // POST /api/v1/auth/logout
+  // Revokes the refresh token carried in the cookie so the session cannot be renewed.
   app.post('/logout', async (request, reply) => {
-    logAudit({ userId: request.userId ?? undefined, action: 'logout', ipAddress: request.ip });
+    await authService.revokeRefreshToken(request.cookies.refreshToken);
+    logAudit({ userId: request.userId || undefined, action: 'logout', ipAddress: request.ip });
     reply.clearCookie('refreshToken', { path: '/api/v1/auth/refresh' });
     return { success: true, data: { message: 'Logged out' } };
   });

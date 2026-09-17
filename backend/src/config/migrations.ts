@@ -1,6 +1,7 @@
 import { Pool } from 'mysql2/promise';
 import { getPool } from './database.js';
 import { logger } from './logger.js';
+import { addColumnIfMissing, addIndexIfMissing, addForeignKeyIfMissing, tableExists } from './schemaHelpers.js';
 
 interface Migration {
   version: number;
@@ -53,8 +54,10 @@ const migrations: Migration[] = [
   {
     version: 4,
     name: 'fix_token_blacklist_add_invalidated_at',
-    up: `ALTER TABLE token_blacklist
-      ADD COLUMN IF NOT EXISTS invalidated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP`,
+    // Guarded (MySQL 8 has no ADD COLUMN IF NOT EXISTS)
+    up: async (pool: Pool) => {
+      await addColumnIfMissing(pool, 'token_blacklist', 'invalidated_at', 'DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP');
+    },
   },
   {
     version: 5,
@@ -80,10 +83,12 @@ const migrations: Migration[] = [
   {
     version: 6,
     name: 'add_student_id_to_course_students',
-    up: `ALTER TABLE course_students
-      ADD COLUMN IF NOT EXISTS student_id INT DEFAULT NULL,
-      ADD INDEX IF NOT EXISTS idx_cs_student_id (student_id),
-      ADD CONSTRAINT fk_cs_student FOREIGN KEY (student_id) REFERENCES students(id) ON DELETE SET NULL`,
+    // Guarded + idempotent: a partial earlier run (column added, FK failed) can be retried
+    up: async (pool: Pool) => {
+      await addColumnIfMissing(pool, 'course_students', 'student_id', 'INT DEFAULT NULL');
+      await addIndexIfMissing(pool, 'course_students', 'idx_cs_student_id', ['student_id']);
+      await addForeignKeyIfMissing(pool, 'course_students', 'fk_cs_student', 'student_id', 'students', 'id', 'SET NULL');
+    },
   },
   {
     version: 7,
@@ -127,17 +132,19 @@ const migrations: Migration[] = [
   {
     version: 8,
     name: 'add_certification_expiry_tracking',
-    up: `ALTER TABLE class_types
-      ADD COLUMN IF NOT EXISTS certification_validity_months INT DEFAULT NULL`,
+    up: async (pool: Pool) => {
+      await addColumnIfMissing(pool, 'class_types', 'certification_validity_months', 'INT DEFAULT NULL');
+    },
   },
   {
     version: 9,
     name: 'add_certificate_fields_to_course_students',
-    up: `ALTER TABLE course_students
-      ADD COLUMN IF NOT EXISTS certificate_number VARCHAR(50) DEFAULT NULL,
-      ADD COLUMN IF NOT EXISTS certificate_issued_at DATETIME DEFAULT NULL,
-      ADD COLUMN IF NOT EXISTS certificate_expires_at DATETIME DEFAULT NULL,
-      ADD INDEX IF NOT EXISTS idx_cs_cert_expires (certificate_expires_at)`,
+    up: async (pool: Pool) => {
+      await addColumnIfMissing(pool, 'course_students', 'certificate_number', 'VARCHAR(50) DEFAULT NULL');
+      await addColumnIfMissing(pool, 'course_students', 'certificate_issued_at', 'DATETIME DEFAULT NULL');
+      await addColumnIfMissing(pool, 'course_students', 'certificate_expires_at', 'DATETIME DEFAULT NULL');
+      await addIndexIfMissing(pool, 'course_students', 'idx_cs_cert_expires', ['certificate_expires_at']);
+    },
   },
   {
     version: 10,
@@ -225,47 +232,125 @@ const migrations: Migration[] = [
       INDEX idx_password_resets_user (user_id, expires_at)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
   },
+  {
+    version: 15,
+    name: 'add_hot_path_indexes',
+    // Composite indexes for the most common WHERE/JOIN/ORDER BY columns
+    // (docs/AUDIT_2026-09-17.md §6). Each is skipped if the table/column is absent.
+    up: async (pool: Pool) => {
+      const specs: Array<[string, string, string[]]> = [
+        ['course_requests', 'idx_cr_status_deleted_sched', ['status', 'deleted_at', 'scheduled_date']],
+        ['course_requests', 'idx_cr_org_deleted', ['organization_id', 'deleted_at']],
+        ['course_requests', 'idx_cr_instructor_deleted', ['instructor_id', 'deleted_at']],
+        ['course_students', 'idx_cs_request_attended', ['course_request_id', 'attended']],
+        ['payments', 'idx_pay_invoice_status', ['invoice_id', 'status']],
+        ['invoices', 'idx_inv_org_status_due', ['organization_id', 'status', 'due_date']],
+        ['users', 'idx_users_org_role_status', ['organization_id', 'role', 'status']],
+        ['users', 'idx_users_email', ['email']],
+        ['notifications', 'idx_notif_user_read', ['user_id', 'is_read']],
+        ['timesheets', 'idx_ts_instructor_week', ['instructor_id', 'week_start_date']],
+        ['vendor_invoices', 'idx_vi_vendor_status', ['vendor_id', 'status']],
+        ['instructor_pay_rates', 'idx_ipr_instructor_active_eff', ['instructor_id', 'is_active', 'effective_date']],
+        ['payroll_payments', 'idx_pp_instructor_date', ['instructor_id', 'payment_date']],
+      ];
+      for (const [table, index, columns] of specs) {
+        try {
+          const added = await addIndexIfMissing(pool, table, index, columns);
+          if (added) logger.info({ table, index }, 'Index added');
+        } catch (err) {
+          // Never block startup on an optimisation
+          logger.warn({ err, table, index }, 'Index creation skipped');
+        }
+      }
+    },
+  },
+  {
+    version: 16,
+    name: 'certification_reminders_unique_claim',
+    // Claim-then-send needs a UNIQUE key so two workers cannot both send the same reminder.
+    up: async (pool: Pool) => {
+      if (!(await tableExists(pool, 'certification_reminders'))) return;
+      // Remove any historical duplicates first (keep the earliest row)
+      await pool.query(`
+        DELETE cr1 FROM certification_reminders cr1
+        JOIN certification_reminders cr2
+          ON cr1.course_student_id = cr2.course_student_id
+         AND cr1.reminder_type = cr2.reminder_type
+         AND cr1.id > cr2.id
+      `);
+      await addIndexIfMissing(pool, 'certification_reminders', 'uq_cert_reminder', ['course_student_id', 'reminder_type'], { unique: true });
+    },
+  },
+  {
+    version: 17,
+    name: 'create_refresh_tokens',
+    // Server-side record of issued refresh tokens so they can be rotated and revoked.
+    up: `CREATE TABLE IF NOT EXISTS refresh_tokens (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      user_id INT NOT NULL,
+      token_hash CHAR(64) NOT NULL,
+      expires_at DATETIME NOT NULL,
+      revoked_at DATETIME DEFAULT NULL,
+      replaced_by CHAR(64) DEFAULT NULL,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE KEY uq_refresh_token_hash (token_hash),
+      INDEX idx_refresh_user (user_id, revoked_at, expires_at)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+  },
 ];
+
+const MIGRATION_LOCK = 'cpr_migrations';
 
 export async function runMigrations(): Promise<void> {
   const pool = getPool();
 
-  // Ensure migrations tracking table exists
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS schema_migrations (
-      version INT NOT NULL PRIMARY KEY,
-      name VARCHAR(255) NOT NULL,
-      applied_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
-  `);
-
-  // Get already-applied versions
-  const [rows] = await pool.query<any[]>('SELECT version FROM schema_migrations');
-  const applied = new Set(rows.map((r: any) => r.version));
-
-  // Run pending migrations in order
-  let ran = 0;
-  for (const m of migrations) {
-    if (applied.has(m.version)) continue;
-    if (typeof m.up === 'function') {
-      await m.up(pool);
-    } else {
-      await pool.query(m.up);
+  // Passenger starts several workers at once; only one may run DDL at a time.
+  // GET_LOCK is per-connection, so hold a dedicated connection for the whole run.
+  const conn = await pool.getConnection();
+  try {
+    const [lockRows] = await conn.query<any[]>('SELECT GET_LOCK(?, 60) AS got', [MIGRATION_LOCK]);
+    if (Number(lockRows[0]?.got) !== 1) {
+      throw new Error('Could not acquire migration lock within 60s');
     }
-    await pool.query(
-      'INSERT INTO schema_migrations (version, name) VALUES (?, ?)',
-      [m.version, m.name]
-    );
-    logger.info({ version: m.version, name: m.name }, 'Migration applied');
-    ran++;
-  }
 
-  // Periodic cleanup: old login attempts
-  await pool.query('DELETE FROM login_attempts WHERE attempted_at < NOW() - INTERVAL 1 HOUR');
+    // Ensure migrations tracking table exists
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS schema_migrations (
+        version INT NOT NULL PRIMARY KEY,
+        name VARCHAR(255) NOT NULL,
+        applied_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    `);
 
-  if (ran > 0) {
-    logger.info({ count: ran }, 'Migrations complete');
-  } else {
-    logger.info('Schema up to date');
+    // Get already-applied versions (re-read under the lock, so a worker that waited
+    // sees what the first worker applied)
+    const [rows] = await conn.query<any[]>('SELECT version FROM schema_migrations');
+    const applied = new Set(rows.map((r: any) => r.version));
+
+    // Run pending migrations in order
+    let ran = 0;
+    for (const m of migrations) {
+      if (applied.has(m.version)) continue;
+      if (typeof m.up === 'function') {
+        await m.up(pool);
+      } else {
+        await pool.query(m.up);
+      }
+      await conn.query(
+        'INSERT INTO schema_migrations (version, name) VALUES (?, ?)',
+        [m.version, m.name]
+      );
+      logger.info({ version: m.version, name: m.name }, 'Migration applied');
+      ran++;
+    }
+
+    if (ran > 0) {
+      logger.info({ count: ran }, 'Migrations complete');
+    } else {
+      logger.info('Schema up to date');
+    }
+  } finally {
+    try { await conn.query('SELECT RELEASE_LOCK(?)', [MIGRATION_LOCK]); } catch { /* ignore */ }
+    conn.release();
   }
 }

@@ -1,5 +1,6 @@
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
+import { createHash } from 'node:crypto';
 import { env } from '../config/env.js';
 import { getPool } from '../config/database.js';
 import { UserRepository, User } from '../repositories/UserRepository.js';
@@ -46,7 +47,7 @@ export class AuthService {
     // Successful login — clear attempts
     await this.clearAttempts(key);
 
-    const tokens = this.generateTokens(user);
+    const tokens = await this.issueTokens(user);
     const { password_hash: _password_hash, ...safeUser } = user;
 
     return { user: safeUser, tokens };
@@ -90,19 +91,70 @@ export class AuthService {
     await pool.query('DELETE FROM login_attempts WHERE username = ?', [key]);
   }
 
+  /**
+   * Rotate a refresh token. The presented token must be on record and unrevoked;
+   * it is revoked and a new pair issued. Reuse of an already-rotated token is
+   * treated as theft and revokes every refresh token for that user.
+   */
   async refreshToken(token: string): Promise<TokenPair> {
+    let payload: jwt.JwtPayload;
     try {
-      const payload = jwt.verify(token, env.JWT_REFRESH_SECRET) as jwt.JwtPayload;
-      const user = await this.userRepo.findById(payload.userId);
-
-      if (!user || user.status === 'inactive') {
-        throw new AuthError('Invalid refresh token');
-      }
-
-      return this.generateTokens(user);
+      payload = jwt.verify(token, env.JWT_REFRESH_SECRET) as jwt.JwtPayload;
     } catch {
       throw new AuthError('Invalid refresh token');
     }
+
+    const pool = getPool();
+    const hash = hashToken(token);
+    const [rows] = await pool.query<any[]>(
+      'SELECT id, user_id, revoked_at, expires_at FROM refresh_tokens WHERE token_hash = ? LIMIT 1',
+      [hash]
+    );
+    const record = rows?.[0];
+    if (!record) throw new AuthError('Invalid refresh token');
+    if (record.revoked_at) {
+      // Replay of a rotated token: revoke the whole family for this user.
+      await pool.query('UPDATE refresh_tokens SET revoked_at = NOW() WHERE user_id = ? AND revoked_at IS NULL', [record.user_id]);
+      throw new AuthError('Refresh token has been revoked');
+    }
+    if (new Date(record.expires_at).getTime() < Date.now()) throw new AuthError('Refresh token expired');
+
+    const user = await this.userRepo.findById(payload.userId);
+    if (!user || user.status === 'inactive' || user.id !== record.user_id) {
+      throw new AuthError('Invalid refresh token');
+    }
+
+    const tokens = await this.issueTokens(user);
+    await pool.query(
+      'UPDATE refresh_tokens SET revoked_at = NOW(), replaced_by = ? WHERE id = ?',
+      [hashToken(tokens.refreshToken), record.id]
+    );
+    return tokens;
+  }
+
+  /** Revoke a single refresh token (logout). Unknown tokens are ignored. */
+  async revokeRefreshToken(token: string | undefined): Promise<void> {
+    if (!token) return;
+    try {
+      await getPool().query(
+        'UPDATE refresh_tokens SET revoked_at = NOW() WHERE token_hash = ? AND revoked_at IS NULL',
+        [hashToken(token)]
+      );
+    } catch {
+      // best effort — the cookie is cleared regardless
+    }
+  }
+
+  /** Sign a token pair and record the refresh token server-side so it can be rotated/revoked. */
+  private async issueTokens(user: User): Promise<TokenPair> {
+    const tokens = this.generateTokens(user);
+    const decoded = jwt.decode(tokens.refreshToken) as jwt.JwtPayload | null;
+    const expiresAt = decoded?.exp ? new Date(decoded.exp * 1000) : new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+    await getPool().query(
+      'INSERT INTO refresh_tokens (user_id, token_hash, expires_at) VALUES (?, ?, ?)',
+      [user.id, hashToken(tokens.refreshToken), expiresAt]
+    );
+    return tokens;
   }
 
   async changePassword(userId: number, currentPassword: string, newPassword: string): Promise<void> {
@@ -128,6 +180,8 @@ export class AuthService {
        ON DUPLICATE KEY UPDATE invalidated_at = NOW()`,
       [userId]
     );
+    // ...and revoke every outstanding refresh token so the session cannot be renewed
+    await pool.query('UPDATE refresh_tokens SET revoked_at = NOW() WHERE user_id = ? AND revoked_at IS NULL', [userId]);
   }
 
   /** Check if a token was issued before the user's tokens were invalidated (DB-backed) */
@@ -164,6 +218,10 @@ export class AuthService {
 
     return { accessToken, refreshToken };
   }
+}
+
+function hashToken(token: string): string {
+  return createHash('sha256').update(token).digest('hex');
 }
 
 export class AuthError extends Error {
