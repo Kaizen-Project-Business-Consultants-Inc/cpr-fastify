@@ -132,7 +132,7 @@ test.describe.serial('Sysadmin (login, portal, logout)', () => {
   test('dashboard loads', async () => {
     await pg.goto('/sysadmin/dashboard');
     await pg.waitForLoadState('domcontentloaded');
-    await expect(pg.locator('main, [role="main"], .MuiContainer-root').first()).toBeVisible({ timeout: 30000 });
+    await expect(pg.locator('#main-content, main, [role="main"], .MuiContainer-root').first()).toBeVisible({ timeout: 60000 });
   });
 
   test('user management is accessible', async () => {

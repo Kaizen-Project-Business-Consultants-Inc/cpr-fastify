@@ -55,6 +55,7 @@ jobs:
           name: frontend-dist
           path: frontend/dist
           retention-days: 3
+          include-hidden-files: true # .htaccess
 
       # Staging build (same code, staging API URL). The staging server cannot
       # build the frontend itself (vite exceeds its memory limit).
@@ -64,6 +65,7 @@ jobs:
           name: frontend-dist-staging
           path: frontend/dist
           retention-days: 3
+          include-hidden-files: true # .htaccess
 
   deploy-staging:
     name: Deploy to staging
