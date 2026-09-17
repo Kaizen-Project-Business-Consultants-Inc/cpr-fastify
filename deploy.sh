@@ -1,18 +1,24 @@
 #!/bin/bash
 # CPR Production Deploy — build locally, upload via FTPS
-# Usage: bash deploy.sh [backend|frontend|all]
+# Usage: FTP_SERVER=... FTP_USERNAME=... FTP_PASSWORD=... bash deploy.sh [backend|frontend|all]
+#
+# Credentials are read from the environment only. They are never stored in this file.
 set -e
 
-SERVER="${FTP_SERVER:-69.72.136.201}"
-USER="${FTP_USERNAME:-kaizenmo}"
-PASS="${FTP_PASSWORD:-!Register001}"
+: "${FTP_SERVER:?Set FTP_SERVER (e.g. export FTP_SERVER=host)}"
+: "${FTP_USERNAME:?Set FTP_USERNAME}"
+: "${FTP_PASSWORD:?Set FTP_PASSWORD}"
+
+SERVER="$FTP_SERVER"
+USER="$FTP_USERNAME"
+PASS="$FTP_PASSWORD"
 APP_DIR="cpr.kpbc.ca"
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 TARGET="${1:-all}"
 
 upload() {
   local src="$1" dst="$2"
-  curl -k --ssl-reqd -u "$USER:$PASS" -T "$src" "ftp://$SERVER/$APP_DIR/$dst" --create-dirs 2>/dev/null
+  curl --ssl-reqd -u "$USER:$PASS" -T "$src" "ftp://$SERVER/$APP_DIR/$dst" --create-dirs 2>/dev/null
 }
 
 upload_dir() {
@@ -26,7 +32,7 @@ upload_dir() {
 
 restart_passenger() {
   echo "Restarting Passenger..."
-  MSYS_NO_PATHCONV=1 curl -sk -u "$USER:$PASS" \
+  MSYS_NO_PATHCONV=1 curl -s -u "$USER:$PASS" \
     "https://$SERVER:2083/json-api/cpanel?cpanel_jsonapi_version=2&cpanel_jsonapi_module=Fileman&cpanel_jsonapi_func=savefile&dir=/home/$USER/$APP_DIR/tmp&filename=restart.txt&content=restart$(date +%s)" \
     > /dev/null 2>&1
   echo "Passenger restarted."

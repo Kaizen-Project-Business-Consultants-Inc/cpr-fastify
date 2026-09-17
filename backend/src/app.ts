@@ -21,6 +21,9 @@ export async function buildApp() {
     logger: false, // We use our own pino logger
     genReqId: (req) => (req.headers['x-request-id'] as string) || randomUUID(),
     requestIdHeader: 'x-request-id',
+    // Behind Apache/Passenger in production: use X-Forwarded-For so rate limits,
+    // lockout and audit logs see the real client IP instead of 127.0.0.1.
+    trustProxy: env.NODE_ENV === 'production',
   });
 
   // Plugins

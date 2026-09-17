@@ -214,7 +214,8 @@ export async function vendorRoutes(app: FastifyInstance) {
       });
 
       let targetVendorId = vendorId;
-      if (data.detected_vendor_id) {
+      // A vendor may only file invoices for itself; staff roles may override the vendor.
+      if (data.detected_vendor_id && request.userRole !== 'vendor') {
         const [detected] = await pool.query<any[]>('SELECT id FROM vendors WHERE id = ? AND is_active = true', [data.detected_vendor_id]);
         if (detected.length > 0) targetVendorId = detected[0].id;
       }

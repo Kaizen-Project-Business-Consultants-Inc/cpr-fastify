@@ -24,10 +24,13 @@ import { collegeRoutes } from './colleges.js';
 import { miscRoutes } from './misc.js';
 import { logger } from '../config/logger.js';
 import { registerSwagger } from '../plugins/swagger.js';
+import { env } from '../config/env.js';
 
 export async function registerRoutes(app: FastifyInstance) {
-  // OpenAPI docs at /api/v1/docs
-  await registerSwagger(app);
+  // OpenAPI docs at /api/v1/docs — not exposed in production
+  if (env.NODE_ENV !== 'production') {
+    await registerSwagger(app);
+  }
   // Client-side error collector (unauthenticated, rate-limited)
   app.post('/client-errors', {
     config: { rateLimit: { max: 20, timeWindow: '1 minute' } },

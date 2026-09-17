@@ -1,6 +1,7 @@
 import { env } from '../config/env.js';
 import { getPool } from '../config/database.js';
 import { logger } from '../config/logger.js';
+import { safeHtml } from '../utils/html.js';
 
 const APP_URL = env.FRONTEND_URL;
 
@@ -60,7 +61,7 @@ interface InvoiceReminderData {
 const EMAIL_TEMPLATES = {
   AVAILABILITY_CONFIRMATION: (date: string) => ({
     subject: 'Availability Update Confirmation',
-    html: `
+    html: safeHtml`
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
         <h2 style="color: #007bff;">Availability Update Confirmation</h2>
         <p>Your availability has been updated for: <strong>${formatDate(date)}</strong></p>
@@ -75,7 +76,7 @@ const EMAIL_TEMPLATES = {
 
   CLASS_SCHEDULED: (d: ClassDetails) => ({
     subject: 'New Class Scheduled',
-    html: `
+    html: safeHtml`
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
         <h2 style="color: #007bff;">New Class Scheduled</h2>
         <p>A new class has been scheduled for you:</p>
@@ -95,7 +96,7 @@ const EMAIL_TEMPLATES = {
 
   CLASS_REMINDER: (d: ClassDetails) => ({
     subject: 'Class Reminder',
-    html: `
+    html: safeHtml`
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
         <h2 style="color: #007bff;">Class Reminder</h2>
         <p>This is a reminder for your upcoming class:</p>
@@ -117,7 +118,7 @@ const EMAIL_TEMPLATES = {
 
   COURSE_ASSIGNED_INSTRUCTOR: (d: CourseDetails) => ({
     subject: 'New Course Assignment',
-    html: `
+    html: safeHtml`
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
         <h2 style="color: #007bff;">New Course Assignment</h2>
         <p>You have been assigned to teach a new course:</p>
@@ -139,7 +140,7 @@ const EMAIL_TEMPLATES = {
 
   COURSE_SCHEDULED_ORGANIZATION: (d: CourseDetails) => ({
     subject: 'Course Request Confirmed',
-    html: `
+    html: safeHtml`
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
         <h2 style="color: #007bff;">Course Request Confirmed</h2>
         <p>Your course request has been confirmed and an instructor has been assigned:</p>
@@ -159,7 +160,7 @@ const EMAIL_TEMPLATES = {
 
   COURSE_CONFIRMED: (d: { courseName: string; date: string; location: string; instructorName: string; startTime: string; endTime: string }) => ({
     subject: 'Course Confirmed',
-    html: `
+    html: safeHtml`
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
         <h2 style="color: #007bff;">Course Confirmed</h2>
         <p>Your course has been confirmed with the following details:</p>
@@ -178,7 +179,7 @@ const EMAIL_TEMPLATES = {
 
   COURSE_CANCELLED: (d: { courseName: string; date: string; reason: string }) => ({
     subject: 'Course Cancelled',
-    html: `
+    html: safeHtml`
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
         <h2 style="color: #d32f2f;">Course Cancelled</h2>
         <p>The following course has been cancelled:</p>
@@ -195,7 +196,7 @@ const EMAIL_TEMPLATES = {
 
   COURSE_COMPLETED: (d: { courseName: string; date: string; studentsAttended: number; totalStudents: number }) => ({
     subject: 'Course Completed',
-    html: `
+    html: safeHtml`
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
         <h2 style="color: #28a745;">Course Completed</h2>
         <p>The following course has been completed:</p>
@@ -212,7 +213,7 @@ const EMAIL_TEMPLATES = {
 
   INVOICE_POSTED: (d: InvoiceData) => ({
     subject: `Invoice ${d.invoiceNumber} - Complete with Attendance`,
-    html: `
+    html: safeHtml`
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
         <h2 style="color: #007bff;">Invoice Delivered</h2>
         <p>Dear ${d.organizationName},</p>
@@ -405,7 +406,7 @@ export class EmailService {
   }
 
   async sendPasswordResetEmail(userEmail: string, username: string, resetLink: string): Promise<boolean> {
-    const html = `
+    const html = safeHtml`
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
         <h2 style="color: #007bff;">Password Reset Request</h2>
         <p>Hi <strong>${username}</strong>,</p>
@@ -427,7 +428,7 @@ export class EmailService {
 
   async sendInvoiceReminder(data: InvoiceReminderData, recipientEmail: string): Promise<boolean> {
     const subject = `Payment Reminder: Invoice ${data.invoiceNumber} Due in ${data.daysUntilDue} Days`;
-    const html = `
+    const html = safeHtml`
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
         <div style="background-color: #1976d2; color: white; padding: 20px; text-align: center;">
           <h1 style="margin: 0;">Payment Reminder</h1>
@@ -462,7 +463,7 @@ export class EmailService {
   async sendOverdueInvoiceNotification(
     orgEmail: string, orgName: string, invoiceNumber: string, dueDate: string, amount: number
   ): Promise<boolean> {
-    const html = `
+    const html = safeHtml`
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
         <div style="background-color: #d32f2f; color: white; padding: 20px; text-align: center;">
           <h2 style="margin: 0;">Overdue Invoice Notice</h2>
@@ -488,7 +489,7 @@ export class EmailService {
     cert: { courseName: string; certificationNumber: string; issueDate: string; expirationDate: string; instructorName: string },
     pdfBuffer: Buffer
   ): Promise<boolean> {
-    const html = `
+    const html = safeHtml`
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
         <div style="background: #2196F3; color: white; padding: 20px; text-align: center; border-radius: 8px 8px 0 0;">
           <h1 style="margin: 0; font-size: 22px;">GTA CPR Training Services</h1>
@@ -521,7 +522,7 @@ export class EmailService {
   }
 
   async sendMFAVerificationCode(userEmail: string, code: string, expiryMinutes: number): Promise<void> {
-    const html = `
+    const html = safeHtml`
       <h2>MFA Verification Code</h2>
       <p>Your verification code is: <strong>${code}</strong></p>
       <p>This code will expire in ${expiryMinutes} minutes.</p>
@@ -539,7 +540,7 @@ export class EmailService {
     daysUntilExpiry: number,
   ): Promise<boolean> {
     const subject = `Your ${courseName} certification expires in ${daysUntilExpiry} days`;
-    const html = `
+    const html = safeHtml`
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
         <div style="background: #CC1F1F; padding: 20px; text-align: center;">
           <h1 style="color: #fff; margin: 0; font-size: 22px;">GTACPR Certification Reminder</h1>

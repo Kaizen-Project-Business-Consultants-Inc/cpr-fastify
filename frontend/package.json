@@ -31,7 +31,7 @@
     "@tanstack/react-query": "^5.80.7",
     "@types/dompurify": "^3.0.5",
     "@types/react-toastify": "^4.0.2",
-    "axios": "^1.6.7",
+    "axios": "^1.20.0",
     "country-flag-icons": "^1.6.17",
     "date-fns": "^2.30.0",
     "dompurify": "^3.3.1",

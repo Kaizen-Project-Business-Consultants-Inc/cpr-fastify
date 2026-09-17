@@ -167,8 +167,21 @@ export async function adminRoutes(app: FastifyInstance) {
     return { success: true, ...result };
   });
 
+  // Roles that only a sysadmin may assign or administer.
+  const PRIVILEGED_ROLES = ['admin', 'sysadmin'];
+
+  async function targetIsPrivileged(userId: string | number): Promise<boolean> {
+    const [rows] = await pool.query<any[]>('SELECT role FROM users WHERE id = ?', [userId]);
+    return rows.length > 0 && PRIVILEGED_ROLES.includes(rows[0].role);
+  }
+
   app.post('/users', { preHandler: adminRole }, async (request, reply) => {
     const data = createUserSchema.parse(request.body);
+
+    // Only a sysadmin may create admin/sysadmin accounts
+    if (PRIVILEGED_ROLES.includes(data.role) && request.userRole !== 'sysadmin') {
+      return reply.status(403).send({ error: 'Only a system administrator can create admin or sysadmin users' });
+    }
 
     // Check duplicates
     const [existingUser] = await pool.query<any[]>(
@@ -200,6 +213,13 @@ export async function adminRoutes(app: FastifyInstance) {
       status: z.enum(['active', 'inactive', 'deleted']).optional(),
     }).partial().parse(request.body);
 
+    // Only a sysadmin may grant admin/sysadmin, or modify an existing admin/sysadmin account
+    if (request.userRole !== 'sysadmin') {
+      if ((role && PRIVILEGED_ROLES.includes(role)) || (await targetIsPrivileged(id))) {
+        return reply.status(403).send({ error: 'Only a system administrator can modify admin or sysadmin users' });
+      }
+    }
+
     const [result] = await pool.query<any>(
       `UPDATE users SET username = COALESCE(?, username), email = COALESCE(?, email),
        role = COALESCE(?, role), first_name = COALESCE(?, first_name), last_name = COALESCE(?, last_name),
@@ -222,7 +242,11 @@ export async function adminRoutes(app: FastifyInstance) {
 
   app.post('/users/:id/reset-password', { preHandler: adminRole }, async (request, reply) => {
     const { id } = request.params as { id: string };
-    const { password } = z.object({ password: z.string().min(6) }).parse(request.body);
+    const { password } = z.object({ password: z.string().min(8) }).parse(request.body);
+    // Only a sysadmin may reset an admin/sysadmin password
+    if (request.userRole !== 'sysadmin' && (await targetIsPrivileged(id))) {
+      return reply.status(403).send({ error: 'Only a system administrator can reset admin or sysadmin passwords' });
+    }
     const hash = await bcrypt.hash(password, env.BCRYPT_SALT_ROUNDS);
     const [result] = await pool.query<any>(
       'UPDATE users SET password_hash = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?', [hash, id]

@@ -1,6 +1,7 @@
 import PDFDocument from 'pdfkit';
 import { getHSTRate, getHSTLabel } from '../utils/taxConfig.js';
 import { env } from '../config/env.js';
+import { safeHtml, raw } from '../utils/html.js';
 
 const APP_URL = env.FRONTEND_URL;
 
@@ -237,7 +238,12 @@ export class PDFService {
     const present = attendanceList.filter(s => s.attended).length;
     const absent = attendanceList.filter(s => s.attended === false).length;
 
-    return `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Invoice ${invoice.invoice_number}</title>
+    const attendanceRows = attendanceList.map(s => safeHtml`<tr><td>${s.first_name} ${s.last_name}</td><td>${s.email || 'N/A'}</td><td style="color:${s.attended ? 'green' : 'red'}">${s.attended ? 'Present' : 'Absent'}</td></tr>`).join('');
+    const attendanceSection = attendanceList.length > 0
+      ? safeHtml`<div class="section" style="border-left-color:#ff9800"><h3 style="color:#ff9800">Attendance (${present} Present, ${absent} Absent)</h3><table><tr><th>Name</th><th>Email</th><th>Status</th></tr>${raw(attendanceRows)}</table></div>`
+      : '';
+
+    return safeHtml`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Invoice ${invoice.invoice_number}</title>
 <style>body{font-family:Arial,sans-serif;margin:20px;color:#333}.header{text-align:center;margin-bottom:20px;border-bottom:3px solid #2196F3;padding-bottom:15px}.company-name{font-size:24px;font-weight:bold;color:#2196F3}.invoice-title{font-size:28px;font-weight:bold;text-align:center;margin:20px 0;color:#2196F3}.section{margin:20px 0;padding:15px;background:#f5f5f5;border-left:4px solid #2196F3}.section h3{margin:0 0 10px 0;color:#2196F3}table{width:100%;border-collapse:collapse;margin:10px 0}th{background:#2196F3;color:white;padding:10px;text-align:left}td{padding:10px;border-bottom:1px solid #eee}.total{font-size:18px;font-weight:bold;color:#2196F3;text-align:right}</style></head><body>
 <div class="header"><div class="company-name">GTA CPR TRAINING SERVICES</div><div>123 Training Way, Toronto, ON M5V 3A8 | (416) 555-0123</div></div>
 <div class="invoice-title">INVOICE</div>
@@ -245,7 +251,7 @@ export class PDFService {
 <div class="section"><h3>Bill To</h3><p><strong>${invoice.organization_name}</strong></p><p>${invoice.contact_email}</p></div>
 <div class="section"><h3>Course Information</h3><p><strong>Course:</strong> ${invoice.course_type_name} | <strong>Location:</strong> ${invoice.location}</p><p><strong>Date:</strong> ${courseDate} | <strong>Students:</strong> ${studentsBilled}</p></div>
 <div class="section"><h3>Cost Breakdown</h3><p>Base Cost (${studentsBilled} x ${formatCurrency(ratePerStudent)}): ${formatCurrency(subtotal)}</p><p>${getHSTLabel()}: ${formatCurrency(hst)}</p><p class="total">Total: ${formatCurrency(total)}</p></div>
-${attendanceList.length > 0 ? `<div class="section" style="border-left-color:#ff9800"><h3 style="color:#ff9800">Attendance (${present} Present, ${absent} Absent)</h3><table><tr><th>Name</th><th>Email</th><th>Status</th></tr>${attendanceList.map(s => `<tr><td>${s.first_name} ${s.last_name}</td><td>${s.email || 'N/A'}</td><td style="color:${s.attended ? 'green' : 'red'}">${s.attended ? 'Present' : 'Absent'}</td></tr>`).join('')}</table></div>` : ''}
+${raw(attendanceSection)}
 </body></html>`;
   }
 

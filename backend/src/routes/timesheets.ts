@@ -270,11 +270,16 @@ export async function timesheetRoutes(app: FastifyInstance) {
   // ===== Notes =====
   app.get('/:timesheetId/notes', { preHandler: timesheetAccess }, async (request) => {
     const { timesheetId } = request.params as { timesheetId: string };
+    // Instructors may only read notes on their own timesheets
+    const ownerClause = request.userRole === 'instructor' ? ' AND t.instructor_id = ?' : '';
+    const params: any[] = request.userRole === 'instructor' ? [timesheetId, request.userId] : [timesheetId];
     const [rows] = await pool.query<any[]>(
       `SELECT tn.*, u.username as added_by, u.email as added_by_email
-       FROM timesheet_notes tn JOIN users u ON tn.user_id = u.id
-       WHERE tn.timesheet_id = ? ORDER BY tn.created_at ASC`,
-      [timesheetId]
+       FROM timesheet_notes tn
+       JOIN users u ON tn.user_id = u.id
+       JOIN timesheets t ON t.id = tn.timesheet_id
+       WHERE tn.timesheet_id = ?${ownerClause} ORDER BY tn.created_at ASC`,
+      params
     );
     return { success: true, data: rows };
   });
