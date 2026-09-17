@@ -112,7 +112,7 @@ jobs:
         run: |
           echo "restart-$(date +%s)" > /tmp/restart.txt
           curl --fail --silent --show-error -T /tmp/restart.txt --ssl-reqd --insecure \
-            "ftps://${{ secrets.FTP_SERVER }}/stagecprapp.kpbc.ca/tmp/restart.txt" \
+            "ftp://${{ secrets.FTP_SERVER }}/stagecprapp.kpbc.ca/tmp/restart.txt" \
             --user "${{ secrets.FTP_USERNAME }}:${{ secrets.FTP_PASSWORD }}" --create-dirs
           echo "restart.txt touched"
 
@@ -197,7 +197,7 @@ jobs:
           cat /tmp/.htaccess
           echo "=== Uploading via FTPS ==="
           curl -T /tmp/.htaccess --ssl-reqd --insecure \
-            "ftps://${{ secrets.FTP_SERVER }}/cpr.kpbc.ca/public/.htaccess" \
+            "ftp://${{ secrets.FTP_SERVER }}/cpr.kpbc.ca/public/.htaccess" \
             --user "${{ secrets.FTP_USERNAME }}:${{ secrets.FTP_PASSWORD }}" \
             -v 2>&1 | grep -E "< |> |Upload|226|550" || true
           echo ".htaccess uploaded"
@@ -209,7 +209,7 @@ jobs:
         run: |
           echo "restart-$(date +%s)" > /tmp/restart.txt
           curl --fail --silent --show-error -T /tmp/restart.txt --ssl-reqd --insecure \
-            "ftps://${{ secrets.FTP_SERVER }}/cpr.kpbc.ca/tmp/restart.txt" \
+            "ftp://${{ secrets.FTP_SERVER }}/cpr.kpbc.ca/tmp/restart.txt" \
             --user "${{ secrets.FTP_USERNAME }}:${{ secrets.FTP_PASSWORD }}" --create-dirs
           echo "restart.txt touched"
 
