@@ -148,6 +148,20 @@ export async function instructorRoutes(app: FastifyInstance) {
 
   app.delete('/availability/:date', { preHandler: role }, async (request, reply) => {
     const { date } = request.params as { date: string };
+
+    // An instructor cannot cancel their own availability 5 days or less
+    // before the date — restored per business rule; previously this was
+    // only suggested by a frontend UI lock (and at 11 days, not 5) with no
+    // server-side enforcement at all, so the real rule never actually held.
+    const today = new Date(); today.setHours(0, 0, 0, 0);
+    const target = new Date(date); target.setHours(0, 0, 0, 0);
+    const diffDays = Math.round((target.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+    if (!isNaN(diffDays) && diffDays <= 5) {
+      return reply.status(400).send({
+        error: 'Availability cannot be cancelled 5 days or less before the date. Contact your administrator if you need to cancel.',
+      });
+    }
+
     const [result] = await pool.query<ResultSetHeader>(
       'DELETE FROM instructor_availability WHERE instructor_id = ? AND date = ?',
       [request.userId, date]

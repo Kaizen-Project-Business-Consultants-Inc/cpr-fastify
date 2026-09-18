@@ -138,13 +138,13 @@ const AvailabilityView: React.FC<AvailabilityViewProps> = ({
       return dStr.length === 10 && !isNaN(new Date(dStr).getTime()) && dStr === dateStr;
     });
 
-    // Check if the date is less than 11 days from now
+    // An instructor cannot cancel availability 5 days or less before the date.
     const today = new Date();
     const diffTime = date.getTime() - today.getTime();
     const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-    
-    if (isAvailable && diffDays < 11) {
-      setError('Cannot remove availability: Dates less than 11 days in the future cannot be modified');
+
+    if (isAvailable && diffDays <= 5) {
+      setError('Availability cannot be cancelled 5 days or less before the date. Contact your administrator if you need to cancel.');
       return;
     }
 
@@ -213,11 +213,11 @@ const AvailabilityView: React.FC<AvailabilityViewProps> = ({
     const isHoliday = holidays.includes(dateStr);
     const isPastDate = day < new Date(new Date().setHours(0, 0, 0, 0));
 
-    // Check if date is within 11 days
+    // An instructor cannot cancel availability 5 days or less before the date.
     const today = new Date();
     const diffTime = day.getTime() - today.getTime();
     const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-    const isWithin11Days = diffDays < 11;
+    const isWithinCancelLockout = diffDays <= 5;
 
     // Color logic with priority: Scheduled > Available > Today > Past > Default
     let backgroundColor, hoverColor, tooltipTitle, textColor;
@@ -240,8 +240,8 @@ const AvailabilityView: React.FC<AvailabilityViewProps> = ({
       backgroundColor = theme.palette.success.main;
       hoverColor = theme.palette.success.dark;
       textColor = 'white';
-      tooltipTitle = isWithin11Days
-        ? 'Cannot unmark availability within 11 days'
+      tooltipTitle = isWithinCancelLockout
+        ? 'Cannot cancel availability 5 days or less before the date'
         : isPastDate
         ? 'Cannot unmark past availability'
         : 'Available - Click to remove';
@@ -292,8 +292,8 @@ const AvailabilityView: React.FC<AvailabilityViewProps> = ({
                 }
                 return;
               }
-              if (isAvailable && isWithin11Days) {
-                setError('Cannot unmark availability within 11 days');
+              if (isAvailable && isWithinCancelLockout) {
+                setError('Availability cannot be cancelled 5 days or less before the date. Contact your administrator if you need to cancel.');
                 return;
               }
               handleDateClick(day);
