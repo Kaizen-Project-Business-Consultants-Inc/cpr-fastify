@@ -20,6 +20,22 @@ const paymentSchema = z.object({
 
 
 /**
+ * vendor_invoices columns the UI reads in camelCase (invoice.invoiceNumber,
+ * invoice.dueDate, ...). `vi.*` alone leaves every one of these undefined —
+ * that's why every "View"/"Download" action on the admin and accounting
+ * vendor-invoice screens rendered as "invoice undefined" regardless of which
+ * row, same bug as the vendor's own invoice list (see routes/vendors.ts).
+ * Every list/detail query below appends this alongside `vi.*`.
+ */
+const VI_CAMEL_COLS = `vi.invoice_number as invoiceNumber, vi.due_date as dueDate,
+              vi.payment_date as paymentDate, vi.pdf_filename as pdfFilename,
+              vi.created_at as createdAt, vi.updated_at as updatedAt,
+              vi.admin_notes as adminNotes, vi.rejection_reason as rejectionReason,
+              vi.sent_to_accounting_at as sentToAccountingAt, vi.paid_at as paidAt,
+              vi.approved_by as approvedBy, vi.approved_at as approvedAt,
+              vi.vendor_id as vendorId`;
+
+/**
  * Optional `status` / `search` filter shared by the vendor-invoice list endpoints.
  * `status=paid` and `status=unpaid` are the two the UI needs (a "paid" screen and a
  * "awaiting payment" screen); any other value is matched literally against the column.
@@ -121,8 +137,10 @@ export async function vendorAdminRoutes(app: FastifyInstance) {
        LEFT JOIN vendors v ON vi.vendor_id = v.id
        LEFT JOIN users u_approved ON vi.approved_by = u_approved.id`;
     const result = await maybePaginate(
-      `SELECT vi.*, v.name as vendor_name, v.contact_email as vendor_email,
-              u_approved.username as approved_by_name
+      `SELECT vi.*, ${VI_CAMEL_COLS},
+              v.name as vendor_name, v.name as vendorName,
+              v.contact_email as vendor_email, v.contact_email as vendorEmail,
+              u_approved.username as approved_by_name, u_approved.username as approvedByName
        ${fromClause}
        ${where}
        ORDER BY vi.created_at DESC`,
@@ -142,7 +160,9 @@ export async function vendorAdminRoutes(app: FastifyInstance) {
   // ===== Admin: Ready for processing =====
   app.get('/admin/vendor-invoices/ready-for-processing', { preHandler: adminRole }, async (request) => {
     const result = await maybePaginate(
-      `SELECT vi.*, v.name as vendor_name, v.contact_email as vendor_email
+      `SELECT vi.*, ${VI_CAMEL_COLS},
+              v.name as vendor_name, v.name as vendorName,
+              v.contact_email as vendor_email, v.contact_email as vendorEmail
        FROM vendor_invoices vi LEFT JOIN vendors v ON vi.vendor_id = v.id
        WHERE vi.status = 'submitted_to_admin' ORDER BY vi.created_at ASC`,
       `SELECT COUNT(*) as count
@@ -208,10 +228,13 @@ export async function vendorAdminRoutes(app: FastifyInstance) {
          ON payments.vendor_invoice_id = vi.id`;
     const { where, params } = invoiceFilter(request.query as Record<string, string>);
     const result = await maybePaginate(
-      `SELECT vi.*, v.name as vendor_name, v.contact_email as vendor_email,
-              u_approved.username as approved_by_name,
-              COALESCE(payments.total_paid, 0) as total_paid,
-              (vi.total - COALESCE(payments.total_paid, 0)) as balance_due
+      `SELECT vi.*, ${VI_CAMEL_COLS},
+              v.name as vendor_name, v.name as vendorName,
+              v.contact_email as vendor_email, v.contact_email as vendorEmail,
+              u_approved.username as approved_by_name, u_approved.username as approvedByName,
+              COALESCE(payments.total_paid, 0) as total_paid, COALESCE(payments.total_paid, 0) as totalPaid,
+              (vi.total - COALESCE(payments.total_paid, 0)) as balance_due,
+              (vi.total - COALESCE(payments.total_paid, 0)) as balanceDue
        ${fromClause}
        ${where}
        ORDER BY vi.created_at DESC`,
@@ -232,10 +255,14 @@ export async function vendorAdminRoutes(app: FastifyInstance) {
   app.get('/accounting/vendor-invoices/:id', { preHandler: acctRole }, async (request, reply) => {
     const { id } = request.params as { id: string };
     const [invoiceRows] = await pool.query<RowDataPacket[]>(
-      `SELECT vi.*, v.name as vendor_name, v.contact_email as vendor_email, v.address as vendor_address,
-              u_approved.username as approved_by_name,
-              COALESCE(payments.total_paid, 0) as total_paid,
-              (vi.total - COALESCE(payments.total_paid, 0)) as balance_due
+      `SELECT vi.*, ${VI_CAMEL_COLS},
+              v.name as vendor_name, v.name as vendorName,
+              v.contact_email as vendor_email, v.contact_email as vendorEmail,
+              v.address as vendor_address, v.address as vendorAddress,
+              u_approved.username as approved_by_name, u_approved.username as approvedByName,
+              COALESCE(payments.total_paid, 0) as total_paid, COALESCE(payments.total_paid, 0) as totalPaid,
+              (vi.total - COALESCE(payments.total_paid, 0)) as balance_due,
+              (vi.total - COALESCE(payments.total_paid, 0)) as balanceDue
        FROM vendor_invoices vi LEFT JOIN vendors v ON vi.vendor_id = v.id
        LEFT JOIN users u_approved ON vi.approved_by = u_approved.id
        LEFT JOIN (SELECT vendor_invoice_id, SUM(amount) as total_paid FROM vendor_payments WHERE status = 'processed' GROUP BY vendor_invoice_id) payments
@@ -246,7 +273,11 @@ export async function vendorAdminRoutes(app: FastifyInstance) {
     if (invoiceRows.length === 0) return reply.status(404).send({ error: 'Vendor invoice not found' });
 
     const [paymentRows] = await pool.query<RowDataPacket[]>(
-      `SELECT vp.*, u_processed.username as processed_by_name FROM vendor_payments vp
+      `SELECT vp.*, vp.payment_date as paymentDate, vp.payment_method as paymentMethod,
+              vp.reference_number as referenceNumber, vp.processed_by as processedBy,
+              vp.processed_at as processedAt,
+              u_processed.username as processed_by_name, u_processed.username as processedByName
+       FROM vendor_payments vp
        LEFT JOIN users u_processed ON vp.processed_by = u_processed.id
        WHERE vp.vendor_invoice_id = ? ORDER BY vp.payment_date DESC`,
       [id]
@@ -327,8 +358,12 @@ export async function vendorAdminRoutes(app: FastifyInstance) {
        JOIN vendors v ON vi.vendor_id = v.id
        LEFT JOIN users u_processed ON vp.processed_by = u_processed.id`;
     const result = await maybePaginate(
-      `SELECT vp.*, vi.invoice_number, vi.amount as invoice_amount, v.name as vendor_name,
-              u_processed.username as processed_by_name
+      `SELECT vp.*, vp.payment_date as paymentDate, vp.payment_method as paymentMethod,
+              vp.reference_number as referenceNumber, vp.processed_at as processedAt,
+              vi.invoice_number, vi.invoice_number as invoiceNumber,
+              vi.amount as invoice_amount, vi.amount as invoiceAmount,
+              v.name as vendor_name, v.name as vendorName,
+              u_processed.username as processed_by_name, u_processed.username as processedByName
        ${fromClause}
        ORDER BY vp.payment_date DESC`,
       `SELECT COUNT(*) as count ${fromClause}`,
