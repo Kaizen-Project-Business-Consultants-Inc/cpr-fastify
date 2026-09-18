@@ -154,9 +154,9 @@ For FTPS manual deploy (if SSH is unavailable):
 
 **When**: Data corruption or accidental deletion.
 
-Daily backups run at 2:00 AM via cron with 7-day rotation.
+Daily backups run at 2:00 AM via cron with 7-day rotation on the server, and are copied offsite nightly at 03:30 UTC (test-restored, then pushed to Backblaze B2 bucket `GTA-CPR-Backups`, 90-day retention) by `.github/workflows/backup.yml`. A failed offsite run emails the notify address.
 
-1. Locate backups on the server (created by `backup-cpr.sh`)
+1. Locate a backup: on the server (`/home/kaizenmo/backups`, last 7 days) or offsite (Backblaze → GTA-CPR-Backups → db, last 90 days)
 2. Identify the most recent clean backup
 3. Restore via phpMyAdmin or command line:
    ```bash
@@ -248,7 +248,7 @@ Store completed reports in `docs/incidents/` with the naming convention `YYYY-MM
 | **UptimeRobot dashboard** | Configured to monitor `/api/v1/health`, alerts to kpbcma@gmail.com |
 | **Server paths** | App: `/home/kaizenmo/cpr.kpbc.ca`, Source: `/home/kaizenmo/cpr.kpbc.ca-src/` |
 | **Deploy** | GitHub Actions on push to `master` (`.github/workflows/ci.yml`); no server-side scripts |
-| **Backup script** | `/home/kaizenmo/backup-cpr.sh` (cron at 2:00 AM, 7-day rotation) |
+| **Backup script** | `/home/kaizenmo/backup-cpr.sh` (cron at 2:00 AM, 7-day rotation); offsite copy via `.github/workflows/backup.yml` → Backblaze `GTA-CPR-Backups` (90 days) |
 | **Email service** | Resend API (sends from `noreply@kpbc.ca`) |
 
 ### Server Credentials Reference

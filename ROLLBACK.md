@@ -55,7 +55,7 @@ Migrations are forward-only and run at startup under a MySQL named lock
 3. Redeploy or restart.
 
 Nightly `mysqldump` runs at 02:00 on the server with 7-day rotation (`/home/kaizenmo/backup-cpr.sh`).
-An offsite copy is still an open item (see TODO).
+Every night at 03:30 UTC `.github/workflows/backup.yml` test-restores that dump and copies it (plus vendor uploads) to the Backblaze B2 bucket `GTA-CPR-Backups` with 90-day retention. To restore from offsite: Backblaze → Buckets → GTA-CPR-Backups → db → download the wanted `cpr_*.sql.gz`.
 
 ## Verify after a rollback
 

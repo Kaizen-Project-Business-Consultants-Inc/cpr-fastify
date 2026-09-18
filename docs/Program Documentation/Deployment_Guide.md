@@ -306,4 +306,5 @@ Passenger watches `tmp/restart.txt` for timestamp changes. Touching or writing t
 |----------|--------|---------|
 | `:18` hourly | `deploy-staging.sh` | Auto-deploy staging from master |
 | `:48` hourly | `deploy-production.sh` | Auto-deploy production from master |
-| `2:00 AM` daily | `backup-cpr.sh` | MySQL dump with 7-day rotation |
+| `2:00 AM` daily | `backup-cpr.sh` | MariaDB dump with 7-day rotation |
+| `03:30 UTC` daily | GitHub Actions `backup.yml` | Test-restore + offsite copy to Backblaze B2 (90-day retention) |

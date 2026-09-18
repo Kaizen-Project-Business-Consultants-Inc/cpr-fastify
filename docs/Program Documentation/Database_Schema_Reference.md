@@ -1,6 +1,6 @@
 # CPR Training Management System -- Database Schema Reference
 
-**Database Engine:** MySQL 8.x (InnoDB)
+**Database Engine:** MariaDB 11.4 (InnoDB) — MySQL-compatible; confirmed from the production dump header 2026-09-18
 **Character Set:** utf8mb4
 **Timezone:** UTC (+00:00)
 

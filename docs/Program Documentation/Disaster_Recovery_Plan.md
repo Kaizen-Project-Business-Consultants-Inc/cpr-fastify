@@ -27,7 +27,7 @@ This plan applies to the production environment. The staging environment (https:
 | Metric | Target | Notes |
 |--------|--------|-------|
 | **RTO -- Application** | 4 hours | Time to restore the web application to a functional state after a disaster is declared. |
-| **RTO -- Database** | 1 hour | Time to restore the MySQL database from backup and confirm data integrity. |
+| **RTO -- Database** | 1 hour | Time to restore the MariaDB database from backup and confirm data integrity. |
 | **RPO** | 24 hours | Maximum acceptable data loss. Based on the daily backup cycle (2:00 AM). Any data written after the last backup and before the disaster may be lost. |
 
 These targets reflect the current shared hosting infrastructure. They should be revisited if the system moves to a VPS or cloud environment (see Section 10).
@@ -41,7 +41,7 @@ These targets reflect the current shared hosting infrastructure. They should be 
 | **Hosting provider** | TMD Hosting (shared hosting plan) |
 | **Web server** | LiteSpeed with Phusion Passenger (serves Node.js) |
 | **Application runtime** | Node.js with Fastify 5 |
-| **Database** | MySQL (`kaizenmo_cpr` database, user `kaizenmo_cpruser`) |
+| **Database** | MariaDB 11.4 (`kaizenmo_cpr` database, user `kaizenmo_cpruser`) |
 | **Server account** | `/home/kaizenmo/` |
 | **Application path** | `/home/kaizenmo/cpr.kpbc.ca/` |
 | **Source code path** | `/home/kaizenmo/cpr.kpbc.ca-src/` |
@@ -72,26 +72,25 @@ These targets reflect the current shared hosting infrastructure. They should be 
 | **Schedule** | Daily at 2:00 AM (server time) via cron |
 | **Retention** | 7-day rotation -- the 7 most recent daily backups are kept |
 | **Backup format** | Compressed SQL dump (`.sql.gz`) |
-| **Storage location** | On the same TMD server, under the `/home/kaizenmo/` directory |
+| **Storage location** | On the TMD server under `/home/kaizenmo/backups/` (7 days) **and** offsite in Backblaze B2 bucket `GTA-CPR-Backups` (90 days) |
+| **Offsite copy** | `.github/workflows/backup.yml` runs nightly at 03:30 UTC: downloads the newest dump, refuses it if older than 36 h, test-restores it into MariaDB 11.4, mirrors `uploads/vendor-invoices/`, copies both to B2, emails on failure. First verified run 2026-09-18. |
 
 ### 4.2 Source Code Backup
 
 The application source code is stored in a GitHub repository (`https://github.com/Kaizenpbc/cpr-fastify`). This serves as a complete backup of all application code, configuration files (excluding secrets), database migration scripts, and deployment scripts.
 
-The production server maintains a local clone at `/home/kaizenmo/cpr.kpbc.ca-src/` which is pulled hourly by the auto-deploy cron.
+Deploys are performed by GitHub Actions on every push to `master` (no server-side clone or cron is required any more).
 
 ### 4.3 What Is NOT Backed Up
 
 - **Environment secrets**: Production environment variables are stored in `/home/kaizenmo/cpr.kpbc.ca/.htaccess` and are not committed to the repository. These include database credentials, Sentry DSN, SMTP credentials, and JWT secrets. A copy of these values must be maintained in a secure password manager.
-- **Uploaded files**: Vendor invoice PDFs stored in `uploads/vendor-invoices/` are on the server filesystem only.
+- **Uploaded files**: Vendor invoice PDFs in `uploads/vendor-invoices/` live on the server filesystem and are copied offsite once a night by the backup workflow (up to 24 h of uploads could be lost in a total server failure).
 
-### 4.4 Known Limitation: No Offsite Backup
+### 4.4 Offsite Backup (implemented 2026-09-18)
 
-**CRITICAL**: Both the application and all database backups reside on the same TMD server. If the server suffers a catastrophic failure (hardware failure, data centre incident, account compromise), all backups would be lost along with the production data.
+Database dumps are copied to Backblaze B2 every night (see 4.1). Each copy is restored into a scratch MariaDB first, so a corrupt or empty dump fails the job and triggers an email instead of silently replacing a good backup. **RPO in a total server loss is therefore 24 hours** (last nightly dump). Backblaze credentials are stored only as GitHub Actions secrets (`B2_KEY_ID`, `B2_APP_KEY`, `B2_BUCKET`); the key is restricted to the one bucket.
 
-This is tracked as **BACKUP-2** in the project TODO. The planned remediation is to push each daily backup to an offsite destination (e.g., Amazon S3, Backblaze B2, or a remote FTP server) immediately after each successful `mysqldump` run.
-
-**Until BACKUP-2 is implemented, the actual RPO in a total server loss scenario is undefined** -- recovery would depend on the age of the last manual export or GitHub-stored migration data.
+To restore from offsite: Backblaze console → Buckets → `GTA-CPR-Backups` → `db` → download `cpr_<date>.sql.gz`, then follow section 7.
 
 ---
 
@@ -127,7 +126,7 @@ This is tracked as **BACKUP-2** in the project TODO. The planned remediation is 
 
 **Symptoms**: Application returns 500 errors on data operations; health endpoint reports DOWN; phpMyAdmin shows table errors or query failures.
 
-**Likely causes**: Disk corruption, interrupted write operation, MySQL crash during a transaction.
+**Likely causes**: Disk corruption, interrupted write operation, MariaDB crash during a transaction.
 
 **Recovery steps**:
 
@@ -170,12 +169,12 @@ This is tracked as **BACKUP-2** in the project TODO. The planned remediation is 
      ```
    - Rebuild the application: install Node.js dependencies, compile TypeScript, configure Passenger.
    - Restore environment variables from the password manager into `.htaccess`.
-   - Restore the database from the most recent offsite backup (if BACKUP-2 is implemented) or from any manual backup copies.
+   - Restore the database from the most recent offsite backup in Backblaze B2 (`GTA-CPR-Backups/db`).
    - Update DNS records to point `cpr.kpbc.ca` to the new server IP.
    - Verify SSL certificate is provisioned (cPanel AutoSSL or Let's Encrypt).
    - Test all critical paths: login, course management, billing.
 
-**Estimated recovery time**: 2-8 hours depending on TMD response time and whether offsite backups exist.
+**Estimated recovery time**: 2-8 hours depending on TMD response time (offsite backups exist; data loss bounded by the last nightly dump).
 
 ### Scenario 4: Security Breach
 
@@ -266,7 +265,7 @@ Follow the procedures defined in `docs/Incident_Response.md`, with the following
 
 ## 6. Database Restore Procedure
 
-This section provides step-by-step instructions for restoring the MySQL database from a daily backup.
+This section provides step-by-step instructions for restoring the MariaDB database from a daily backup.
 
 ### Step 1: Locate Backup Files
 
@@ -426,20 +425,11 @@ After major infrastructure changes (hosting migration, database engine upgrade, 
 
 The following improvements are planned to strengthen disaster recovery capabilities. They are tracked in `TODO.md`.
 
-### BACKUP-2: Offsite Database Backups (High Priority)
+### BACKUP-2: Offsite Database Backups — DONE (2026-09-18)
 
-**Current state**: All backups reside on the same TMD server as production.
+Implemented as a pull-based GitHub Actions job (`.github/workflows/backup.yml`) rather than a push from the server, because the shared host's process limit makes server-side tooling unreliable. Nightly at 03:30 UTC: fetch newest dump over FTPS → reject if > 36 h old → test-restore into MariaDB 11.4 → mirror vendor uploads → copy to Backblaze B2 `GTA-CPR-Backups` → prune copies older than 90 days → email on failure. RPO in total server loss: 24 h.
 
-**Target state**: After each daily `mysqldump`, automatically push the compressed backup to an offsite destination (Amazon S3, Backblaze B2, or a remote FTP/SFTP server).
-
-**Implementation approach**:
-1. Add an upload step to `/home/kaizenmo/backup-cpr.sh` that runs after a successful dump.
-2. Use `aws s3 cp` (if S3) or `b2 upload-file` (if Backblaze B2) or `curl -T` (if FTP).
-3. Retain 30 days of offsite backups (vs. 7 days on-server).
-4. Add a verification step that confirms the upload succeeded before the script exits.
-5. Alert on upload failure (e.g., email notification).
-
-**Impact**: Provides true RPO of 24 hours even in a total server loss scenario. Eliminates the single point of failure in the current backup strategy.
+**Remaining**: store vendor PDFs directly in the bucket at upload time (S2) to close the up-to-24 h window for uploads.
 
 ### HOSTING-1: VPS Upgrade (Medium Priority)
 
@@ -457,7 +447,7 @@ The following improvements are planned to strengthen disaster recovery capabilit
 
 ### Future Considerations
 
-- **Database replication**: If the system grows to require near-zero RPO, implement MySQL replication to a standby server.
+- **Database replication**: If the system grows to require near-zero RPO, implement MariaDB replication to a standby server.
 - **Multi-region hosting**: For higher availability, deploy to a second geographic region with DNS failover.
 - **Automated health-check recovery**: Script that automatically restarts Passenger when the health endpoint fails (beyond UptimeRobot alerting).
 - **Immutable backups**: Use object lock or write-once storage for backups to protect against ransomware or accidental deletion.
@@ -471,8 +461,8 @@ The following improvements are planned to strengthen disaster recovery capabilit
 | Application directory | `/home/kaizenmo/cpr.kpbc.ca/` |
 | Source code directory | `/home/kaizenmo/cpr.kpbc.ca-src/` |
 | Backup script | `/home/kaizenmo/backup-cpr.sh` |
-| Production deploy script | `/home/kaizenmo/deploy-production.sh` |
-| Staging deploy script | `/home/kaizenmo/deploy-staging.sh` |
+| Deploys | GitHub Actions `.github/workflows/ci.yml` (staging + production on push to `master`); the old server scripts are archived in `docs/archive/` |
+| Offsite backup job | GitHub Actions `.github/workflows/backup.yml` → Backblaze B2 `GTA-CPR-Backups` |
 | Environment variables | `/home/kaizenmo/cpr.kpbc.ca/.htaccess` |
 | Passenger restart trigger | `/home/kaizenmo/cpr.kpbc.ca/tmp/restart.txt` |
 | GitHub repository | `https://github.com/Kaizenpbc/cpr-fastify` |

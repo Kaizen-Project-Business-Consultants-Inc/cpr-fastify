@@ -135,7 +135,7 @@ Do this before any refactor. It removes ~36% of frontend files, ~25 of the 61 a1
 2. Which deploy path survives: CI FTPS or the server cron. (3.7)
 3. Add Instructor and Delete Organization: build the missing backend routes or remove the buttons. (5.3)
 4. Vendor Status/Paid pages: fix or delete. (5.10)
-5. Whether production is MySQL 8 or MariaDB (determines 4.1/4.2).
+5. ~~Whether production is MySQL 8 or MariaDB~~ — resolved 2026-09-18: MariaDB 11.4.
 
 ## Rough totals
 
