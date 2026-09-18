@@ -54,12 +54,36 @@ export class CourseRequestRepository extends BaseRepository<CourseRequest> {
        LEFT JOIN organizations o ON cr.organization_id = o.id
        LEFT JOIN users u ON cr.instructor_id = u.id`;
 
-  private static readonly LIST_COLS = `cr.*, cr.date_requested as request_submitted_date,
+  // The frontend reads these in camelCase (course.scheduledDate,
+  // course.courseTypeName, ...) but course_requests and its joined tables are
+  // snake_case, so every derived/base column the UI touches gets a matching
+  // camelCase alias here, alongside the original snake_case one left in place
+  // for any other consumer. Without this, the admin "assign instructor"
+  // screen silently shows every pending course with a blank name/org/date
+  // and 0 students, and the assign dialog's `if (course.scheduledDate)`
+  // check always fails — no instructor can ever be assigned. Found by an E2E
+  // test that actually drove the request-a-course -> assign-instructor
+  // workflow, not just navigation. See tests/e2e/workflows.spec.ts.
+  private static readonly LIST_COLS = `cr.*,
+              cr.date_requested as request_submitted_date,
+              cr.date_requested as requestSubmittedDate,
+              cr.scheduled_date as scheduledDate,
+              cr.registered_students as registeredStudents,
+              cr.instructor_id as instructorId,
+              cr.confirmed_date as confirmedDate,
+              cr.confirmed_start_time as confirmedStartTime,
+              cr.confirmed_end_time as confirmedEndTime,
+              cr.ready_for_billing as readyForBilling,
               ct.name as course_type_name,
+              ct.name as courseTypeName,
               o.name as organization_name,
+              o.name as organizationName,
               u.username as instructor_name,
+              u.username as instructorName,
               (SELECT COUNT(*) FROM course_students cs
-               WHERE cs.course_request_id = cr.id AND cs.attended = true) AS students_attended`;
+               WHERE cs.course_request_id = cr.id AND cs.attended = true) AS students_attended,
+              (SELECT COUNT(*) FROM course_students cs
+               WHERE cs.course_request_id = cr.id AND cs.attended = true) AS studentsAttended`;
 
   /**
    * Run a list query either unbounded (no `pagination` — today's behaviour) or

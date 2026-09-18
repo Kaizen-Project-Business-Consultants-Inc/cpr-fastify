@@ -62,3 +62,45 @@ export async function loginAs(page: Page, username: string, password: string) {
 export type TestFixtures = Record<string, never>;
 export const test = base;
 export { expect } from '@playwright/test';
+
+/** Marker every record created by the workflow E2E tests carries, so it is
+ *  obviously safe to ignore or delete and never mistaken for a real customer's data. */
+export const TEST_MARKER = 'E2E-TEST — do not use — automated workflow test, safe to delete';
+
+/** A day comfortably outside the 11-day "locked" window used for instructor
+ *  availability, in both ISO (API) and US (date-picker typing) form. */
+export function farFutureDate(daysAhead = 45): { iso: string; us: string } {
+  const d = new Date();
+  d.setDate(d.getDate() + daysAhead);
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return { iso: `${yyyy}-${mm}-${dd}`, us: `${mm}/${dd}/${yyyy}` };
+}
+
+/** Read the logged-in user's access token out of sessionStorage (see
+ *  frontend/src/services/tokenService.ts) so a workflow test can call an API
+ *  endpoint directly and reliably, on a page that has already logged in
+ *  through the real login form. Used only for the one or two steps (like
+ *  picking a day on a bare calendar widget with no accessible labels) where
+ *  driving the actual UI control would be far more flaky than the endpoint
+ *  it calls is simple. Every multi-field form is still driven through the UI. */
+export async function getAccessToken(page: Page): Promise<string> {
+  const token = await page.evaluate(() => sessionStorage.getItem('accessToken'));
+  if (!token) throw new Error('No accessToken in sessionStorage — is the page logged in?');
+  return token;
+}
+
+/** A tiny but structurally valid one-page PDF, good enough to pass the
+ *  vendor invoice upload's file-type check without needing a real fixture file. */
+export function minimalPdfBuffer(): Buffer {
+  const pdf = [
+    '%PDF-1.4',
+    '1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj',
+    '2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj',
+    '3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 200 200]/Resources<<>>>>endobj',
+    'trailer<</Root 1 0 R/Size 4>>',
+    '%%EOF',
+  ].join('\n');
+  return Buffer.from(pdf, 'utf-8');
+}
