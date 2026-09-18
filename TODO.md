@@ -29,8 +29,17 @@ The audit's engineering-debt list was cleared on 2026-09-18. What is left:
   consider extra `retries` scoped to the "dashboard loads" tests only. Test timeouts were
   raised to 20s in both packages after 5s proved too tight under load.
 - [ ] **Backend route tests**: guard coverage exists (`routes.guards.test.ts`); add
-  `app.inject` tests for the billing lifecycle, org-billing and vendor flows. The payment
-  bug below would have been caught by one.
+  `app.inject` tests for the billing lifecycle, org-billing and vendor flows — faster than
+  a browser test and would catch a field-name mismatch without needing staging. A real
+  browser-driven equivalent now exists (see below) but only runs on request.
+- [ ] **`tests/e2e/workflows.spec.ts`** (added 2026-09-18) drives real cross-role
+  transactions — availability → course request → instructor assignment, and vendor
+  invoice upload → admin approval → payment — against staging, tagging every record it
+  creates so it's safe to leave. It found four of the bugs below in one run. It's
+  excluded from the default CI run (`INCLUDE_WORKFLOWS=1 npx playwright test
+  tests/e2e/workflows.spec.ts` to run it) because it's slower and shares the login rate
+  limit with everything else; worth scheduling on a cadence (e.g. nightly) rather than
+  running it only by hand.
 - [ ] **CI action Node runtime**: `SamKirkland/FTP-Deploy-Action@v4.3.5` and
   `actions/*-artifact@v5` still target Node 20 (GitHub forces 24); update when new
   releases target 22+.
@@ -54,6 +63,25 @@ removed · every native `alert()`/`window.confirm()` gone from the app · namesp
 `no-explicit-any` 0 and an error; frontend warnings 714 → 46, six rules promoted to error.
 
 ### Bugs this work uncovered and fixed
+- **Admin could never assign an instructor to a newly requested course.** `GET
+  /courses/pending` (and confirmed/completed/cancelled, sharing the same query)
+  returned `scheduled_date`, `course_type_name`, `registered_students` etc. in
+  snake_case only; the UI reads `course.scheduledDate` and friends, so the
+  "Assign Instructor to Course" dialog always showed a blank name/org/date and
+  0 students, and its `if (course.scheduledDate)` guard always failed — so it
+  never even checked for an available instructor. Found and fixed 2026-09-18
+  by a new end-to-end test that actually requests a course and assigns an
+  instructor, not just loads the screen.
+- **The vendor invoice list's "View"/"Download" buttons always read "invoice
+  undefined."** Same class of bug in three more places: the vendor's own
+  invoice history, the admin approval screen, and the accounting screen —
+  each selected `vi.*` with no camelCase aliases.
+- **Recording a payment on a vendor invoice has never worked.** Two stacked
+  bugs: the request body was snake_case on the wire but the server required
+  camelCase (fixed to match the app's convention), and even after that, the
+  amount field was sent as a string while the server requires a number — every
+  attempt threw "Expected number, received string" and no payment was ever
+  recorded. Both found and fixed 2026-09-18.
 - **Recording an invoice payment never worked.** `RecordPaymentDialog` sent
   `amount_paid`/`payment_method`/`reference_number`; the server's zod schema requires
   `amount`/`paymentMethod`/`reference`, so every submission threw before reaching the
