@@ -213,7 +213,7 @@ Customer notification should be made by phone or email depending on the severity
 ## 9. Step 5 — Remediation (Within 1 Week)
 
 1. **Identify and fix the vulnerability** that caused or permitted the breach. This may involve code changes, configuration updates, or infrastructure modifications.
-2. **Deploy the fix to production**. Follow the standard deployment process (push to `master`, CI validation via GitHub Actions, deploy via `deploy-production.sh` or wait for auto-deploy at :18).
+2. **Deploy the fix to production**. Follow the standard deployment process (push to `master`; GitHub Actions validates and deploys to staging and production automatically).
 3. **Verify the fix** by testing the specific attack vector or failure mode in the staging environment (stagecprapp.kpbc.ca) before or after production deployment.
 4. **Conduct a post-incident review** within 48 hours of resolution, following the Post-Incident Report template in the Incident Response Runbook. Store completed reports in `docs/incidents/`.
 5. **Update security measures** as needed: add new audit log checks, update access controls, strengthen input validation, add monitoring rules in Sentry.

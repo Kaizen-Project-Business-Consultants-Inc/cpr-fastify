@@ -415,12 +415,12 @@ graph LR
     end
 
     subgraph TMD["TMD Hosting Server"]
-        Cron["Hourly Cron (:48)"]
-        DeployScript["deploy-production.sh"]
+        Cron["GitHub Actions deploy job"]
+        DeployScript["FTPS upload + touch tmp/restart.txt"]
         LiteSpeed2["LiteSpeed + SSL"]
         Passenger2["Passenger"]
         Fastify2["Fastify 5"]
-        MySQL2[("MySQL")]
+        MySQL2[("MariaDB 11.4")]
         Restart["touch tmp/restart.txt"]
     end
 

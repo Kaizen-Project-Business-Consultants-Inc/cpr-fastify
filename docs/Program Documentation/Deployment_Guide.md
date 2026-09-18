@@ -69,22 +69,9 @@ git push origin master
 # Monitor: https://github.com/Kaizenpbc/cpr-fastify/actions
 ```
 
-### 3.2 Server-Side Auto-Deploy (Cron -- Legacy/Backup)
+### 3.2 Server-Side Auto-Deploy (retired 2026-09-17)
 
-A cron job on the TMD server pulls from `master` and rebuilds hourly:
-
-- **Production**: `deploy-production.sh` runs at `:48` past each hour
-- **Staging**: `deploy-staging.sh` runs at `:18` past each hour
-
-The deploy script:
-1. Pulls latest from `https://github.com/Kaizenpbc/cpr-fastify.git` into `/home/kaizenmo/cpr.kpbc.ca-src/`
-2. Runs `npm ci` (falls back to `npm install --legacy-peer-deps`)
-3. Builds backend via `npx tsc`
-4. Backs up the current `dist/` to `dist-backup/`
-5. Copies compiled JS + `package.json` + `package-lock.json` to the app directory
-6. Installs production dependencies (`npm install --omit=dev`)
-7. Writes the `server.js` Passenger entry point
-8. Restarts Passenger via `touch tmp/restart.txt`
+The hourly `deploy-production.sh` / `deploy-staging.sh` crons were removed; they repeatedly failed on the host's process limit and raced the CI upload. The scripts are kept for reference in `docs/archive/`. CI now uploads a self-contained backend bundle (`backend/build.mjs`, esbuild) plus the built frontend to **both** environments and restarts each by touching `tmp/restart.txt`; nothing is built or installed on the server.
 
 ### 3.3 Manual Deploy (FTPS)
 
@@ -245,8 +232,8 @@ Staging is at **https://stagecprapp.kpbc.ca** and follows the same process as pr
 | URL | `https://cpr.kpbc.ca` | `https://stagecprapp.kpbc.ca` |
 | App directory | `/home/kaizenmo/cpr.kpbc.ca/` | `/home/kaizenmo/stagecprapp.kpbc.ca/` |
 | Source directory | `/home/kaizenmo/cpr.kpbc.ca-src/` | (same repo, different deploy target) |
-| Deploy script | `deploy-production.sh` | `deploy-staging.sh` |
-| Cron schedule | `:48` past each hour | `:18` past each hour |
+| Deploy | GitHub Actions `deploy` job | GitHub Actions `deploy-staging` job |
+| Trigger | every push to `master` | every push to `master` (E2E runs here afterwards) |
 | VITE_API_URL | `https://cpr.kpbc.ca/api/v1` | `https://stagecprapp.kpbc.ca/api/v1` |
 | Database | `kaizenmo_cpr` | Separate staging database |
 
@@ -278,8 +265,7 @@ Deploy to staging first to validate changes before pushing to production.
 | `/home/kaizenmo/cpr.kpbc.ca/tmp/restart.txt` | Touch to restart Passenger |
 | `/home/kaizenmo/cpr.kpbc.ca/.htaccess` | Environment variables (SetEnv) |
 | `/home/kaizenmo/cpr.kpbc.ca-src/` | Git source checkout |
-| `/home/kaizenmo/deploy-production.sh` | Production deploy script |
-| `/home/kaizenmo/deploy-staging.sh` | Staging deploy script |
+| `/home/kaizenmo/deploy-production.sh`, `deploy-staging.sh` | Retired 2026-09-17 (archived in `docs/archive/`); deploys run from GitHub Actions |
 | `/home/kaizenmo/backup-cpr.sh` | Database backup script (cron at 2:00 AM) |
 
 ### Passenger Entry Point
@@ -304,7 +290,5 @@ Passenger watches `tmp/restart.txt` for timestamp changes. Touching or writing t
 
 | Schedule | Script | Purpose |
 |----------|--------|---------|
-| `:18` hourly | `deploy-staging.sh` | Auto-deploy staging from master |
-| `:48` hourly | `deploy-production.sh` | Auto-deploy production from master |
 | `2:00 AM` daily | `backup-cpr.sh` | MariaDB dump with 7-day rotation |
 | `03:30 UTC` daily | GitHub Actions `backup.yml` | Test-restore + offsite copy to Backblaze B2 (90-day retention) |

@@ -1,5 +1,7 @@
 # Production Cutover: Express → Fastify 5
 
+> **Historical record (2026-06-15).** The deploy mechanism described below (server-side `deploy-production.sh` cron) was retired on 2026-09-17; deploys now run from GitHub Actions. See `README.md` and `ROLLBACK.md` for the current process.
+
 **Date**: 2026-06-15
 **Performed by**: Claude Opus 4.6 + George
 

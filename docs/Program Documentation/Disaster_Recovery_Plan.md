@@ -216,18 +216,8 @@ Follow the procedures defined in `docs/Incident_Response.md`, with the following
    git revert <bad-commit-hash>
    git push origin master
    ```
-3. Deploy immediately (do not wait for the hourly auto-deploy):
-   ```bash
-   cd /home/kaizenmo
-   bash deploy-production.sh
-   ```
-4. If the revert is not straightforward, use the emergency rollback:
-   ```bash
-   cd /home/kaizenmo/cpr.kpbc.ca
-   rm -rf backend/dist
-   cp -r backend/dist-backup backend/dist
-   touch tmp/restart.txt
-   ```
+3. CI deploys the revert to staging and production automatically (about 10 minutes): `gh run watch` or https://github.com/Kaizenpbc/cpr-fastify/actions
+4. If the app will not start after a deploy, see `ROLLBACK.md` ("If the app will not start after a deploy").
    Note: `dist-backup/` is overwritten on every deploy. If you may need it, copy it elsewhere first.
 5. Verify recovery:
    ```bash
