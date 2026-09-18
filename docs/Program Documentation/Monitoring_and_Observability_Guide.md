@@ -390,7 +390,7 @@ The `logAudit()` function is fire-and-forget: it does not `await` the database i
 
 ### 8.2 Deploys (GitHub Actions)
 
-**Trigger**: every push to `master` (`.github/workflows/ci.yml`). The server-side hourly deploy crons were retired on 2026-09-17.
+**Trigger**: every push to `master` (`.github/workflows/ci.yml`).
 
 The workflow lints, type-checks and tests both packages, bundles the backend (esbuild) and smoke-tests the bundle, uploads backend + frontend over FTPS to staging and production, restarts each by touching `tmp/restart.txt`, health-checks each, then runs the Playwright E2E suite against staging. An email is sent on success or failure.
 

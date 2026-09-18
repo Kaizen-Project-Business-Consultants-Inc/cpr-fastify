@@ -69,9 +69,9 @@ git push origin master
 # Monitor: https://github.com/Kaizenpbc/cpr-fastify/actions
 ```
 
-### 3.2 Server-Side Auto-Deploy (retired 2026-09-17)
+### 3.2 What CI uploads
 
-The hourly `deploy-production.sh` / `deploy-staging.sh` crons were removed; they repeatedly failed on the host's process limit and raced the CI upload. The scripts are kept for reference in `docs/archive/`. CI now uploads a self-contained backend bundle (`backend/build.mjs`, esbuild) plus the built frontend to **both** environments and restarts each by touching `tmp/restart.txt`; nothing is built or installed on the server.
+CI uploads a self-contained backend bundle (`backend/build.mjs`, esbuild) plus the built frontend to **both** environments and restarts each by touching `tmp/restart.txt`; nothing is built or installed on the server.
 
 ### 3.3 Manual Deploy (FTPS)
 
@@ -265,7 +265,6 @@ Deploy to staging first to validate changes before pushing to production.
 | `/home/kaizenmo/cpr.kpbc.ca/tmp/restart.txt` | Touch to restart Passenger |
 | `/home/kaizenmo/cpr.kpbc.ca/.htaccess` | Environment variables (SetEnv) |
 | `/home/kaizenmo/cpr.kpbc.ca-src/` | Git source checkout |
-| `/home/kaizenmo/deploy-production.sh`, `deploy-staging.sh` | Retired 2026-09-17 (archived in `docs/archive/`); deploys run from GitHub Actions |
 | `/home/kaizenmo/backup-cpr.sh` | Database backup script (cron at 2:00 AM) |
 
 ### Passenger Entry Point

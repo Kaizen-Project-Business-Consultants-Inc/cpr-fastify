@@ -451,7 +451,7 @@ Implemented as a pull-based GitHub Actions job (`.github/workflows/backup.yml`) 
 | Application directory | `/home/kaizenmo/cpr.kpbc.ca/` |
 | Source code directory | `/home/kaizenmo/cpr.kpbc.ca-src/` |
 | Backup script | `/home/kaizenmo/backup-cpr.sh` |
-| Deploys | GitHub Actions `.github/workflows/ci.yml` (staging + production on push to `master`); the old server scripts are archived in `docs/archive/` |
+| Deploys | GitHub Actions `.github/workflows/ci.yml` (staging + production on push to `master`) |
 | Offsite backup job | GitHub Actions `.github/workflows/backup.yml` → Backblaze B2 `GTA-CPR-Backups` |
 | Environment variables | `/home/kaizenmo/cpr.kpbc.ca/.htaccess` |
 | Passenger restart trigger | `/home/kaizenmo/cpr.kpbc.ca/tmp/restart.txt` |

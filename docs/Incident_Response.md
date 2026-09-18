@@ -90,7 +90,7 @@ Review request counts, error rate, and latency values.
 
 ### Step 6: Check Recent Deploys
 
-1. Every push to `master` deploys staging AND production through GitHub Actions (`.github/workflows/ci.yml`); the server-side deploy crons were retired on 2026-09-17
+1. Every push to `master` deploys staging AND production through GitHub Actions (`.github/workflows/ci.yml`)
 2. Open https://github.com/Kaizenpbc/cpr-fastify/actions — the run shows lint/typecheck/tests, both deploys with health checks, and the Playwright E2E result
 3. Check if a recent commit broke something:
    ```bash

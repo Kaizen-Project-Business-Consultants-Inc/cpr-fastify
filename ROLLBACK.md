@@ -2,7 +2,7 @@
 
 Every push to `master` deploys to **both** environments through GitHub Actions
 (`.github/workflows/ci.yml`): staging (`stagecprapp.kpbc.ca`) and production (`cpr.kpbc.ca`).
-There are no server-side deploy crons any more; CI uploads a self-contained backend bundle
+CI uploads a self-contained backend bundle
 and the built frontend over FTPS, touches `tmp/restart.txt` to restart Passenger, and
 health-checks each environment.
 
