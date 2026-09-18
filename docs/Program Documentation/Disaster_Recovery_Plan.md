@@ -51,7 +51,7 @@ These targets reflect the current shared hosting infrastructure. They should be 
 | **Email** | Resend API (sends from `noreply@kpbc.ca`) |
 | **Monitoring** | UptimeRobot (health endpoint every 5 min), Sentry (error tracking) |
 | **Source control** | GitHub -- `https://github.com/Kaizenpbc/cpr-fastify` |
-| **CI/CD** | GitHub Actions (tsc + vitest on push); hourly auto-deploy cron at `:18` via `deploy-production.sh` |
+| **CI/CD** | GitHub Actions on every push to `master`: lint, typecheck, tests, backend bundle + smoke test, FTPS deploy to staging and production with restart + health check, Playwright E2E. Nightly offsite backup workflow. No server-side deploy crons. |
 
 ### Known Infrastructure Limitations
 

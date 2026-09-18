@@ -388,14 +388,21 @@ The `logAudit()` function is fire-and-forget: it does not `await` the database i
 
 **Failure behavior**: If the entire batch fails (e.g., database error), the error is caught and logged at `error` level. Individual email failures are also logged. The service does not crash the application.
 
-### 8.2 Auto-Deploy Cron
+### 8.2 Deploys (GitHub Actions)
 
-**Schedule**: Hourly at `:18` (e.g., 1:18, 2:18, ...)
-**Script**: `/home/kaizenmo/deploy-production.sh` (production), `/home/kaizenmo/deploy-staging.sh` (staging)
+**Trigger**: every push to `master` (`.github/workflows/ci.yml`). The server-side hourly deploy crons were retired on 2026-09-17.
 
-The cron job pulls the latest `master` branch from GitHub, runs `tsc` to compile TypeScript, deploys the built output, and restarts Passenger via `touch tmp/restart.txt`.
+The workflow lints, type-checks and tests both packages, bundles the backend (esbuild) and smoke-tests the bundle, uploads backend + frontend over FTPS to staging and production, restarts each by touching `tmp/restart.txt`, health-checks each, then runs the Playwright E2E suite against staging. An email is sent on success or failure.
 
-**How to monitor**: Check `git log --oneline -5` on the server to see the most recent commits. If a deploy introduced a bug, the Incident Response Runbook covers rollback procedures.
+**How to monitor**: https://github.com/Kaizenpbc/cpr-fastify/actions — a green run means all of the above passed. `ROLLBACK.md` covers reverting.
+
+### 8.2a Offsite Backup (GitHub Actions)
+
+**Schedule**: nightly at 03:30 UTC (`.github/workflows/backup.yml`), after the 2:00 AM server dump.
+
+Fetches the newest dump over FTPS, refuses it if older than 36 h (a silent server-side backup failure), test-restores it into MariaDB 11.4, mirrors `uploads/vendor-invoices/`, copies both to Backblaze B2 bucket `GTA-CPR-Backups`, prunes copies older than 90 days. Emails the notify address on failure.
+
+**How to monitor**: the Actions tab (workflow "Nightly offsite backup") and the Backblaze console (Buckets → GTA-CPR-Backups → db should have a file per night).
 
 ### 8.3 Database Backup Cron
 
@@ -425,7 +432,7 @@ The current monitoring setup provides basic visibility but has several gaps that
 | **No log aggregation** | Logs are in Passenger/LiteSpeed error logs on the server. No centralized log search or alerting. | Debugging requires SSH access; no proactive alerting on log patterns. |
 | **No uptime monitoring for staging** | Only production is monitored by UptimeRobot. | Staging issues may go unnoticed, reducing confidence in pre-production testing. |
 | **Metrics are in-memory only** | Counters reset on every Passenger restart. No historical data. | Cannot analyze trends or compare performance over time. |
-| **No offsite backups** | Database backups are on the same server as the database (BACKUP-2). | Single point of failure for data recovery. |
+| **Uploads copied offsite only nightly** | Vendor PDFs reach Backblaze once a night (S2). | Up to 24 h of uploads could be lost in a total server failure. |
 
 ### Recommendations for Scaling Monitoring
 
