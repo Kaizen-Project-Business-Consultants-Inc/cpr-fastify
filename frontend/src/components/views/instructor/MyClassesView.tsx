@@ -103,13 +103,15 @@ const MyClassesView: React.FC<MyClassesViewProps> = ({
 
   const handleDeleteCancel = () => { if (!removing) setDeleteDialog({ open: false, date: '' }); };
 
-  /** An instructor cannot cancel availability 5 days or less before the date
-   *  (enforced server-side too — see instructors.ts DELETE /availability/:date). */
+  /** An instructor cannot cancel availability 5 days or less before an
+   *  UPCOMING date (enforced server-side too — see instructors.ts DELETE
+   *  /availability/:date). A negative diffDays means the date has already
+   *  passed, which is not "close" to anything — don't warn or block those. */
   const isDateTooClose = (date: string) => {
     const today = new Date();
     const targetDate = new Date(date);
     const diffDays = Math.ceil((targetDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
-    return diffDays <= 5;
+    return diffDays >= 0 && diffDays <= 5;
   };
 
   return (

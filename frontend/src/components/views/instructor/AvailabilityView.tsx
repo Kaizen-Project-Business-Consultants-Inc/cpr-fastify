@@ -138,12 +138,16 @@ const AvailabilityView: React.FC<AvailabilityViewProps> = ({
       return dStr.length === 10 && !isNaN(new Date(dStr).getTime()) && dStr === dateStr;
     });
 
-    // An instructor cannot cancel availability 5 days or less before the date.
+    // An instructor cannot cancel availability 5 days or less before an
+    // upcoming date. A negative diffDays is a date already in the past —
+    // not "close" to anything — so it's excluded (the separate past-date
+    // guard in CustomDay's onClick already handles those with its own
+    // correct message before this function is ever reached from the UI).
     const today = new Date();
     const diffTime = date.getTime() - today.getTime();
     const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
 
-    if (isAvailable && diffDays <= 5) {
+    if (isAvailable && diffDays >= 0 && diffDays <= 5) {
       setError('Availability cannot be cancelled 5 days or less before the date. Contact your administrator if you need to cancel.');
       return;
     }
@@ -213,11 +217,14 @@ const AvailabilityView: React.FC<AvailabilityViewProps> = ({
     const isHoliday = holidays.includes(dateStr);
     const isPastDate = day < new Date(new Date().setHours(0, 0, 0, 0));
 
-    // An instructor cannot cancel availability 5 days or less before the date.
+    // An instructor cannot cancel availability 5 days or less before an
+    // upcoming date. Excludes negative diffDays (already past) so the
+    // tooltip correctly falls through to the isPastDate branch below
+    // instead of claiming a long-gone date is "5 days or less" away.
     const today = new Date();
     const diffTime = day.getTime() - today.getTime();
     const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-    const isWithinCancelLockout = diffDays <= 5;
+    const isWithinCancelLockout = diffDays >= 0 && diffDays <= 5;
 
     // Color logic with priority: Scheduled > Available > Today > Past > Default
     let backgroundColor, hoverColor, tooltipTitle, textColor;
