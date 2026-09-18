@@ -156,8 +156,15 @@ export async function vendorRoutes(app: FastifyInstance) {
       if (status) { where += ' AND vi.status = ?'; params.push(status); }
       if (search) { where += ' AND (vi.invoice_number LIKE ? OR vi.description LIKE ?)'; params.push(`%${search}%`, `%${search}%`); }
 
+      // The frontend reads these in camelCase (invoice.invoiceNumber,
+      // invoice.dueDate, ...); vi.* alone leaves them undefined and every
+      // "View"/"Download" action renders as "invoice undefined". Alias each
+      // one the UI touches alongside the original snake_case column.
       const result = await maybePaginate(
-        `SELECT vi.*, v.name as company, v.name as billing_company,
+        `SELECT vi.*, v.name as company, v.name as billing_company, v.name as billingCompany,
+                vi.invoice_number as invoiceNumber, vi.due_date as dueDate,
+                vi.payment_date as paymentDate, vi.pdf_filename as pdfFilename,
+                vi.created_at as createdAt,
                 COALESCE(vi.rate, 0) as rate, COALESCE(vi.amount, 0) as amount,
                 COALESCE(vi.amount, 0) as subtotal, COALESCE(vi.hst, 0) as hst,
                 COALESCE(vi.total, vi.amount) as total
