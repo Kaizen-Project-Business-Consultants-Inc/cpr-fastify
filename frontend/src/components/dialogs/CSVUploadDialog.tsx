@@ -13,6 +13,7 @@ import {
 import { CloudUpload as UploadIcon } from '@mui/icons-material';
 import { parseCSV, ParsedCSVResult } from '../../utils/csvParser';
 import { organizationApi } from '../../services/api';
+import { tokenService } from '../../services/tokenService';
 
 interface UploadResult {
   fileName: string;
@@ -74,8 +75,12 @@ const CSVUploadDialog: React.FC<CSVUploadDialogProps> = ({
     setError(null);
 
     try {
-      // Check authentication before upload
-      const token = window.tokenService?.getAccessToken();
+      // Check authentication before upload. Was reading a `window.tokenService`
+      // global that nothing in the app ever set, so this always failed and
+      // blocked every upload with "Authentication required" even when the
+      // user was properly logged in — the real token lives in the
+      // tokenService module (same one api.ts's request interceptor uses).
+      const token = tokenService.getAccessToken();
       if (!token) {
         console.error('[CSVUploadDialog] No access token found');
         setError('Authentication required. Please log in again.');
