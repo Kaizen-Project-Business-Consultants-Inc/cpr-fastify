@@ -128,6 +128,99 @@ export async function authRoutes(app: FastifyInstance) {
     return { success: true, data: { user: enrichedUser } };
   });
 
+  // GET /api/v1/auth/my-data — PIPEDA "download my data": everything we hold about the caller.
+  // Each section is independent; a missing table yields [] / null rather than a 500.
+  app.get('/my-data', { preHandler: [requireAuth] }, async (request, reply) => {
+    const pool = getPool();
+    const user = await userRepo.findById(request.userId);
+    if (!user) return reply.status(404).send({ error: 'User not found' });
+    const { password_hash: _password_hash, ...safeUser } = user;
+
+    const section = async <T>(label: string, fn: () => Promise<T>, fallback: T): Promise<T> => {
+      try {
+        return await fn();
+      } catch (err) {
+        logger.warn({ err, userId: request.userId, section: label }, 'my-data section unavailable');
+        return fallback;
+      }
+    };
+
+    const organization = await section('organization', async () => {
+      if (!safeUser.organization_id) return null;
+      const [rows] = await pool.query<any[]>(
+        'SELECT id, name, address, contact_email, contact_phone, contact_person, status FROM organizations WHERE id = ?',
+        [safeUser.organization_id]
+      );
+      return rows[0] ?? null;
+    }, null as Record<string, unknown> | null);
+
+    const enrolments = await section('course_students', async () => {
+      const [rows] = await pool.query<any[]>(
+        `SELECT cs.id, cs.course_request_id, cs.first_name, cs.last_name, cs.email, cs.phone, cs.college,
+                cs.attended, cs.certificate_number, cs.certificate_issued_at, cs.certificate_expires_at,
+                cs.created_at, cr.scheduled_date, cr.confirmed_date, cr.status AS course_status,
+                ct.name AS course_type, o.name AS organization_name
+         FROM course_students cs
+         LEFT JOIN course_requests cr ON cr.id = cs.course_request_id
+         LEFT JOIN class_types ct ON ct.id = cr.course_type_id
+         LEFT JOIN organizations o ON o.id = cr.organization_id
+         WHERE cs.email = ? AND cs.deleted_at IS NULL
+         ORDER BY cs.created_at DESC`,
+        [safeUser.email]
+      );
+      return rows;
+    }, [] as any[]);
+
+    const taught = await section('course_requests', async () => {
+      if (safeUser.role !== 'instructor') return [];
+      const [rows] = await pool.query<any[]>(
+        `SELECT cr.id, cr.status, cr.scheduled_date, cr.confirmed_date, cr.confirmed_start_time,
+                cr.confirmed_end_time, cr.location, cr.registered_students, cr.completed_at,
+                ct.name AS course_type, o.name AS organization_name
+         FROM course_requests cr
+         LEFT JOIN class_types ct ON ct.id = cr.course_type_id
+         LEFT JOIN organizations o ON o.id = cr.organization_id
+         WHERE cr.instructor_id = ? AND cr.deleted_at IS NULL
+         ORDER BY COALESCE(cr.confirmed_date, cr.scheduled_date) DESC`,
+        [request.userId]
+      );
+      return rows;
+    }, [] as any[]);
+
+    const availability = await section('instructor_availability', async () => {
+      if (safeUser.role !== 'instructor') return [];
+      const [rows] = await pool.query<any[]>(
+        'SELECT date, status, created_at FROM instructor_availability WHERE instructor_id = ? ORDER BY date DESC',
+        [request.userId]
+      );
+      return rows;
+    }, [] as any[]);
+
+    const audit = await section('audit_logs', async () => {
+      const [rows] = await pool.query<any[]>(
+        `SELECT id, action, entity_type, entity_id, details, ip_address, created_at
+         FROM audit_logs WHERE user_id = ? ORDER BY created_at DESC LIMIT 100`,
+        [request.userId]
+      );
+      return rows;
+    }, [] as any[]);
+
+    logAudit({ userId: request.userId, action: 'export_my_data', entityType: 'user', entityId: request.userId, ipAddress: request.ip });
+    return {
+      success: true,
+      data: {
+        exportedAt: new Date().toISOString(),
+        user: safeUser,
+        organization,
+        courses: [...enrolments, ...taught],
+        enrolments,
+        coursesTaught: taught,
+        availability,
+        audit,
+      },
+    };
+  });
+
   // POST /api/v1/auth/logout
   // Revokes the refresh token carried in the cookie so the session cannot be renewed.
   app.post('/logout', async (request, reply) => {

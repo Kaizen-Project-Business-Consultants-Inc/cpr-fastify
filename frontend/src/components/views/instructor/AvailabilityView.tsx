@@ -104,6 +104,7 @@ const AvailabilityView: React.FC<AvailabilityViewProps> = ({
     isAvailable: false,
   });
   const [successMessage, setSuccessMessage] = useState<string>('');
+  const [saving, setSaving] = useState(false);
 
   // Ensure availableDates is always an array and extract dates
   // Use fetched availability if no props provided
@@ -167,10 +168,13 @@ const AvailabilityView: React.FC<AvailabilityViewProps> = ({
   };
 
   const handleConfirmationClose = () => {
+    if (saving) return;
     setConfirmation(prev => ({ ...prev, open: false }));
   };
 
   const handleConfirmationConfirm = async () => {
+    if (saving) return;
+    setSaving(true);
     try {
       if (confirmation.action === 'add') {
         // Use prop callback if provided, otherwise use mutation hook
@@ -193,7 +197,8 @@ const AvailabilityView: React.FC<AvailabilityViewProps> = ({
       handleError(err, { component: 'AvailabilityView', action: 'update availability' });
       setError(err instanceof Error ? err.message : 'Failed to update availability');
     } finally {
-      handleConfirmationClose();
+      setSaving(false);
+      setConfirmation(prev => ({ ...prev, open: false }));
     }
   };
 
@@ -480,9 +485,9 @@ const AvailabilityView: React.FC<AvailabilityViewProps> = ({
           </DialogContentText>
         </DialogContent>
         <DialogActions sx={{ p: 2 }}>
-          <GhostButton onClick={handleConfirmationClose}>Cancel</GhostButton>
-          <PrimaryButton onClick={handleConfirmationConfirm}>
-            {confirmation.action === 'add' ? 'Add Availability' : 'Remove Availability'}
+          <GhostButton onClick={handleConfirmationClose} disabled={saving}>Cancel</GhostButton>
+          <PrimaryButton onClick={handleConfirmationConfirm} disabled={saving}>
+            {saving ? 'Saving…' : confirmation.action === 'add' ? 'Add Availability' : 'Remove Availability'}
           </PrimaryButton>
         </DialogActions>
       </Dialog>

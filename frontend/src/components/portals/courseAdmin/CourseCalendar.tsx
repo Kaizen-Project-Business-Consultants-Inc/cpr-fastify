@@ -15,6 +15,8 @@ import { useQuery } from '@tanstack/react-query';
 import api from '../../../services/api';
 import StatusChip from '../../gtacpr/StatusChip';
 import { GhostButton } from '../../gtacpr/Buttons';
+import LinkButton from '../../gtacpr/LinkButton';
+import { toLocalDateString, formatISODate, formatDisplayDate } from '../../../utils/formatters';
 
 interface Course {
   id: number;
@@ -90,11 +92,11 @@ const CourseCalendar: React.FC = () => {
     const days: CalendarDay[] = [];
     const current = new Date(startDate);
     while (current <= endDate) {
-      const dateStr = current.toISOString().split('T')[0];
+      const dateStr = toLocalDateString(current);
       const coursesForDay = allCourses.filter((course) => {
         const courseDate = course.confirmedDate || course.scheduledDate;
         if (!courseDate) return false;
-        return new Date(courseDate).toISOString().split('T')[0] === dateStr;
+        return formatISODate(courseDate) === dateStr;
       });
       days.push({ date: new Date(current), isCurrentMonth: current.getMonth() === month, courses: coursesForDay });
       current.setDate(current.getDate() + 1);
@@ -159,11 +161,11 @@ const CourseCalendar: React.FC = () => {
     <Box sx={{ border: (theme) => `1px solid ${theme.palette.divider}`, borderRadius: '10px', bgcolor: (theme) => theme.palette.background.paper, p: 3 }}>
       {/* Header */}
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-        <Box onClick={handlePrevMonth} sx={{ fontSize: 13, fontWeight: 600, color: '#CC1F1F', cursor: 'pointer', px: 1.5, py: 0.5, borderRadius: '6px', '&:hover': { bgcolor: '#FEF2F2' } }}>← Prev</Box>
+        <LinkButton onClick={handlePrevMonth} aria-label="Previous month" sx={{ fontSize: 13, px: 1.5, py: 0.5, borderRadius: '6px' }}>← Prev</LinkButton>
         <Typography sx={{ fontSize: 16, fontWeight: 700, color: (theme) => theme.palette.text.primary }}>
           {monthNames[currentDate.getMonth()]} {currentDate.getFullYear()}
         </Typography>
-        <Box onClick={handleNextMonth} sx={{ fontSize: 13, fontWeight: 600, color: '#CC1F1F', cursor: 'pointer', px: 1.5, py: 0.5, borderRadius: '6px', '&:hover': { bgcolor: '#FEF2F2' } }}>Next →</Box>
+        <LinkButton onClick={handleNextMonth} aria-label="Next month" sx={{ fontSize: 13, px: 1.5, py: 0.5, borderRadius: '6px' }}>Next →</LinkButton>
       </Box>
 
       {/* Legend */}
@@ -206,7 +208,7 @@ const CourseCalendar: React.FC = () => {
               </Typography>
               <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
                 {day.courses.slice(0, 3).map((course) => (
-                  <Box key={course.id} onClick={() => handleCourseClick(course)} sx={{ cursor: 'pointer', p: 0.5, borderRadius: '4px', bgcolor: `${getStatusColor(course.status)}15`, borderLeft: `3px solid ${getStatusColor(course.status)}`, '&:hover': { bgcolor: `${getStatusColor(course.status)}25` }, overflow: 'hidden' }}>
+                  <Box key={course.id} role="button" tabIndex={0} aria-label={`View course for ${course.organizationName || 'organization'}`} onClick={() => handleCourseClick(course)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleCourseClick(course); } }} sx={{ cursor: 'pointer', p: 0.5, borderRadius: '4px', bgcolor: `${getStatusColor(course.status)}15`, borderLeft: `3px solid ${getStatusColor(course.status)}`, '&:hover': { bgcolor: `${getStatusColor(course.status)}25` }, overflow: 'hidden' }}>
                     <Typography sx={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', fontSize: 10, fontWeight: 600, lineHeight: 1.2, color: (theme) => theme.palette.text.primary }}>
                       {course.organizationName?.substring(0, 12) || 'N/A'}
                     </Typography>
@@ -240,7 +242,7 @@ const CourseCalendar: React.FC = () => {
                   {[
                     ['Organization', selectedCourse.organizationName || 'N/A'],
                     ['Course Type', selectedCourse.courseTypeName || 'N/A'],
-                    ['Date', selectedCourse.confirmedDate || selectedCourse.scheduledDate ? new Date(selectedCourse.confirmedDate || selectedCourse.scheduledDate || '').toLocaleDateString() : 'Not scheduled'],
+                    ['Date', selectedCourse.confirmedDate || selectedCourse.scheduledDate ? formatDisplayDate(selectedCourse.confirmedDate || selectedCourse.scheduledDate) : 'Not scheduled'],
                     ['Time', selectedCourse.confirmedStartTime ? `${formatTime(selectedCourse.confirmedStartTime)} - ${formatTime(selectedCourse.confirmedEndTime)}` : 'Not set'],
                     ...(selectedCourse.status === 'confirmed' ? [['Instructor', selectedCourse.instructorName || 'Not assigned']] : []),
                     ['Students', `${selectedCourse.registeredStudents || 0} registered`],

@@ -17,6 +17,9 @@ import SearchBar from '../gtacpr/SearchBar';
 import DataTable, { DataTableRow } from '../gtacpr/DataTable';
 import UserAvatar from '../gtacpr/UserAvatar';
 import StatusChip from '../gtacpr/StatusChip';
+import { LinkButton } from '../gtacpr';
+import { useDebounce } from '../../hooks/useDebounce';
+import { formatDisplayDate } from '../../utils/formatters';
 
 interface StudentManagementProps {
   onShowSnackbar: (message: string, severity: 'success' | 'error' | 'warning' | 'info') => void;
@@ -41,7 +44,8 @@ const StudentManagement = ({ onShowSnackbar }: StudentManagementProps) => {
   const [students, setStudents] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
-  const [searchTimeout, setSearchTimeout] = useState<ReturnType<typeof setTimeout> | null>(null);
+  const debouncedSearch = useDebounce(searchTerm, 300);
+  const [saving, setSaving] = useState(false);
 
   // Detail dialog
   const [detailOpen, setDetailOpen] = useState(false);
@@ -68,16 +72,8 @@ const StudentManagement = ({ onShowSnackbar }: StudentManagementProps) => {
   }, [onShowSnackbar]);
 
   useEffect(() => {
-    loadStudents();
-  }, [loadStudents]);
-
-  const handleSearchChange = (value: string) => {
-    setSearchTerm(value);
-    if (searchTimeout) clearTimeout(searchTimeout);
-    setSearchTimeout(setTimeout(() => {
-      loadStudents(value);
-    }, 400));
-  };
+    loadStudents(debouncedSearch);
+  }, [loadStudents, debouncedSearch]);
 
   const handleViewStudent = async (student: any) => {
     setDetailOpen(true);
@@ -107,14 +103,17 @@ const StudentManagement = ({ onShowSnackbar }: StudentManagementProps) => {
   };
 
   const handleEditSave = async () => {
-    if (!editId) return;
+    if (!editId || saving) return;
     try {
+      setSaving(true);
       await sysAdminApi.updateStudent(editId, editData);
       onShowSnackbar('Student updated', 'success');
       setEditOpen(false);
       loadStudents(searchTerm);
     } catch {
       onShowSnackbar('Failed to update student', 'error');
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -145,7 +144,7 @@ const StudentManagement = ({ onShowSnackbar }: StudentManagementProps) => {
           <SearchBar
             placeholder="Search students by name or email..."
             value={searchTerm}
-            onChange={handleSearchChange}
+            onChange={setSearchTerm}
           />
         </Box>
         <Typography sx={{ fontSize: 12, color: (theme) => theme.palette.text.secondary }}>
@@ -189,9 +188,7 @@ const StudentManagement = ({ onShowSnackbar }: StudentManagementProps) => {
               </Typography>
               {/* LAST COURSE */}
               <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>
-                {student.last_course_date
-                  ? new Date(student.last_course_date).toLocaleDateString()
-                  : '—'}
+                {formatDisplayDate(student.last_course_date)}
               </Typography>
               {/* MARKETING */}
               <Box sx={{ display: 'flex', justifyContent: 'center' }}>
@@ -199,6 +196,7 @@ const StudentManagement = ({ onShowSnackbar }: StudentManagementProps) => {
                   size="small"
                   checked={!!student.marketing_consent}
                   onChange={() => handleConsentToggle(student)}
+                  inputProps={{ 'aria-label': `Marketing consent for ${student.first_name || ''} ${student.last_name || ''}`.trim() }}
                   sx={{
                     '& .MuiSwitch-switchBase.Mui-checked': { color: '#16A34A' },
                     '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': { backgroundColor: '#16A34A' },
@@ -207,19 +205,9 @@ const StudentManagement = ({ onShowSnackbar }: StudentManagementProps) => {
               </Box>
               {/* ACTIONS */}
               <Box sx={{ display: 'flex', gap: 0.5, justifyContent: 'flex-end' }}>
-                <Box
-                  onClick={() => handleViewStudent(student)}
-                  sx={{ fontSize: 12, fontWeight: 600, color: '#CC1F1F', cursor: 'pointer', '&:hover': { textDecoration: 'underline' } }}
-                >
-                  View
-                </Box>
+                <LinkButton onClick={() => handleViewStudent(student)}>View</LinkButton>
                 <Typography sx={{ fontSize: 12, color: (theme) => theme.palette.divider }}>|</Typography>
-                <Box
-                  onClick={() => handleEditOpen(student)}
-                  sx={{ fontSize: 12, fontWeight: 600, color: '#CC1F1F', cursor: 'pointer', '&:hover': { textDecoration: 'underline' } }}
-                >
-                  Edit
-                </Box>
+                <LinkButton onClick={() => handleEditOpen(student)}>Edit</LinkButton>
               </Box>
             </DataTableRow>
           ))}
@@ -269,7 +257,7 @@ const StudentManagement = ({ onShowSnackbar }: StudentManagementProps) => {
                     <Typography sx={{ fontSize: 12, color: (theme) => theme.palette.text.secondary }}>{course.instructor_name || '—'}</Typography>
                     <Typography sx={{ fontSize: 12, color: (theme) => theme.palette.text.secondary }}>{course.location || '—'}</Typography>
                     <Typography sx={{ fontSize: 12, color: (theme) => theme.palette.text.secondary }}>
-                      {course.completed_at ? new Date(course.completed_at).toLocaleDateString() : '—'}
+                      {formatDisplayDate(course.completed_at)}
                     </Typography>
                     <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>
                       <StatusChip kind={chipKind} label={chipLabel} />
@@ -319,8 +307,8 @@ const StudentManagement = ({ onShowSnackbar }: StudentManagementProps) => {
           </Box>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setEditOpen(false)}>Cancel</Button>
-          <Button onClick={handleEditSave} variant="contained">Save</Button>
+          <Button onClick={() => setEditOpen(false)} disabled={saving}>Cancel</Button>
+          <Button onClick={handleEditSave} variant="contained" disabled={saving}>{saving ? 'Saving…' : 'Save'}</Button>
         </DialogActions>
       </Dialog>
     </Box>

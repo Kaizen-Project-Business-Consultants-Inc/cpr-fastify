@@ -14,6 +14,7 @@ import {
   DialogActions,
   TextField,
   Snackbar,
+  ButtonBase,
 } from '@mui/material';
 import { instructorApi, collegesApi } from '../../../services/api';
 import { useAuth } from '../../../contexts/AuthContext';
@@ -63,6 +64,8 @@ const ClassAttendanceView: React.FC = () => {
   const [addStudentDialog, setAddStudentDialog] = useState(false);
   const [completeDialog, setCompleteDialog] = useState(false);
   const [completing, setCompleting] = useState(false);
+  const [addingStudent, setAddingStudent] = useState(false);
+  const [markingStudentId, setMarkingStudentId] = useState<string | null>(null);
   const [newStudent, setNewStudent] = useState({
     firstName: '',
     lastName: '',
@@ -134,13 +137,16 @@ const ClassAttendanceView: React.FC = () => {
   };
 
   const handleAttendanceChange = async (studentId: string, attended: boolean) => {
-    if (!selectedClass) return;
+    if (!selectedClass || markingStudentId) return;
+    setMarkingStudentId(studentId);
     try {
       await instructorApi.updateStudentAttendance(selectedClass.courseId, studentId, attended);
       await loadStudents(selectedClass.courseId);
     } catch (error: unknown) {
       handleError(error, { component: 'ClassAttendanceView', action: 'update attendance' });
       setError('Failed to update attendance');
+    } finally {
+      setMarkingStudentId(null);
     }
   };
 
@@ -149,6 +155,8 @@ const ClassAttendanceView: React.FC = () => {
       setError('Please fill in all required fields (First Name, Last Name, Email, Phone)');
       return;
     }
+    if (addingStudent) return;
+    setAddingStudent(true);
     try {
       const response = await instructorApi.addStudent(selectedClass.courseId, newStudent);
       setStudents(prev => [...prev, response.data?.data || response.data]);
@@ -160,6 +168,8 @@ const ClassAttendanceView: React.FC = () => {
       const axiosErr = error as { response?: { data?: { error?: string } } };
       const errorMessage = axiosErr.response?.data?.error || 'Failed to add student';
       setError(errorMessage);
+    } finally {
+      setAddingStudent(false);
     }
   };
 
@@ -282,10 +292,14 @@ const ClassAttendanceView: React.FC = () => {
                       <Typography sx={{ fontSize: 13.5, fontWeight: 600, color: (theme) => theme.palette.text.primary }}>{student.firstname} {student.lastname}</Typography>
                       <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>{student.email || '—'}</Typography>
                       <Box sx={{ display: 'flex', justifyContent: 'center', gap: 1 }}>
-                        <Box
+                        <ButtonBase
                           onClick={() => handleAttendanceChange(student.studentid, true)}
+                          disabled={markingStudentId !== null}
+                          aria-pressed={student.attendanceMarked && student.attendance}
+                          aria-label={`Mark ${student.firstname} ${student.lastname} present`}
                           sx={{
-                            fontSize: 12, fontWeight: 600, cursor: 'pointer', px: 1.5, py: 0.5, borderRadius: '6px',
+                            fontSize: 12, fontWeight: 600, px: 1.5, py: 0.5, borderRadius: '6px',
+                            '&.Mui-disabled': { opacity: 0.6 },
                             bgcolor: student.attendanceMarked && student.attendance ? '#16A34A' : 'transparent',
                             color: student.attendanceMarked && student.attendance ? '#fff' : '#16A34A',
                             border: '1px solid #16A34A',
@@ -293,11 +307,15 @@ const ClassAttendanceView: React.FC = () => {
                           }}
                         >
                           Present
-                        </Box>
-                        <Box
+                        </ButtonBase>
+                        <ButtonBase
                           onClick={() => handleAttendanceChange(student.studentid, false)}
+                          disabled={markingStudentId !== null}
+                          aria-pressed={student.attendanceMarked && !student.attendance}
+                          aria-label={`Mark ${student.firstname} ${student.lastname} absent`}
                           sx={{
-                            fontSize: 12, fontWeight: 600, cursor: 'pointer', px: 1.5, py: 0.5, borderRadius: '6px',
+                            fontSize: 12, fontWeight: 600, px: 1.5, py: 0.5, borderRadius: '6px',
+                            '&.Mui-disabled': { opacity: 0.6 },
                             bgcolor: student.attendanceMarked && !student.attendance ? '#CC1F1F' : 'transparent',
                             color: student.attendanceMarked && !student.attendance ? '#fff' : '#CC1F1F',
                             border: '1px solid #CC1F1F',
@@ -305,7 +323,7 @@ const ClassAttendanceView: React.FC = () => {
                           }}
                         >
                           Absent
-                        </Box>
+                        </ButtonBase>
                       </Box>
                       <StatusChip
                         kind={student.attendanceMarked ? (student.attendance ? 'success' : 'danger') : 'neutral'}
@@ -355,8 +373,10 @@ const ClassAttendanceView: React.FC = () => {
           </Box>
         </DialogContent>
         <DialogActions sx={{ p: 2 }}>
-          <GhostButton onClick={() => setAddStudentDialog(false)}>Cancel</GhostButton>
-          <PrimaryButton onClick={handleAddStudent}>Add Student</PrimaryButton>
+          <GhostButton onClick={() => setAddStudentDialog(false)} disabled={addingStudent}>Cancel</GhostButton>
+          <PrimaryButton onClick={handleAddStudent} disabled={addingStudent}>
+            {addingStudent ? 'Adding…' : 'Add Student'}
+          </PrimaryButton>
         </DialogActions>
       </Dialog>
 

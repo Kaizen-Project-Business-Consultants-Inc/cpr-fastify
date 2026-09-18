@@ -16,7 +16,8 @@ import {
 import { api } from '../../../services/api';
 import { useSnackbar } from '../../../contexts/SnackbarContext';
 import { useQueryClient, useQuery } from '@tanstack/react-query';
-import { formatDateWithoutTimezone } from '../../../utils/dateUtils';
+import { formatDisplayDate, toLocalDateString, parseLocalDate } from '../../../utils/formatters';
+import LinkButton from '../../gtacpr/LinkButton';
 import DataTable, { DataTableRow } from '../../gtacpr/DataTable';
 import StatusChip from '../../gtacpr/StatusChip';
 import { PrimaryButton, GhostButton } from '../../gtacpr/Buttons';
@@ -54,6 +55,7 @@ const CourseScheduling = () => {
   const [cancelDialogOpen, setCancelDialogOpen] = useState(false);
   const [courseToCancel, setCourseToCancel] = useState<Course | null>(null);
   const [cancelReason, setCancelReason] = useState('');
+  const [isCancelling, setIsCancelling] = useState(false);
 
   const { data: courses = [] } = useQuery({
     queryKey: ['courses'],
@@ -95,6 +97,8 @@ const CourseScheduling = () => {
 
   const handleCancelSubmit = async () => {
     if (!courseToCancel || !cancelReason.trim()) { showError('Please provide a reason for cancellation'); return; }
+    if (isCancelling) return; // guard against a second click while the request is in flight
+    setIsCancelling(true);
     try {
       await api.put(`/courses/${courseToCancel.id}/cancel`, { reason: cancelReason });
       showSuccess('Course cancelled successfully');
@@ -103,6 +107,8 @@ const CourseScheduling = () => {
     } catch (err: unknown) {
       const axiosErr = err as { response?: { data?: { error?: { message?: string } } } };
       showError(axiosErr.response?.data?.error?.message || 'Failed to cancel course');
+    } finally {
+      setIsCancelling(false);
     }
   };
 
@@ -134,7 +140,7 @@ const CourseScheduling = () => {
               {uniqueOrganizations.map((o) => <MenuItem key={o} value={o}>{o}</MenuItem>)}
             </Select>
           </FormControl>
-          <TextField label="Date" type="date" value={dateFilter ? dateFilter.toISOString().slice(0, 10) : ''} onChange={(e) => setDateFilter(e.target.value ? new Date(e.target.value) : null)} InputLabelProps={{ shrink: true }} fullWidth size="small" />
+          <TextField label="Date" type="date" value={dateFilter ? toLocalDateString(dateFilter) : ''} onChange={(e) => setDateFilter(e.target.value ? parseLocalDate(e.target.value) : null)} InputLabelProps={{ shrink: true }} fullWidth size="small" />
         </Box>
       </Box>
 
@@ -149,14 +155,14 @@ const CourseScheduling = () => {
         <DataTable columns={columns} shownCount={filteredCourses.length} totalCount={courses.length}>
           {filteredCourses.map((course: Record<string, unknown>) => (
             <DataTableRow key={course.id as number} columns={columns}>
-              <Typography sx={{ fontSize: 13, fontWeight: 600, color: (theme) => theme.palette.text.primary }}>{formatDateWithoutTimezone(course.scheduledDate as string)}</Typography>
+              <Typography sx={{ fontSize: 13, fontWeight: 600, color: (theme) => theme.palette.text.primary }}>{formatDisplayDate(course.scheduledDate as string)}</Typography>
               <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>{(course.courseTypeName || course.courseType || '—') as string}</Typography>
               <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>{course.organizationName as string}</Typography>
               <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>{course.location as string}</Typography>
               <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>{(course.instructorName || 'Not Assigned') as string}</Typography>
               <StatusChip kind="active" label={course.status as string} />
               <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>
-                <Box onClick={() => handleCancelClick(course as unknown as Course)} sx={{ fontSize: 12, fontWeight: 600, color: '#CC1F1F', cursor: 'pointer', '&:hover': { textDecoration: 'underline' } }}>Cancel</Box>
+                <LinkButton tone="danger" onClick={() => handleCancelClick(course as unknown as Course)}>Cancel</LinkButton>
               </Box>
             </DataTableRow>
           ))}
@@ -164,7 +170,7 @@ const CourseScheduling = () => {
       )}
 
       {/* Cancel Dialog */}
-      <Dialog open={cancelDialogOpen} onClose={handleCancelClose} maxWidth="sm" fullWidth>
+      <Dialog open={cancelDialogOpen} onClose={isCancelling ? undefined : handleCancelClose} maxWidth="sm" fullWidth>
         <DialogTitle sx={{ fontSize: 18, fontWeight: 700, color: (theme) => theme.palette.text.primary }}>Cancel Course</DialogTitle>
         <DialogContent>
           <Box sx={{ p: 2, bgcolor: (theme) => theme.palette.background.default, borderRadius: '8px', border: (theme) => `1px solid ${theme.palette.divider}`, mb: 2, mt: 1 }}>
@@ -184,8 +190,8 @@ const CourseScheduling = () => {
           <TextField label="Reason for Cancellation" value={cancelReason} onChange={(e) => setCancelReason(e.target.value)} fullWidth multiline rows={4} required placeholder="Please provide a detailed reason..." />
         </DialogContent>
         <DialogActions sx={{ p: 2 }}>
-          <GhostButton onClick={handleCancelClose}>Cancel</GhostButton>
-          <PrimaryButton onClick={handleCancelSubmit} disabled={!cancelReason.trim()}>Cancel Course</PrimaryButton>
+          <GhostButton onClick={handleCancelClose} disabled={isCancelling}>Keep Course</GhostButton>
+          <PrimaryButton onClick={handleCancelSubmit} disabled={!cancelReason.trim() || isCancelling}>{isCancelling ? 'Cancelling…' : 'Cancel Course'}</PrimaryButton>
         </DialogActions>
       </Dialog>
     </Box>

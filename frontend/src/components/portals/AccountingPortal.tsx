@@ -1,12 +1,13 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   Box, Typography,
-  CircularProgress, ButtonBase
+  CircularProgress
 } from '@mui/material';
 import DataTable, { DataTableRow } from '../gtacpr/DataTable';
 import { PrimaryButton, GhostButton } from '../gtacpr/Buttons';
 import ErrorBoundary from '../common/ErrorBoundary';
-import { AdminShell } from '../gtacpr';
+import { AdminShell, PortalNotFound, LinkButton } from '../gtacpr';
+import { formatCurrency, formatDisplayDate as formatDate } from '../../utils/formatters';
 import { useClientPagination } from '../../hooks/useClientPagination';
 import AccountingDashboard from './accounting/AccountingDashboard';
 import PaymentRequestsDashboard from '../accounting/PaymentRequestsDashboard';
@@ -283,16 +284,6 @@ const PendingApprovalsView: React.FC = () => {
     showError(message);
   };
 
-  const formatCurrency = (amount: number | string | undefined) => {
-    const num = parseFloat(String(amount || 0));
-    return new Intl.NumberFormat('en-CA', { style: 'currency', currency: 'CAD' }).format(num);
-  };
-
-  const formatDate = (date: string | undefined) => {
-    if (!date) return '-';
-    return new Date(date).toLocaleDateString('en-CA');
-  };
-
   if (isLoading) {
     return (
       <Box display="flex" justifyContent="center" alignItems="center" minHeight="200px">
@@ -336,7 +327,7 @@ const PendingApprovalsView: React.FC = () => {
                 {formatCurrency(parseFloat(String((invoice as Record<string, unknown>).base_cost || 0)) + parseFloat(String((invoice as Record<string, unknown>).tax_amount || 0)))}
               </Typography>
               <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>
-                <ButtonBase onClick={() => handleReview(invoice.id)} sx={{ fontSize: 12, fontWeight: 600, color: '#CC1F1F', '&:hover': { textDecoration: 'underline' }, '&:focus-visible': { outline: '2px solid #CC1F1F', outlineOffset: '2px' } }}>Review</ButtonBase>
+                <LinkButton onClick={() => handleReview(invoice.id)}>Review</LinkButton>
               </Box>
             </DataTableRow>
           ))}
@@ -424,16 +415,6 @@ const RejectedInvoicesView: React.FC = () => {
     showError(message);
   };
 
-  const formatCurrency = (amount: number | string | undefined) => {
-    const num = parseFloat(String(amount || 0));
-    return new Intl.NumberFormat('en-CA', { style: 'currency', currency: 'CAD' }).format(num);
-  };
-
-  const formatDate = (date: string | undefined) => {
-    if (!date) return '-';
-    return new Date(date).toLocaleDateString('en-CA');
-  };
-
   if (isLoading) {
     return (
       <Box display="flex" justifyContent="center" alignItems="center" minHeight="200px">
@@ -481,8 +462,8 @@ const RejectedInvoicesView: React.FC = () => {
                 {(invoice as Record<string, unknown>).rejectionReason as string || '-'}
               </Typography>
               <Box sx={{ display: 'flex', gap: 1.5, justifyContent: 'flex-end' }}>
-                <ButtonBase onClick={() => handleViewDetails(invoice.id)} sx={{ fontSize: 12, fontWeight: 600, color: '#CC1F1F', '&:hover': { textDecoration: 'underline' }, '&:focus-visible': { outline: '2px solid #CC1F1F', outlineOffset: '2px' } }}>View</ButtonBase>
-                <ButtonBase onClick={() => handleResubmit(invoice.id)} sx={{ fontSize: 12, fontWeight: 600, color: '#16A34A', '&:hover': { textDecoration: 'underline' }, '&:focus-visible': { outline: '2px solid #16A34A', outlineOffset: '2px' } }}>Resubmit</ButtonBase>
+                <LinkButton onClick={() => handleViewDetails(invoice.id)}>View</LinkButton>
+                <LinkButton onClick={() => handleResubmit(invoice.id)} sx={{ color: '#16A34A' }}>Resubmit</LinkButton>
               </Box>
             </DataTableRow>
           ))}
@@ -593,7 +574,7 @@ const AccountingPortal: React.FC = () => {
           <Route path="vendor-invoices" element={<VendorInvoiceManagement />} />
           <Route path="paid-vendor-invoices" element={<PaidVendorInvoices />} />
           <Route path="" element={<Navigate to="dashboard" replace />} />
-          <Route path="*" element={<Box sx={{ p: 3 }}><Typography sx={{ fontSize: 14, fontWeight: 600, color: (theme) => theme.palette.text.secondary }}>View not found</Typography></Box>} />
+          <Route path="*" element={<PortalNotFound homePath="/accounting/dashboard" />} />
         </Routes>
       </AdminShell>
     </ErrorBoundary>

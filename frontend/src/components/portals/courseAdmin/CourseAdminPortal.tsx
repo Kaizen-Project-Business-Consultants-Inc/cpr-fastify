@@ -1,8 +1,8 @@
 import React from 'react';
 import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
-import { Box, Typography, Alert } from '@mui/material';
+import { Alert } from '@mui/material';
 import ErrorBoundary from '../../common/ErrorBoundary';
-import { AdminShell } from '../../gtacpr';
+import { AdminShell, PortalNotFound } from '../../gtacpr';
 import InstructorManagement from './InstructorManagement';
 import CourseScheduling from './CourseScheduling';
 import EmailTemplateManager from './EmailTemplateManager';
@@ -78,7 +78,7 @@ const CourseAdminPortal: React.FC<CourseAdminPortalProps> = ({
           <Route path="vendor-invoices" element={<VendorInvoiceApproval />} />
           <Route path="paid-vendor-invoices" element={<PaidVendorInvoices />} />
           <Route path="" element={<Navigate to="dashboard" replace />} />
-          <Route path="*" element={<Box sx={{ p: 3 }}><Typography sx={{ fontSize: 14, fontWeight: 600, color: (theme) => theme.palette.text.secondary }}>View not found</Typography></Box>} />
+          <Route path="*" element={<PortalNotFound homePath="/admin/dashboard" />} />
         </Routes>
       </AdminShell>
     </ErrorBoundary>

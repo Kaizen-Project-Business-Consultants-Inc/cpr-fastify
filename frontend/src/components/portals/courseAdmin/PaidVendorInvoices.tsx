@@ -17,6 +17,8 @@ import StatCard from '../../gtacpr/StatCard';
 import StatusChip from '../../gtacpr/StatusChip';
 import DataTable, { DataTableRow } from '../../gtacpr/DataTable';
 import { GhostButton } from '../../gtacpr/Buttons';
+import LinkButton from '../../gtacpr/LinkButton';
+import { formatCurrency, formatDisplayDate } from '../../../utils/formatters';
 
 interface PaidVendorInvoice {
   id: number;
@@ -155,21 +157,13 @@ const PaidVendorInvoices: React.FC = () => {
     setPaymentHistory([]);
   };
 
-  const formatCurrency = (amount: number | string) => {
-    const num = typeof amount === 'string' ? parseFloat(amount) : amount;
-    return new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency: 'USD'
-    }).format(num || 0);
-  };
+  const formatDate = (dateString: string) => formatDisplayDate(dateString, 'N/A');
 
-  const formatDate = (dateString: string) => {
-    if (!dateString) return 'N/A';
-    return new Date(dateString).toLocaleDateString('en-US', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric'
-    });
+  /** Outstanding balance: total minus what has actually been paid (never assumed to be zero). */
+  const balanceDueOf = (inv: PaidVendorInvoice) => {
+    const total = Number(inv.total) || 0;
+    const paid = Number(inv.totalPaid) || 0;
+    return Math.max(0, Math.round((total - paid) * 100) / 100);
   };
 
   const getStatusKind = (status: string): 'success' | 'neutral' => {
@@ -302,13 +296,12 @@ const PaidVendorInvoices: React.FC = () => {
                 />
               </Box>
               <Box sx={{ textAlign: 'center' }}>
-                <Typography
-                  component="span"
+                <LinkButton
+                  aria-label={`View invoice ${invoice.invoiceNumber}`}
                   onClick={(e: React.MouseEvent) => { e.stopPropagation(); handleView(invoice); }}
-                  sx={{ fontSize: 12, fontWeight: 600, color: '#CC1F1F', cursor: 'pointer', '&:hover': { textDecoration: 'underline' } }}
                 >
                   View
-                </Typography>
+                </LinkButton>
               </Box>
             </DataTableRow>
           ))
@@ -327,7 +320,7 @@ const PaidVendorInvoices: React.FC = () => {
             <Typography sx={dialogTitleStyle}>
               Paid Invoice Details - {selectedInvoice?.invoiceNumber}
             </Typography>
-            <StatusChip kind="success" label="FULLY PAID" />
+            <StatusChip kind="success" label="PAID" />
           </Box>
         </DialogTitle>
         <DialogContent dividers>
@@ -372,12 +365,16 @@ const PaidVendorInvoices: React.FC = () => {
                   />
                   <StatCard
                     label="Balance Due"
-                    value="$0.00"
-                    dotColor="#15803D"
+                    value={formatCurrency(balanceDueOf(selectedInvoice))}
+                    dotColor={balanceDueOf(selectedInvoice) > 0 ? '#B45309' : '#15803D'}
                   />
                 </Box>
                 <Box sx={{ textAlign: 'center', mt: 1 }}>
-                  <StatusChip kind="success" label="Payment Complete: This invoice has been fully paid" />
+                  {balanceDueOf(selectedInvoice) > 0 ? (
+                    <StatusChip kind="warning" label="Marked paid, but recorded payments do not cover the full total" />
+                  ) : (
+                    <StatusChip kind="success" label="Payment Complete: This invoice has been fully paid" />
+                  )}
                 </Box>
               </Box>
 

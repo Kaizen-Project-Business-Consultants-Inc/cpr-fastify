@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { Box, Typography } from '@mui/material';
-import { AdminShell } from '../gtacpr';
+import { Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom';
+import { AdminShell, PortalNotFound } from '../gtacpr';
 import HRDashboard from './HRDashboard';
 import PersonnelManagement from './PersonnelManagement';
 import TimesheetManagement from '../hr/TimesheetManagement';
@@ -10,11 +11,13 @@ import NotificationsPanel from '../hr/NotificationsPanel';
 import ReturnedPaymentRequests from '../hr/ReturnedPaymentRequests';
 
 const HRReports = () => (
-  <Box sx={{ bgcolor: (theme: any) => theme.palette.background.paper, border: (theme: any) => `1px solid ${theme.palette.divider}`, borderRadius: '10px', p: 6, textAlign: 'center' }}>
-    <Typography sx={{ fontSize: 16, fontWeight: 600, color: (theme: any) => theme.palette.text.secondary }}>HR Reports</Typography>
-    <Typography sx={{ fontSize: 13, color: (theme: any) => theme.palette.text.secondary, mt: 1 }}>Coming soon - Analytics and compliance reports.</Typography>
+  <Box sx={{ bgcolor: (theme) => theme.palette.background.paper, border: (theme) => `1px solid ${theme.palette.divider}`, borderRadius: '10px', p: 6, textAlign: 'center' }}>
+    <Typography sx={{ fontSize: 16, fontWeight: 600, color: (theme) => theme.palette.text.secondary }}>HR Reports</Typography>
+    <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary, mt: 1 }}>Coming soon - Analytics and compliance reports.</Typography>
   </Box>
 );
+
+const BASE = '/hr';
 
 const views = [
   { key: 'dashboard', label: 'Dashboard', eyebrow: 'Overview' },
@@ -27,47 +30,38 @@ const views = [
   { key: 'reports', label: 'HR Reports (Coming Soon)', eyebrow: 'Analytics' },
 ];
 
+const navItems = views.map((v) => ({ label: v.label, path: `${BASE}/${v.key}` }));
+
+/** HR portal. Each view has its own URL (/hr/<view>) so refresh, back and bookmarks work. */
 const HRPortal: React.FC = () => {
-  const [selectedView, setSelectedView] = useState('dashboard');
+  const location = useLocation();
+  const navigate = useNavigate();
+  const currentKey = location.pathname.split('/').filter(Boolean)[1] || 'dashboard';
+  const current = views.find((v) => v.key === currentKey) || views[0];
 
-  const current = views.find((v) => v.key === selectedView) || views[0];
-
-  const renderView = () => {
-    switch (selectedView) {
-      case 'dashboard':
-        return <HRDashboard onViewChange={setSelectedView} />;
-      case 'personnel':
-        return <PersonnelManagement onViewChange={setSelectedView} />;
-      case 'timesheet':
-        return <TimesheetManagement />;
-      case 'payrates':
-        return <PayRateManagement />;
-      case 'payroll':
-        return <PayrollManagement />;
-      case 'returned-payments':
-        return <ReturnedPaymentRequests />;
-      case 'notifications':
-        return <NotificationsPanel />;
-      case 'reports':
-        return <HRReports />;
-      default:
-        return <HRDashboard onViewChange={setSelectedView} />;
-    }
-  };
-
-  const navItems = views.map((v) => ({ label: v.label, path: v.key }));
+  // Child screens still call onViewChange('personnel') etc.; translate to a URL.
+  const goToView = (view: string) => navigate(`${BASE}/${view}`);
 
   return (
     <AdminShell
       eyebrow={current.eyebrow}
       title={current.label}
       portalName="HR Portal"
-      basePath="dashboard"
+      basePath={`${BASE}/dashboard`}
       navItems={navItems}
-      activePath={selectedView}
-      onNavigate={(path) => setSelectedView(path)}
     >
-      {renderView()}
+      <Routes>
+        <Route path="dashboard" element={<HRDashboard onViewChange={goToView} />} />
+        <Route path="personnel" element={<PersonnelManagement onViewChange={goToView} />} />
+        <Route path="timesheet" element={<TimesheetManagement />} />
+        <Route path="payrates" element={<PayRateManagement />} />
+        <Route path="payroll" element={<PayrollManagement />} />
+        <Route path="returned-payments" element={<ReturnedPaymentRequests />} />
+        <Route path="notifications" element={<NotificationsPanel />} />
+        <Route path="reports" element={<HRReports />} />
+        <Route index element={<Navigate to="dashboard" replace />} />
+        <Route path="*" element={<PortalNotFound homePath={`${BASE}/dashboard`} />} />
+      </Routes>
     </AdminShell>
   );
 };

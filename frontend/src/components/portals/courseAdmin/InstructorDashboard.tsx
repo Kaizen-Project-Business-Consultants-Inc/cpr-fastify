@@ -31,6 +31,10 @@ import {
   Refresh as RefreshIcon,
 } from '@mui/icons-material';
 import { fetchCourseAdminDashboardData } from '../../../services/api';
+import { toLocalDateString, formatDisplayDate } from '../../../utils/formatters';
+
+/** "YYYY-MM" for a Date in local time (no UTC shift). */
+const toLocalMonthString = (d: Date) => toLocalDateString(d).slice(0, 7);
 
 interface InstructorStats {
   instructorId: number;
@@ -53,7 +57,7 @@ interface DashboardSummary {
 
 const InstructorDashboard: React.FC = () => {
   const [selectedMonth, setSelectedMonth] = useState(
-    new Date().toISOString().slice(0, 7)
+    toLocalMonthString(new Date())
   );
   const [instructorStats, setInstructorStats] = useState<InstructorStats[]>([]);
   const [dashboardSummary, setDashboardSummary] = useState<DashboardSummary | null>(
@@ -121,12 +125,13 @@ const InstructorDashboard: React.FC = () => {
               label='Month'
             >
               {Array.from({ length: 12 }, (_, i) => {
-                const date = new Date();
-                date.setMonth(date.getMonth() - i);
-                const monthStr = date.toISOString().slice(0, 7);
+                const now = new Date();
+                // Day 1 so that subtracting months never overflows (e.g. 31 Mar - 1 month).
+                const date = new Date(now.getFullYear(), now.getMonth() - i, 1);
+                const monthStr = toLocalMonthString(date);
                 return (
                   <MenuItem key={monthStr} value={monthStr}>
-                    {date.toLocaleDateString('en-US', {
+                    {date.toLocaleDateString('en-CA', {
                       year: 'numeric',
                       month: 'long',
                     })}
@@ -136,7 +141,7 @@ const InstructorDashboard: React.FC = () => {
             </Select>
           </FormControl>
           <Tooltip title='Refresh Data'>
-            <IconButton onClick={fetchDashboardData} disabled={loading}>
+            <IconButton onClick={fetchDashboardData} disabled={loading} aria-label="Refresh dashboard data">
               <RefreshIcon />
             </IconButton>
           </Tooltip>
@@ -399,9 +404,7 @@ const InstructorDashboard: React.FC = () => {
                       <TableCell align='center'>
                         <Typography variant='body2'>
                           {instructor.lastCourseDate
-                            ? new Date(
-                                instructor.lastCourseDate
-                              ).toLocaleDateString()
+                            ? formatDisplayDate(instructor.lastCourseDate)
                             : 'N/A'}
                         </Typography>
                       </TableCell>

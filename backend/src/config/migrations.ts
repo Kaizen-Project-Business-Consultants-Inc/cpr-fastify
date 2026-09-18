@@ -297,6 +297,23 @@ const migrations: Migration[] = [
       INDEX idx_refresh_user (user_id, revoked_at, expires_at)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
   },
+  {
+    version: 18,
+    name: 'organization_locations_address_contact',
+    // The sysadmin Locations dialog edits address + contact fields; the original
+    // table only had location_name. Guarded so re-runs and pre-populated DBs are safe.
+    up: async (pool: Pool) => {
+      await addColumnIfMissing(pool, 'organization_locations', 'address', 'VARCHAR(500) DEFAULT NULL');
+      await addColumnIfMissing(pool, 'organization_locations', 'city', 'VARCHAR(100) DEFAULT NULL');
+      await addColumnIfMissing(pool, 'organization_locations', 'province', 'VARCHAR(100) DEFAULT NULL');
+      await addColumnIfMissing(pool, 'organization_locations', 'postal_code', 'VARCHAR(20) DEFAULT NULL');
+      await addColumnIfMissing(pool, 'organization_locations', 'contact_first_name', 'VARCHAR(100) DEFAULT NULL');
+      await addColumnIfMissing(pool, 'organization_locations', 'contact_last_name', 'VARCHAR(100) DEFAULT NULL');
+      await addColumnIfMissing(pool, 'organization_locations', 'contact_email', 'VARCHAR(255) DEFAULT NULL');
+      await addColumnIfMissing(pool, 'organization_locations', 'contact_phone', 'VARCHAR(50) DEFAULT NULL');
+      await addColumnIfMissing(pool, 'organization_locations', 'is_active', 'TINYINT(1) NOT NULL DEFAULT 1');
+    },
+  },
 ];
 
 const MIGRATION_LOCK = 'cpr_migrations';

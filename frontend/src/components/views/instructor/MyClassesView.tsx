@@ -14,6 +14,8 @@ import { handleError } from '../../../services/errorHandler';
 import DataTable, { DataTableRow } from '../../gtacpr/DataTable';
 import StatusChip from '../../gtacpr/StatusChip';
 import { GhostButton, PrimaryButton } from '../../gtacpr/Buttons';
+import LinkButton from '../../gtacpr/LinkButton';
+import { useSnackbar } from '../../../contexts/SnackbarContext';
 
 interface MyClassesViewProps {
   combinedSchedule?: CombinedScheduleItem[];
@@ -45,6 +47,15 @@ const MyClassesView: React.FC<MyClassesViewProps> = ({
   const [sortField, setSortField] = useState<SortField>(null);
   const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
   const [deleteDialog, setDeleteDialog] = useState<{ open: boolean; date: string }>({ open: false, date: '' });
+  const [removing, setRemoving] = useState(false);
+  const { showSuccess, showError } = useSnackbar();
+
+  /** The API needs YYYY-MM-DD; displayDate is already formatted for humans. */
+  const rawDateOf = (item: CombinedScheduleItem): string => {
+    const original = item.originalData as { date?: string } | undefined;
+    if (original?.date) return String(original.date).slice(0, 10);
+    return item.displayDate;
+  };
 
   const handleSort = (field: SortField) => {
     if (sortField === field) {
@@ -78,17 +89,25 @@ const MyClassesView: React.FC<MyClassesViewProps> = ({
   const handleDeleteClick = (date: string) => { setDeleteDialog({ open: true, date }); };
 
   const handleDeleteConfirm = async () => {
-    if (onRemoveAvailability) {
-      try {
-        await onRemoveAvailability(deleteDialog.date);
-      } catch (error: any) {
-        handleError(error, { component: 'MyClassesView', action: 'remove availability' });
+    if (!onRemoveAvailability || removing) return;
+    setRemoving(true);
+    try {
+      const result = await onRemoveAvailability(deleteDialog.date);
+      if (result && result.success === false) {
+        showError(result.error || 'Failed to remove availability');
+      } else {
+        showSuccess(`Availability removed for ${formatDisplayDate(deleteDialog.date)}`);
+        setDeleteDialog({ open: false, date: '' });
       }
+    } catch (error: any) {
+      handleError(error, { component: 'MyClassesView', action: 'remove availability' });
+      showError(error instanceof Error ? error.message : 'Failed to remove availability');
+    } finally {
+      setRemoving(false);
     }
-    setDeleteDialog({ open: false, date: '' });
   };
 
-  const handleDeleteCancel = () => { setDeleteDialog({ open: false, date: '' }); };
+  const handleDeleteCancel = () => { if (!removing) setDeleteDialog({ open: false, date: '' }); };
 
   const isDateTooClose = (date: string) => {
     const today = new Date();
@@ -122,7 +141,7 @@ const MyClassesView: React.FC<MyClassesViewProps> = ({
               )}
               <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>
                 {item.type === 'availability' && onRemoveAvailability && (
-                  <Box onClick={() => handleDeleteClick(item.displayDate)} sx={{ fontSize: 12, fontWeight: 600, color: '#CC1F1F', cursor: 'pointer', '&:hover': { textDecoration: 'underline' } }}>Remove</Box>
+                  <LinkButton tone="danger" onClick={() => handleDeleteClick(rawDateOf(item))} aria-label={`Remove availability for ${item.displayDate}`}>Remove</LinkButton>
                 )}
               </Box>
             </DataTableRow>
@@ -139,8 +158,10 @@ const MyClassesView: React.FC<MyClassesViewProps> = ({
           </DialogContentText>
         </DialogContent>
         <DialogActions sx={{ p: 2 }}>
-          <GhostButton onClick={handleDeleteCancel}>Cancel</GhostButton>
-          <PrimaryButton onClick={handleDeleteConfirm} disabled={isDateTooClose(deleteDialog.date)}>Remove</PrimaryButton>
+          <GhostButton onClick={handleDeleteCancel} disabled={removing}>Cancel</GhostButton>
+          <PrimaryButton onClick={handleDeleteConfirm} disabled={removing || isDateTooClose(deleteDialog.date)}>
+            {removing ? 'Removing…' : 'Remove'}
+          </PrimaryButton>
         </DialogActions>
       </Dialog>
     </>

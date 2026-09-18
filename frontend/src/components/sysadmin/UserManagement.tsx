@@ -23,6 +23,8 @@ import UserAvatar from '../gtacpr/UserAvatar';
 import RoleChip from '../gtacpr/RoleChip';
 import StatusChip from '../gtacpr/StatusChip';
 import { PrimaryButton } from '../gtacpr/Buttons';
+import { useConfirm, LinkButton } from '../gtacpr';
+import { formatDisplayDate } from '../../utils/formatters';
 
 const columns = [
   { key: 'user', label: 'USER', width: '1.5fr' },
@@ -52,6 +54,8 @@ const UserManagement = ({ onShowSnackbar }: { onShowSnackbar: any }) => {
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [roleFilter, setRoleFilter] = useState('');
+  const [saving, setSaving] = useState(false);
+  const { confirm, dialog: confirmDialog } = useConfirm();
 
   // Dialog state
   const [showDialog, setShowDialog] = useState(false);
@@ -120,16 +124,22 @@ const UserManagement = ({ onShowSnackbar }: { onShowSnackbar: any }) => {
     setShowDialog(true);
   };
 
-  const handleDelete = async (user: any) => {
-    if (window.confirm(`Are you sure you want to deactivate the user "${user.username}"?`)) {
-      try {
-        await sysAdminApi.deleteUser(user.id);
-        onShowSnackbar?.('User deactivated successfully', 'success');
-        loadUsers();
-      } catch (err: any) {
-        logger.error('Error deactivating user:', err);
-        onShowSnackbar?.('Failed to deactivate user', 'error');
-      }
+  const handleDeactivate = async (user: any) => {
+    const displayName = user.fullName || `${user.firstName || ''} ${user.lastName || ''}`.trim() || user.username;
+    const ok = await confirm({
+      title: 'Deactivate user?',
+      message: `${displayName} (${user.username}) will no longer be able to sign in. You can reactivate them by editing the user.`,
+      confirmLabel: 'Deactivate',
+      danger: true,
+    });
+    if (!ok) return;
+    try {
+      await sysAdminApi.updateUser(user.id, { status: 'inactive' });
+      onShowSnackbar?.('User deactivated successfully', 'success');
+      loadUsers();
+    } catch (err: any) {
+      logger.error('Error deactivating user:', err);
+      onShowSnackbar?.('Failed to deactivate user', 'error');
     }
   };
 
@@ -141,7 +151,9 @@ const UserManagement = ({ onShowSnackbar }: { onShowSnackbar: any }) => {
     if (!editingUser && !formData.password.trim()) {
       onShowSnackbar?.('Password is required for new users', 'error'); return;
     }
+    if (saving) return;
     try {
+      setSaving(true);
       const submitData = {
         ...formData,
         organizationId: formData.organizationId || null,
@@ -164,6 +176,8 @@ const UserManagement = ({ onShowSnackbar }: { onShowSnackbar: any }) => {
       logger.error('Error saving user:', err);
       const errorMessage = err.response?.data?.error?.message || err.response?.data?.message || err.message || 'Failed to save user';
       onShowSnackbar?.(errorMessage, 'error');
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -176,8 +190,6 @@ const UserManagement = ({ onShowSnackbar }: { onShowSnackbar: any }) => {
       else setLocations([]);
     }
   };
-
-  const formatDate = (dateString: any) => dateString ? new Date(dateString).toLocaleDateString() : '—';
 
   const filtered = users.filter(u => {
     if (roleFilter && u.role !== roleFilter) return false;
@@ -209,9 +221,12 @@ const UserManagement = ({ onShowSnackbar }: { onShowSnackbar: any }) => {
         {/* Role filter pills */}
         <Box sx={{ display: 'flex', gap: 0.75, flexWrap: 'wrap' }}>
           <Box
+            component="button"
+            type="button"
+            aria-pressed={!roleFilter}
             onClick={() => setRoleFilter('')}
             sx={{
-              px: 1.5, py: 0.5, borderRadius: '20px', fontSize: 12, fontWeight: 600, cursor: 'pointer',
+              px: 1.5, py: 0.5, borderRadius: '20px', fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
               border: '1px solid', borderColor: !roleFilter ? 'rgba(204,31,31,.3)' : (theme: any) => theme.palette.divider,
               bgcolor: !roleFilter ? '#FFF0F0' : (theme: any) => theme.palette.background.paper, color: !roleFilter ? '#CC1F1F' : (theme: any) => theme.palette.text.secondary,
             }}
@@ -221,9 +236,12 @@ const UserManagement = ({ onShowSnackbar }: { onShowSnackbar: any }) => {
           {allRoles.map(role => (
             <Box
               key={role}
+              component="button"
+              type="button"
+              aria-pressed={roleFilter === role}
               onClick={() => setRoleFilter(role)}
               sx={{
-                px: 1.5, py: 0.5, borderRadius: '20px', fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                px: 1.5, py: 0.5, borderRadius: '20px', fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
                 border: '1px solid', textTransform: 'capitalize',
                 borderColor: roleFilter === role ? 'rgba(204,31,31,.3)' : (theme: any) => theme.palette.divider,
                 bgcolor: roleFilter === role ? '#FFF0F0' : (theme: any) => theme.palette.background.paper,
@@ -271,18 +289,14 @@ const UserManagement = ({ onShowSnackbar }: { onShowSnackbar: any }) => {
               label={user.status || 'active'}
             />
             {/* ONBOARDED */}
-            <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>{formatDate(user.dateOnboarded)}</Typography>
+            <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>{formatDisplayDate(user.dateOnboarded)}</Typography>
             {/* ACTIONS */}
             <Box sx={{ display: 'flex', gap: 0.5, justifyContent: 'flex-end' }}>
-              <Box onClick={() => handleEdit(user)} sx={{ fontSize: 12, fontWeight: 600, color: '#CC1F1F', cursor: 'pointer', '&:hover': { textDecoration: 'underline' } }}>
-                Edit
-              </Box>
+              <LinkButton onClick={() => handleEdit(user)} aria-label={`Edit ${user.username}`}>Edit</LinkButton>
               {user.status !== 'inactive' && (
                 <>
                   <Typography sx={{ fontSize: 12, color: (theme) => theme.palette.divider }}>|</Typography>
-                  <Box onClick={() => handleDelete(user)} sx={{ fontSize: 12, fontWeight: 600, color: (theme) => theme.palette.text.secondary, cursor: 'pointer', '&:hover': { textDecoration: 'underline', color: '#CC1F1F' } }}>
-                    Deactivate
-                  </Box>
+                  <LinkButton tone="neutral" onClick={() => handleDeactivate(user)} aria-label={`Deactivate ${user.username}`}>Deactivate</LinkButton>
                 </>
               )}
             </Box>
@@ -342,10 +356,11 @@ const UserManagement = ({ onShowSnackbar }: { onShowSnackbar: any }) => {
           </Box>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setShowDialog(false)}>Cancel</Button>
-          <Button onClick={handleSubmit} variant="contained">{editingUser ? 'Update User' : 'Create User'}</Button>
+          <Button onClick={() => setShowDialog(false)} disabled={saving}>Cancel</Button>
+          <Button onClick={handleSubmit} variant="contained" disabled={saving}>{saving ? 'Saving…' : editingUser ? 'Update User' : 'Create User'}</Button>
         </DialogActions>
       </Dialog>
+      {confirmDialog}
     </Box>
   );
 };

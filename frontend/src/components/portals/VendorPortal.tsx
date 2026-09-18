@@ -6,9 +6,7 @@ import VendorLayout from './VendorLayout';
 import VendorDashboard from './vendor/VendorDashboard';
 import InvoiceUpload from './vendor/InvoiceUpload';
 import InvoiceHistory from './vendor/InvoiceHistory';
-import InvoiceStatusView from './vendor/InvoiceStatusView';
 import VendorProfile from './vendor/VendorProfile';
-import PaidVendorInvoices from './vendor/PaidVendorInvoices';
 
 const VendorPortal: React.FC = () => {
   const { user, loading } = useAuth();
@@ -35,10 +33,8 @@ const VendorPortal: React.FC = () => {
 
   const getCurrentView = () => {
     const path = location.pathname;
-    if (path.includes('/paid-invoices')) return 'paid-invoices';
     if (path.includes('/upload')) return 'upload';
     if (path.includes('/history')) return 'history';
-    if (path.includes('/status')) return 'status';
     if (path.includes('/profile')) return 'profile';
     if (path.includes('/dashboard')) return 'dashboard';
     return 'dashboard';
@@ -50,8 +46,9 @@ const VendorPortal: React.FC = () => {
         <Route path="dashboard" element={<VendorDashboard />} />
         <Route path="upload" element={<InvoiceUpload />} />
         <Route path="history" element={<InvoiceHistory />} />
-        <Route path="status" element={<InvoiceStatusView />} />
-        <Route path="paid-invoices" element={<PaidVendorInvoices />} />
+        {/* Old bookmarks: the single invoices page has tabs for every status incl. paid */}
+        <Route path="status" element={<Navigate to="/vendor/history" replace />} />
+        <Route path="paid-invoices" element={<Navigate to="/vendor/history" replace />} />
         <Route path="profile" element={<VendorProfile />} />
         <Route path="" element={<Navigate to="dashboard" replace />} />
         <Route path="*" element={<Navigate to="dashboard" replace />} />

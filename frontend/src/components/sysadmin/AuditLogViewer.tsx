@@ -5,6 +5,8 @@ import api from '../../services/api';
 import StatCard from '../gtacpr/StatCard';
 import DataTable, { DataTableRow } from '../gtacpr/DataTable';
 import SearchBar from '../gtacpr/SearchBar';
+import { useDebounce } from '../../hooks/useDebounce';
+import { getTodayDate } from '../../utils/formatters';
 import { GhostButton } from '../gtacpr/Buttons';
 import { useServerPagination } from '../../hooks/useServerPagination';
 
@@ -76,6 +78,7 @@ function formatAction(action: string): string {
 
 const AuditLogViewer = ({ onShowSnackbar }: AuditLogViewerProps) => {
   const [searchTerm, setSearchTerm] = useState('');
+  const debouncedSearch = useDebounce(searchTerm, 300);
   const [actionFilter, setActionFilter] = useState('');
   const [entityTypeFilter, setEntityTypeFilter] = useState('');
   const [fromDate, setFromDate] = useState('');
@@ -85,14 +88,14 @@ const AuditLogViewer = ({ onShowSnackbar }: AuditLogViewerProps) => {
 
   const fetchFn = useCallback(async ({ page, limit }: { page: number; limit: number }) => {
     const params: Record<string, string | number> = { page, limit };
-    if (searchTerm.trim().length >= 2) params.search = searchTerm.trim();
+    if (debouncedSearch.trim().length >= 2) params.search = debouncedSearch.trim();
     if (actionFilter) params.action = actionFilter;
     if (entityTypeFilter) params.entity_type = entityTypeFilter;
     if (fromDate) params.from = fromDate;
     if (toDate) params.to = toDate;
     const response = await sysAdminApi.getAuditLogs(params as any);
     return { data: response.data, pagination: response.pagination };
-  }, [searchTerm, actionFilter, entityTypeFilter, fromDate, toDate]);
+  }, [debouncedSearch, actionFilter, entityTypeFilter, fromDate, toDate]);
 
   const { items, loading, page, totalCount, shownCount, hasNextPage, onPrevPage, onNextPage, load } = useServerPagination({
     fetchFn,
@@ -109,7 +112,7 @@ const AuditLogViewer = ({ onShowSnackbar }: AuditLogViewerProps) => {
   };
 
   useEffect(() => { loadStats(); }, []);
-  useEffect(() => { load(1); }, [searchTerm, actionFilter, entityTypeFilter, fromDate, toDate]);
+  useEffect(() => { load(1); }, [debouncedSearch, actionFilter, entityTypeFilter, fromDate, toDate]);
 
   const handleExportCSV = async () => {
     try {
@@ -126,7 +129,7 @@ const AuditLogViewer = ({ onShowSnackbar }: AuditLogViewerProps) => {
       const url = window.URL.createObjectURL(new Blob([response.data]));
       const a = document.createElement('a');
       a.href = url;
-      a.download = `audit-logs-${new Date().toISOString().split('T')[0]}.csv`;
+      a.download = `audit-logs-${getTodayDate()}.csv`;
       a.click();
       window.URL.revokeObjectURL(url);
     } catch {

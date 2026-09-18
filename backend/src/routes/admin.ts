@@ -40,6 +40,20 @@ const createOrgSchema = z.object({
   address: z.string().optional(),
 });
 
+// Matches the LocationsDialog / OrganizationWizard payloads (camelCase).
+const locationSchema = z.object({
+  locationName: z.string().min(1).max(255),
+  address: z.string().max(500).optional(),
+  city: z.string().max(100).optional(),
+  province: z.string().max(100).optional(),
+  postalCode: z.string().max(20).optional(),
+  contactFirstName: z.string().max(100).optional(),
+  contactLastName: z.string().max(100).optional(),
+  contactEmail: z.union([z.literal(''), z.string().email()]).optional(),
+  contactPhone: z.string().max(50).optional(),
+  isActive: z.boolean().optional(),
+});
+
 const vendorBodySchema = z.object({
   vendor_name: z.string().optional(),
   name: z.string().optional(),
@@ -302,6 +316,55 @@ export async function adminRoutes(app: FastifyInstance) {
     return { success: true, message: 'Organization updated successfully', data: rows[0] };
   });
 
+  // DELETE /organizations/:id — soft delete (organizations.status = 'inactive').
+  // Refuses when the org still has live course requests or invoices so history
+  // stays consistent; those must be cancelled/archived first.
+  app.delete('/organizations/:id', { preHandler: sysadminRole }, async (request, reply) => {
+    const { id } = z.object({ id: z.coerce.number().int().positive() }).parse(request.params);
+    const [orgRows] = await pool.query<any[]>('SELECT id, name, status FROM organizations WHERE id = ?', [id]);
+    if (orgRows.length === 0) return reply.status(404).send({ error: 'Organization not found' });
+    if (orgRows[0].status === 'inactive') {
+      return { success: true, message: 'Organization is already inactive' };
+    }
+
+    const [[courses]] = await pool.query<any[]>(
+      `SELECT COUNT(*) AS count FROM course_requests
+       WHERE organization_id = ? AND deleted_at IS NULL AND status NOT IN ('cancelled', 'completed', 'invoiced')`,
+      [id]
+    );
+    if (Number(courses.count) > 0) {
+      return reply.status(409).send({ error: `Organization has ${courses.count} open course request(s); cancel or complete them first` });
+    }
+    const [[invoices]] = await pool.query<any[]>(
+      `SELECT COUNT(*) AS count FROM invoices WHERE organization_id = ? AND deleted_at IS NULL AND status NOT IN ('paid', 'cancelled', 'void')`,
+      [id]
+    );
+    if (Number(invoices.count) > 0) {
+      return reply.status(409).send({ error: `Organization has ${invoices.count} outstanding invoice(s); settle them first` });
+    }
+
+    await pool.query(
+      `UPDATE organizations SET status = 'inactive', updated_at = CURRENT_TIMESTAMP WHERE id = ?`, [id]
+    );
+    logAudit({ userId: request.userId, action: 'deactivate_organization', entityType: 'organization', entityId: id, details: { name: orgRows[0].name }, ipAddress: request.ip });
+    return { success: true, message: 'Organization deactivated successfully' };
+  });
+
+  // DELETE /users/:userId — soft delete (status = 'inactive'); the account is kept for audit history.
+  app.delete('/users/:userId', { preHandler: adminRole }, async (request, reply) => {
+    const { userId } = z.object({ userId: z.coerce.number().int().positive() }).parse(request.params);
+    if (userId === request.userId) return reply.status(400).send({ error: 'You cannot deactivate your own account' });
+    if (request.userRole !== 'sysadmin' && (await targetIsPrivileged(userId))) {
+      return reply.status(403).send({ error: 'Only a system administrator can deactivate admin or sysadmin users' });
+    }
+    const [result] = await pool.query<any>(
+      `UPDATE users SET status = 'inactive', updated_at = CURRENT_TIMESTAMP WHERE id = ?`, [userId]
+    );
+    if (result.affectedRows === 0) return reply.status(404).send({ error: 'User not found' });
+    logAudit({ userId: request.userId, action: 'deactivate_user', entityType: 'user', entityId: userId, ipAddress: request.ip });
+    return { success: true, message: 'User deactivated successfully' };
+  });
+
   // ===== Sysadmin: PIPEDA data erasure =====
   app.delete('/users/:userId/personal-data', { preHandler: sysadminRole }, async (request, reply) => {
     const { userId } = request.params as { userId: string };
@@ -336,6 +399,83 @@ export async function adminRoutes(app: FastifyInstance) {
       'SELECT * FROM organization_locations WHERE organization_id = ? ORDER BY location_name', [orgId]
     );
     return { success: true, data: rows };
+  });
+
+  const orgLocationParams = z.object({
+    orgId: z.coerce.number().int().positive(),
+    locationId: z.coerce.number().int().positive().optional(),
+  });
+
+  // POST /organizations/:orgId/locations
+  app.post('/organizations/:orgId/locations', { preHandler: adminRole }, async (request, reply) => {
+    const { orgId } = orgLocationParams.parse(request.params);
+    const data = locationSchema.parse(request.body);
+    const [org] = await pool.query<any[]>('SELECT id FROM organizations WHERE id = ?', [orgId]);
+    if (org.length === 0) return reply.status(404).send({ error: 'Organization not found' });
+
+    const [result] = await pool.query<any>(
+      `INSERT INTO organization_locations
+         (organization_id, location_name, address, city, province, postal_code,
+          contact_first_name, contact_last_name, contact_email, contact_phone, is_active)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [orgId, data.locationName, data.address ?? null, data.city ?? null, data.province ?? null,
+       data.postalCode ?? null, data.contactFirstName ?? null, data.contactLastName ?? null,
+       data.contactEmail || null, data.contactPhone ?? null, data.isActive === false ? 0 : 1]
+    );
+    const [rows] = await pool.query<any[]>('SELECT * FROM organization_locations WHERE id = ?', [result.insertId]);
+    logAudit({ userId: request.userId, action: 'create_location', entityType: 'organization_location', entityId: result.insertId, details: { organizationId: orgId, locationName: data.locationName }, ipAddress: request.ip });
+    return { success: true, message: 'Location created successfully', data: rows[0] };
+  });
+
+  // PUT /organizations/:orgId/locations/:locationId
+  app.put('/organizations/:orgId/locations/:locationId', { preHandler: adminRole }, async (request, reply) => {
+    const { orgId, locationId } = orgLocationParams.required().parse(request.params);
+    const data = locationSchema.partial().parse(request.body);
+
+    const [result] = await pool.query<any>(
+      `UPDATE organization_locations SET
+         location_name = COALESCE(?, location_name), address = COALESCE(?, address),
+         city = COALESCE(?, city), province = COALESCE(?, province), postal_code = COALESCE(?, postal_code),
+         contact_first_name = COALESCE(?, contact_first_name), contact_last_name = COALESCE(?, contact_last_name),
+         contact_email = COALESCE(?, contact_email), contact_phone = COALESCE(?, contact_phone),
+         is_active = COALESCE(?, is_active), updated_at = CURRENT_TIMESTAMP
+       WHERE id = ? AND organization_id = ?`,
+      [data.locationName ?? null, data.address ?? null, data.city ?? null, data.province ?? null,
+       data.postalCode ?? null, data.contactFirstName ?? null, data.contactLastName ?? null,
+       data.contactEmail ?? null, data.contactPhone ?? null,
+       data.isActive === undefined ? null : (data.isActive ? 1 : 0), locationId, orgId]
+    );
+    if (result.affectedRows === 0) return reply.status(404).send({ error: 'Location not found' });
+    const [rows] = await pool.query<any[]>('SELECT * FROM organization_locations WHERE id = ?', [locationId]);
+    logAudit({ userId: request.userId, action: 'update_location', entityType: 'organization_location', entityId: locationId, details: { organizationId: orgId, ...data }, ipAddress: request.ip });
+    return { success: true, message: 'Location updated successfully', data: rows[0] };
+  });
+
+  // DELETE /organizations/:orgId/locations/:locationId — hard delete unless referenced
+  app.delete('/organizations/:orgId/locations/:locationId', { preHandler: adminRole }, async (request, reply) => {
+    const { orgId, locationId } = orgLocationParams.required().parse(request.params);
+
+    const [[users]] = await pool.query<any[]>('SELECT COUNT(*) AS count FROM users WHERE location_id = ?', [locationId]);
+    const [[courses]] = await pool.query<any[]>(
+      'SELECT COUNT(*) AS count FROM course_requests WHERE location_id = ? AND deleted_at IS NULL', [locationId]
+    );
+    if (Number(users.count) > 0 || Number(courses.count) > 0) {
+      // Referenced: deactivate instead of deleting so history keeps resolving.
+      const [result] = await pool.query<any>(
+        `UPDATE organization_locations SET is_active = 0, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND organization_id = ?`,
+        [locationId, orgId]
+      );
+      if (result.affectedRows === 0) return reply.status(404).send({ error: 'Location not found' });
+      logAudit({ userId: request.userId, action: 'deactivate_location', entityType: 'organization_location', entityId: locationId, details: { organizationId: orgId, users: users.count, courses: courses.count }, ipAddress: request.ip });
+      return { success: true, message: 'Location is in use and was deactivated instead of deleted' };
+    }
+
+    const [result] = await pool.query<any>(
+      'DELETE FROM organization_locations WHERE id = ? AND organization_id = ?', [locationId, orgId]
+    );
+    if (result.affectedRows === 0) return reply.status(404).send({ error: 'Location not found' });
+    logAudit({ userId: request.userId, action: 'delete_location', entityType: 'organization_location', entityId: locationId, details: { organizationId: orgId }, ipAddress: request.ip });
+    return { success: true, message: 'Location deleted successfully' };
   });
 
   // ===== System admin dashboard =====

@@ -16,6 +16,8 @@ import {
   Typography,
 } from '@mui/material';
 import { sysAdminApi } from '../../services/api';
+import { useConfirm } from '../gtacpr';
+import { useSnackbar } from '../../contexts/SnackbarContext';
 
 interface OrganizationWizardProps {
   open: boolean;
@@ -33,6 +35,9 @@ const OrganizationWizard: React.FC<OrganizationWizardProps> = ({
   const [activeStep, setActiveStep] = useState(0);
   const [error, setError] = useState('');
   const [createdOrgId, setCreatedOrgId] = useState<number | null>(null);
+  const [saving, setSaving] = useState(false);
+  const { confirm, dialog: confirmDialog } = useConfirm();
+  const { showInfo } = useSnackbar();
 
   // Organization form data
   const [orgData, setOrgData] = useState({
@@ -75,6 +80,7 @@ const OrganizationWizard: React.FC<OrganizationWizardProps> = ({
   };
 
   const handleNext = async () => {
+    if (saving) return;
     setError('');
 
     if (activeStep === 0) {
@@ -85,6 +91,7 @@ const OrganizationWizard: React.FC<OrganizationWizardProps> = ({
       }
 
       try {
+        setSaving(true);
         const response = await sysAdminApi.createOrganization(orgData);
         setCreatedOrgId(response.data.id);
 
@@ -107,6 +114,8 @@ const OrganizationWizard: React.FC<OrganizationWizardProps> = ({
         setActiveStep(1);
       } catch (err: any) {
         setError(err.response?.data?.error?.message || 'Failed to create organization');
+      } finally {
+        setSaving(false);
       }
     } else if (activeStep === 1) {
       // Validate and create location
@@ -121,10 +130,13 @@ const OrganizationWizard: React.FC<OrganizationWizardProps> = ({
       }
 
       try {
+        setSaving(true);
         await sysAdminApi.createOrganizationLocation(createdOrgId, locationData);
         handleComplete();
       } catch (err: any) {
         setError(err.response?.data?.message || 'Failed to create location');
+      } finally {
+        setSaving(false);
       }
     }
   };
@@ -161,25 +173,55 @@ const OrganizationWizard: React.FC<OrganizationWizardProps> = ({
     onComplete();
   };
 
-  const handleCancel = async () => {
-    // If we created an org but user cancels before adding location, delete the org
-    if (createdOrgId && activeStep === 1) {
-      try {
-        await sysAdminApi.deleteOrganization(createdOrgId);
-      } catch (err: any) {
-        console.error('Failed to cleanup org:', err);
-      }
-    }
-
-    // Reset and close
+  const resetAndClose = () => {
     setActiveStep(0);
     setCreatedOrgId(null);
     setError('');
     onClose();
   };
 
+  /**
+   * Closing via backdrop/Escape never deletes anything: the organization created in
+   * step 1 is kept and the user is told a location can be added later.
+   */
+  const handleDialogClose = () => {
+    if (saving) return;
+    if (createdOrgId && activeStep === 1) {
+      showInfo(`"${orgData.name}" was created. You can add a location from its Locations dialog.`);
+      onComplete();
+    }
+    resetAndClose();
+  };
+
+  /** Explicit Cancel at step 2 asks whether to discard the organization just created. */
+  const handleCancel = async () => {
+    if (saving) return;
+    if (createdOrgId && activeStep === 1) {
+      const discard = await confirm({
+        title: 'Discard new organization?',
+        message: `"${orgData.name}" was already created. Discard it, or keep it and add a location later?`,
+        confirmLabel: 'Discard',
+        cancelLabel: 'Keep',
+        danger: true,
+      });
+      if (discard) {
+        try {
+          await sysAdminApi.deleteOrganization(createdOrgId);
+        } catch (err: any) {
+          console.error('Failed to cleanup org:', err);
+          setError(err.response?.data?.error?.message || 'Failed to discard the organization');
+          return;
+        }
+      } else {
+        showInfo(`"${orgData.name}" was kept. You can add a location from its Locations dialog.`);
+      }
+      onComplete();
+    }
+    resetAndClose();
+  };
+
   return (
-    <Dialog open={open} onClose={handleCancel} maxWidth="md" fullWidth>
+    <Dialog open={open} onClose={handleDialogClose} maxWidth="md" fullWidth>
       <DialogTitle>
         <Box>
           <Typography variant="h6">Create New Organization</Typography>
@@ -424,11 +466,12 @@ const OrganizationWizard: React.FC<OrganizationWizardProps> = ({
       </DialogContent>
 
       <DialogActions>
-        <Button onClick={handleCancel}>Cancel</Button>
-        <Button onClick={handleNext} variant="contained" color="primary">
-          {activeStep === 0 ? 'Next: Add Location' : 'Complete'}
+        <Button onClick={handleCancel} disabled={saving}>Cancel</Button>
+        <Button onClick={handleNext} variant="contained" color="primary" disabled={saving}>
+          {saving ? 'Saving…' : activeStep === 0 ? 'Next: Add Location' : 'Complete'}
         </Button>
       </DialogActions>
+      {confirmDialog}
     </Dialog>
   );
 };

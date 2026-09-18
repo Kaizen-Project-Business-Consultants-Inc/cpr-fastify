@@ -22,11 +22,14 @@ import { Save as SaveIcon, Cancel as CancelIcon } from '@mui/icons-material';
 import { sysAdminApi } from '../../services/api';
 import logger from '../../utils/logger';
 import StatusChip from '../gtacpr/StatusChip';
-import { PrimaryButton, GhostButton } from '../gtacpr/Buttons';
+import { PrimaryButton } from '../gtacpr/Buttons';
+import { useConfirm, LinkButton } from '../gtacpr';
 
 const CourseManagement = ({ onShowSnackbar }: { onShowSnackbar: any }) => {
   const [courses, setCourses] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const { confirm, dialog: confirmDialog } = useConfirm();
 
   // Dialog state
   const [showDialog, setShowDialog] = useState(false);
@@ -99,18 +102,18 @@ const CourseManagement = ({ onShowSnackbar }: { onShowSnackbar: any }) => {
     setShowDialog(true);
   };
 
-  const handleToggleActive = async (course: any) => {
-    const action = course.isActive ? 'deactivate' : 'reactivate';
-    if (window.confirm(`Are you sure you want to ${action} the course "${course.name}"?`)) {
-      try {
-        await sysAdminApi.toggleCourseActive(course.id);
-        onShowSnackbar?.(`Course ${action}d successfully`, 'success');
-        loadCourses();
-      } catch (err: any) {
-        logger.error('Error toggling course status:', err);
-        onShowSnackbar?.(`Failed to ${action} course`, 'error');
-      }
+  /** Deactivating an existing course type hides it from scheduling; ask first. */
+  const handleActiveSwitch = async (checked: boolean) => {
+    if (!checked && editingCourse && editingCourse.isActive !== false) {
+      const ok = await confirm({
+        title: 'Deactivate course type?',
+        message: `"${editingCourse.name}" will no longer be available for scheduling once you save. You can reactivate it later.`,
+        confirmLabel: 'Deactivate',
+        danger: true,
+      });
+      if (!ok) return;
     }
+    setFormData(prev => ({ ...prev, isActive: checked }));
   };
 
   const handleSubmit = async (e: any) => {
@@ -120,8 +123,10 @@ const CourseManagement = ({ onShowSnackbar }: { onShowSnackbar: any }) => {
     const mins = formData.durationMinutes ? parseInt(formData.durationMinutes) : 0;
     const totalMinutes = hours * 60 + mins;
     if (totalMinutes <= 0) { onShowSnackbar?.('Duration is required', 'error'); return; }
+    if (saving) return;
 
     try {
+      setSaving(true);
       const submitData = {
         ...formData,
         duration_minutes: totalMinutes,
@@ -142,6 +147,8 @@ const CourseManagement = ({ onShowSnackbar }: { onShowSnackbar: any }) => {
     } catch (err: any) {
       logger.error('Error saving course:', err);
       onShowSnackbar?.('Failed to save course', 'error');
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -244,24 +251,24 @@ const CourseManagement = ({ onShowSnackbar }: { onShowSnackbar: any }) => {
                   )}
 
                   {/* Edit button */}
-                  <Box
+                  <LinkButton
                     onClick={() => handleEdit(course)}
+                    aria-label={`Edit ${course.name}`}
                     sx={{
                       mt: 'auto',
-                      pt: 1.5,
+                      display: 'block',
+                      width: '100%',
                       textAlign: 'center',
                       py: 1,
                       border: (theme: any) => `1.5px solid ${theme.palette.divider}`,
                       borderRadius: '8px',
                       fontSize: 13,
                       fontWeight: 700,
-                      color: '#CC1F1F',
-                      cursor: 'pointer',
-                      '&:hover': { bgcolor: '#FFF0F0' },
+                      '&:hover': { bgcolor: '#FFF0F0', textDecoration: 'none' },
                     }}
                   >
                     Edit Course Type
-                  </Box>
+                  </LinkButton>
                 </Box>
               </Card>
             );
@@ -308,7 +315,7 @@ const CourseManagement = ({ onShowSnackbar }: { onShowSnackbar: any }) => {
               </Grid>
               <Grid item xs={12}>
                 <FormControlLabel
-                  control={<Switch checked={formData.isActive} onChange={handleChange} name="isActive" color="primary" />}
+                  control={<Switch checked={formData.isActive} onChange={(e) => handleActiveSwitch(e.target.checked)} name="isActive" color="primary" inputProps={{ 'aria-label': 'Active course' }} />}
                   label="Active Course"
                 />
               </Grid>
@@ -316,12 +323,13 @@ const CourseManagement = ({ onShowSnackbar }: { onShowSnackbar: any }) => {
           </Box>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setShowDialog(false)} startIcon={<CancelIcon />}>Cancel</Button>
-          <Button onClick={handleSubmit} variant="contained" startIcon={<SaveIcon />}>
-            {editingCourse ? 'Update Course' : 'Create Course'}
+          <Button onClick={() => setShowDialog(false)} startIcon={<CancelIcon />} disabled={saving}>Cancel</Button>
+          <Button onClick={handleSubmit} variant="contained" startIcon={<SaveIcon />} disabled={saving}>
+            {saving ? 'Saving…' : editingCourse ? 'Update Course' : 'Create Course'}
           </Button>
         </DialogActions>
       </Dialog>
+      {confirmDialog}
     </Box>
   );
 };

@@ -155,6 +155,7 @@ const InstructorPortal: React.FC<InstructorPortalProps> = ({
         studentsRegistered: 0,
         studentsAttendance: 0,
         status: 'available',
+        originalData: availability,
       });
     });
 
@@ -218,7 +219,11 @@ const InstructorPortal: React.FC<InstructorPortalProps> = ({
                           await onRemoveAvailability(date);
                           return { success: true };
                         } catch (error: any) {
-                          return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+                          const axiosErr = error as { response?: { data?: { error?: string } } };
+                          return {
+                            success: false,
+                            error: axiosErr.response?.data?.error || (error instanceof Error ? error.message : 'Unknown error'),
+                          };
                         }
                       }}
                     />

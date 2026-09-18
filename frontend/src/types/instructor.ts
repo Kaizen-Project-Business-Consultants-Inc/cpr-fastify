@@ -163,7 +163,7 @@ export interface CombinedScheduleItem {
   status: string;
   // Original data
   courseId?: number;
-  originalData?: Course | AvailabilitySlot;
+  originalData?: Course | AvailabilitySlot | { id: number; date: string; status?: string };
 }
 
 export interface ScheduledClass {

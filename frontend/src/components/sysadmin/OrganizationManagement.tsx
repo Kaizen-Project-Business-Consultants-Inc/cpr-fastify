@@ -22,6 +22,9 @@ import DataTable, { DataTableRow } from '../gtacpr/DataTable';
 import UserAvatar from '../gtacpr/UserAvatar';
 import StatusChip from '../gtacpr/StatusChip';
 import { PrimaryButton, GhostButton } from '../gtacpr/Buttons';
+import { useConfirm, LinkButton } from '../gtacpr';
+import { useDebounce } from '../../hooks/useDebounce';
+import { getTodayDate } from '../../utils/formatters';
 
 const columns = [
   { key: 'org', label: 'ORGANIZATION', width: '1.8fr' },
@@ -47,10 +50,12 @@ const OrganizationManagement = () => {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
+  const debouncedSearch = useDebounce(searchTerm, 300);
+  const [saving, setSaving] = useState(false);
+  const { confirm, dialog: confirmDialog } = useConfirm();
   const [openDialog, setOpenDialog] = useState(false);
   const [openWizard, setOpenWizard] = useState(false);
   const [editingOrg, setEditingOrg] = useState<any>(null);
-  const [deleteConfirm, setDeleteConfirm] = useState<any>(null);
   const [locationsDialogOrg, setLocationsDialogOrg] = useState<any>(null);
   const [formData, setFormData] = useState({
     name: '', address: '', city: '', province: '', postalCode: '',
@@ -74,7 +79,7 @@ const OrganizationManagement = () => {
     }
   };
 
-  useEffect(() => { setPage(1); loadOrganizations(1, searchTerm); }, [searchTerm]);
+  useEffect(() => { setPage(1); loadOrganizations(1, debouncedSearch); }, [debouncedSearch]);
 
   const hasNextPage = page * PAGE_SIZE < totalCount;
   const onPrevPage = () => { const p = Math.max(1, page - 1); setPage(p); loadOrganizations(p); };
@@ -105,7 +110,9 @@ const OrganizationManagement = () => {
   };
 
   const handleSubmit = async () => {
+    if (saving) return;
     try {
+      setSaving(true);
       setError('');
       await sysAdminApi.updateOrganization(editingOrg.id, formData);
       setSuccess('Organization updated successfully');
@@ -113,6 +120,8 @@ const OrganizationManagement = () => {
       loadOrganizations();
     } catch (err: any) {
       setError(err.response?.data?.error?.message || 'Failed to save organization');
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -122,12 +131,18 @@ const OrganizationManagement = () => {
     loadOrganizations();
   };
 
-  const handleDelete = async (orgId: any) => {
+  const handleDelete = async (org: any) => {
+    const ok = await confirm({
+      title: 'Delete organization?',
+      message: `"${org.organizationName}" and its locations will be permanently deleted. This cannot be undone.`,
+      confirmLabel: 'Delete',
+      danger: true,
+    });
+    if (!ok) return;
     try {
       setError('');
-      await sysAdminApi.deleteOrganization(orgId);
+      await sysAdminApi.deleteOrganization(org.id);
       setSuccess('Organization deleted successfully');
-      setDeleteConfirm(null);
       loadOrganizations();
     } catch (err: any) {
       setError(err.response?.data?.error?.message || err.response?.data?.error?.details || 'Failed to delete organization');
@@ -143,7 +158,7 @@ const OrganizationManagement = () => {
       const url = window.URL.createObjectURL(new Blob([response.data]));
       const a = document.createElement('a');
       a.href = url;
-      a.download = `organizations-${new Date().toISOString().split('T')[0]}.csv`;
+      a.download = `organizations-${getTodayDate()}.csv`;
       a.click();
       window.URL.revokeObjectURL(url);
     } catch {
@@ -239,19 +254,13 @@ const OrganizationManagement = () => {
             </Box>
             {/* ACTIONS */}
             <Box sx={{ display: 'flex', gap: 0.5, justifyContent: 'flex-end' }}>
-              <Box onClick={() => setLocationsDialogOrg(org)} sx={{ fontSize: 12, fontWeight: 600, color: '#CC1F1F', cursor: 'pointer', '&:hover': { textDecoration: 'underline' } }}>
-                Locations
-              </Box>
+              <LinkButton onClick={() => setLocationsDialogOrg(org)} aria-label={`Locations for ${org.organizationName}`}>Locations</LinkButton>
               <Typography sx={{ fontSize: 12, color: (theme) => theme.palette.divider }}>|</Typography>
-              <Box onClick={() => handleOpenDialog(org)} sx={{ fontSize: 12, fontWeight: 600, color: '#CC1F1F', cursor: 'pointer', '&:hover': { textDecoration: 'underline' } }}>
-                Edit
-              </Box>
+              <LinkButton onClick={() => handleOpenDialog(org)} aria-label={`Edit ${org.organizationName}`}>Edit</LinkButton>
               {org.userCount === 0 && org.courseCount === 0 && (
                 <>
                   <Typography sx={{ fontSize: 12, color: (theme) => theme.palette.divider }}>|</Typography>
-                  <Box onClick={() => setDeleteConfirm(org)} sx={{ fontSize: 12, fontWeight: 600, color: (theme) => theme.palette.text.secondary, cursor: 'pointer', '&:hover': { textDecoration: 'underline', color: '#CC1F1F' } }}>
-                    Delete
-                  </Box>
+                  <LinkButton tone="neutral" onClick={() => handleDelete(org)} aria-label={`Delete ${org.organizationName}`}>Delete</LinkButton>
                 </>
               )}
             </Box>
@@ -281,22 +290,12 @@ const OrganizationManagement = () => {
           </Grid>
         </DialogContent>
         <DialogActions>
-          <Button onClick={handleCloseDialog}>Cancel</Button>
-          <Button onClick={handleSubmit} variant="contained">Update</Button>
+          <Button onClick={handleCloseDialog} disabled={saving}>Cancel</Button>
+          <Button onClick={handleSubmit} variant="contained" disabled={saving}>{saving ? 'Saving…' : 'Update'}</Button>
         </DialogActions>
       </Dialog>
 
-      {/* Delete Confirmation */}
-      <Dialog open={Boolean(deleteConfirm)} onClose={() => setDeleteConfirm(null)}>
-        <DialogTitle sx={{ fontWeight: 700 }}>Confirm Delete</DialogTitle>
-        <DialogContent>
-          Are you sure you want to delete the organization "{deleteConfirm?.organizationName}"? This action cannot be undone.
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setDeleteConfirm(null)}>Cancel</Button>
-          <Button onClick={() => handleDelete(deleteConfirm.id)} color="error" variant="contained">Delete</Button>
-        </DialogActions>
-      </Dialog>
+      {confirmDialog}
 
       {/* Locations Management Dialog */}
       <LocationsDialog open={Boolean(locationsDialogOrg)} onClose={() => setLocationsDialogOrg(null)} organization={locationsDialogOrg} />

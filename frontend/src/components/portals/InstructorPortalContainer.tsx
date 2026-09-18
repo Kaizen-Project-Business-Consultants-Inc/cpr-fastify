@@ -97,21 +97,20 @@ const InstructorPortalContainer: React.FC = () => {
   // Handle availability actions
   const handleAddAvailability = useCallback(async (date: string) => {
     try {
+      // Views (AvailabilityView / MyClassesView) show their own success + error feedback.
       await addAvailabilityMutation.mutateAsync(date);
-      setSuccessState('Availability added successfully');
     } catch (error: any) {
-      setError('Failed to add availability');
       logger.error('Add availability error:', error);
+      throw error;
     }
   }, [addAvailabilityMutation]);
 
   const handleRemoveAvailability = useCallback(async (date: string) => {
     try {
       await removeAvailabilityMutation.mutateAsync(date);
-      setSuccessState('Availability removed successfully');
     } catch (error: any) {
-      setError('Failed to remove availability');
       logger.error('Remove availability error:', error);
+      throw error;
     }
   }, [removeAvailabilityMutation]);
 

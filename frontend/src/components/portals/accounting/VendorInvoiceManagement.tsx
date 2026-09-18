@@ -20,6 +20,8 @@ import DataTable, { DataTableRow } from '../../gtacpr/DataTable';
 import StatusChip from '../../gtacpr/StatusChip';
 import StatCard from '../../gtacpr/StatCard';
 import { PrimaryButton, GhostButton } from '../../gtacpr/Buttons';
+import { LinkButton, useConfirm } from '../../gtacpr';
+import { formatCurrency, formatDisplayDate, getTodayDate } from '../../../utils/formatters';
 import { adminApi } from '../../../services/api';
 import { useSnackbar } from '../../../contexts/SnackbarContext';
 import { useVendorInvoiceUpdates } from '../../../hooks/useVendorInvoiceUpdates';
@@ -138,16 +140,7 @@ const getPaymentStatusKind = (status: string): 'success' | 'active' | 'warning' 
   }
 };
 
-const formatCurrency = (amount: number) => {
-  return new Intl.NumberFormat('en-US', {
-    style: 'currency',
-    currency: 'USD'
-  }).format(amount);
-};
-
-const formatDate = (date: string) => {
-  return new Date(date).toLocaleDateString();
-};
+const formatDate = (date: string) => formatDisplayDate(date);
 
 const VendorInvoiceManagement: React.FC = () => {
   const [invoices, setInvoices] = useState<VendorInvoice[]>([]);
@@ -159,13 +152,14 @@ const VendorInvoiceManagement: React.FC = () => {
   const [paymentHistory, setPaymentHistory] = useState<PaymentHistory[]>([]);
   const [paymentData, setPaymentData] = useState<PaymentData>({
     amount: '',
-    paymentDate: new Date().toISOString().split('T')[0],
+    paymentDate: getTodayDate(),
     paymentMethod: '',
     referenceNumber: '',
     notes: ''
   });
   const [statusFilter, setStatusFilter] = useState('pending');
   const { showSuccess, showError } = useSnackbar();
+  const { confirm, dialog: confirmDialog } = useConfirm();
 
   const fetchInvoices = async () => {
     try {
@@ -199,7 +193,7 @@ const VendorInvoiceManagement: React.FC = () => {
     setSelectedInvoice(invoice);
     setPaymentData({
       amount: Number(invoice.balanceDue || 0) > 0 ? String(invoice.balanceDue || 0) : '',
-      paymentDate: new Date().toISOString().split('T')[0],
+      paymentDate: getTodayDate(),
       paymentMethod: invoice.vendorPaymentMethod && ['check', 'direct_deposit', 'wire_transfer'].includes(invoice.vendorPaymentMethod)
         ? invoice.vendorPaymentMethod
         : 'check',
@@ -223,7 +217,16 @@ const VendorInvoiceManagement: React.FC = () => {
   };
 
   const handleProcessPayment = async () => {
-    if (!selectedInvoice || !paymentData.amount) return;
+    if (!selectedInvoice || !paymentData.amount || processingPayment) return;
+
+    const vendorLabel = selectedInvoice.billingCompany || selectedInvoice.company || selectedInvoice.vendorName || 'this vendor';
+    const ok = await confirm({
+      title: 'Process this payment?',
+      message: `Record a ${formatCurrency(paymentData.amount)} ${paymentData.paymentMethod.replace('_', ' ')} payment to ${vendorLabel} for invoice ${selectedInvoice.invoiceNumber}. This cannot be undone.`,
+      confirmLabel: 'Process Payment',
+      danger: true,
+    });
+    if (!ok) return;
 
     try {
       setProcessingPayment(true);
@@ -367,7 +370,7 @@ const VendorInvoiceManagement: React.FC = () => {
         {filteredInvoices.map((invoice) => (
           <DataTableRow key={invoice.id} columns={TABLE_COLUMNS}>
             <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>
-              {new Date(invoice.createdAt || invoice.invoiceDate).toLocaleDateString()}
+              {formatDisplayDate(invoice.createdAt || invoice.invoiceDate)}
             </Typography>
             <Typography sx={{ fontSize: 13.5, fontWeight: 600, color: (theme) => theme.palette.text.primary }}>
               {invoice.billingCompany || invoice.company || invoice.vendorName || '-'}
@@ -388,42 +391,42 @@ const VendorInvoiceManagement: React.FC = () => {
             </Tooltip>
             <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary, fontFamily: 'monospace', textAlign: 'right' }}>
               {invoice.rate && !isNaN(invoice.rate) && invoice.rate > 0
-                ? `$${Number(invoice.rate).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                ? formatCurrency(invoice.rate)
                 : '-'}
             </Typography>
             <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary, fontFamily: 'monospace', textAlign: 'right' }}>
               {invoice.amount && !isNaN(Number(invoice.amount))
-                ? `$${Number(invoice.amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                ? formatCurrency(invoice.amount)
                 : invoice.total && !isNaN(Number(invoice.total))
-                  ? `$${Number(invoice.total).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                  ? formatCurrency(invoice.total)
                   : '-'}
             </Typography>
             <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary, fontFamily: 'monospace', textAlign: 'right' }}>
               {invoice.subtotal && !isNaN(Number(invoice.subtotal)) && Number(invoice.subtotal) > 0
-                ? `$${Number(invoice.subtotal).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                ? formatCurrency(invoice.subtotal)
                 : '-'}
             </Typography>
             <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary, fontFamily: 'monospace', textAlign: 'right' }}>
               {invoice.hst && !isNaN(Number(invoice.hst)) && Number(invoice.hst) > 0
-                ? `$${Number(invoice.hst).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                ? formatCurrency(invoice.hst)
                 : '-'}
             </Typography>
             <Typography sx={{ fontSize: 13.5, fontWeight: 600, color: (theme) => theme.palette.text.primary, fontFamily: 'monospace', textAlign: 'right' }}>
               {invoice.total && !isNaN(Number(invoice.total)) && Number(invoice.total) > 0
-                ? `$${Number(invoice.total).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                ? formatCurrency(invoice.total)
                 : '-'}
             </Typography>
             <StatusChip kind={getStatusKind(invoice.status)} label={getStatusLabel(invoice.status)} />
             <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>
-              {invoice.dueDate ? new Date(invoice.dueDate).toLocaleDateString() : '-'}
+              {formatDisplayDate(invoice.dueDate)}
             </Typography>
             <Box sx={{ textAlign: 'center' }}>
-              <Box
+              <LinkButton
                 onClick={() => handleView(invoice)}
-                sx={{ fontSize: 12, fontWeight: 600, color: '#CC1F1F', cursor: 'pointer', '&:hover': { textDecoration: 'underline' } }}
+                aria-label={`View invoice ${invoice.invoiceNumber}`}
               >
                 View
-              </Box>
+              </LinkButton>
             </Box>
           </DataTableRow>
         ))}
@@ -680,6 +683,7 @@ const VendorInvoiceManagement: React.FC = () => {
           </GhostButton>
         </DialogActions>
       </Dialog>
+      {confirmDialog}
     </Box>
   );
 };

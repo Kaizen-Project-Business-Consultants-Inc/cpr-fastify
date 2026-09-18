@@ -1,12 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Box,
   Typography,
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  DialogActions,
-  TextField,
   FormControl,
   InputLabel,
   Select,
@@ -14,13 +9,14 @@ import {
   Pagination,
   Alert,
   CircularProgress,
-  Grid,
-  ButtonBase,
 } from '@mui/material';
-import { notificationService, Notification, SystemNotifications, NotificationFilters } from '../../services/notificationService';
-import StatCard from '../gtacpr/StatCard';
+import { notificationService, Notification, NotificationFilters } from '../../services/notificationService';
 import StatusChip from '../gtacpr/StatusChip';
-import { PrimaryButton, GhostButton } from '../gtacpr/Buttons';
+import LinkButton from '../gtacpr/LinkButton';
+import { useConfirm } from '../gtacpr/ConfirmDialog';
+import { GhostButton } from '../gtacpr/Buttons';
+import { useSnackbar } from '../../contexts/SnackbarContext';
+import { formatDateTime } from '../../utils/formatters';
 
 const getNotificationKind = (type: string) => {
   switch (type) {
@@ -39,12 +35,18 @@ const getNotificationKind = (type: string) => {
   }
 };
 
+const getErrorMessage = (err: unknown, fallback: string) => {
+  const e = err as { response?: { data?: { error?: { message?: string }; message?: string } }; message?: string };
+  return e?.response?.data?.error?.message || e?.response?.data?.message || e?.message || fallback;
+};
+
 // Notification Item Component
 const NotificationItem: React.FC<{
   notification: Notification;
-  onMarkAsRead: (id: number) => void;
-  onDelete: (id: number) => void;
-}> = ({ notification, onMarkAsRead, onDelete }) => (
+  busy: boolean;
+  onMarkAsRead: (n: Notification) => void;
+  onDelete: (n: Notification) => void;
+}> = ({ notification, busy, onMarkAsRead, onDelete }) => (
   <Box sx={{
     p: 2,
     borderBottom: (theme) => `1px solid ${theme.palette.divider}`,
@@ -59,182 +61,132 @@ const NotificationItem: React.FC<{
         </Box>
         <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary, mb: 0.5 }}>{notification.message}</Typography>
         <Box sx={{ display: 'flex', gap: 2 }}>
-          <Typography sx={{ fontSize: 12, color: (theme) => theme.palette.text.secondary }}>{new Date(notification.createdAt).toLocaleString()}</Typography>
+          <Typography sx={{ fontSize: 12, color: (theme) => theme.palette.text.secondary }}>{formatDateTime(notification.createdAt)}</Typography>
           {notification.senderName && <Typography sx={{ fontSize: 12, color: (theme) => theme.palette.text.secondary }}>From: {notification.senderName}</Typography>}
         </Box>
       </Box>
       <Box sx={{ display: 'flex', gap: 1, ml: 2 }}>
         {!notification.isRead && (
-          <ButtonBase onClick={() => onMarkAsRead(notification.id)} sx={{ fontSize: 12, fontWeight: 600, color: '#16A34A', '&:hover': { textDecoration: 'underline' }, '&:focus-visible': { outline: '2px solid #16A34A', outlineOffset: '2px' } }}>Read</ButtonBase>
+          <LinkButton onClick={() => onMarkAsRead(notification)} disabled={busy} sx={{ color: '#16A34A' }} aria-label={`Mark "${notification.title}" as read`}>Read</LinkButton>
         )}
-        <ButtonBase onClick={() => onDelete(notification.id)} sx={{ fontSize: 12, fontWeight: 600, color: '#CC1F1F', '&:hover': { textDecoration: 'underline' }, '&:focus-visible': { outline: '2px solid #CC1F1F', outlineOffset: '2px' } }}>Delete</ButtonBase>
+        <LinkButton tone="danger" onClick={() => onDelete(notification)} disabled={busy} aria-label={`Delete "${notification.title}"`}>Delete</LinkButton>
       </Box>
     </Box>
   </Box>
 );
 
-// Send Notification Dialog
-const SendNotificationDialog: React.FC<{
-  open: boolean;
-  onClose: () => void;
-  onSend: (recipientIds: number[], type: string, title: string, message: string) => void;
-}> = ({ open, onClose, onSend }) => {
-  const [recipientIds, setRecipientIds] = useState('');
-  const [type, setType] = useState('');
-  const [title, setTitle] = useState('');
-  const [message, setMessage] = useState('');
-  const [loading, setLoading] = useState(false);
-
-  const handleSubmit = async () => {
-    if (!recipientIds || !type || !title || !message) return;
-    setLoading(true);
-    try {
-      const ids = recipientIds.split(',').map(id => parseInt(id.trim())).filter(id => !isNaN(id));
-      await onSend(ids, type, title, message);
-      onClose();
-      setRecipientIds(''); setType(''); setTitle(''); setMessage('');
-    } finally { setLoading(false); }
-  };
-
-  const handleClose = () => { onClose(); setRecipientIds(''); setType(''); setTitle(''); setMessage(''); };
-
-  return (
-    <Dialog open={open} onClose={handleClose} maxWidth="md" fullWidth>
-      <DialogTitle sx={{ fontSize: 18, fontWeight: 700, color: (theme) => theme.palette.text.primary }}>Send Notification</DialogTitle>
-      <DialogContent>
-        <Grid container spacing={2} sx={{ mt: 0.5 }}>
-          <Grid item xs={12}><TextField fullWidth label="Recipient IDs (comma-separated)" value={recipientIds} onChange={(e) => setRecipientIds(e.target.value)} placeholder="1, 2, 3" required /></Grid>
-          <Grid item xs={12}>
-            <FormControl fullWidth>
-              <InputLabel>Type</InputLabel>
-              <Select value={type} onChange={(e) => setType(e.target.value)} label="Type" required>
-                <MenuItem value="timesheet_submitted">Timesheet Submitted</MenuItem>
-                <MenuItem value="profile_change_submitted">Profile Change Submitted</MenuItem>
-                <MenuItem value="payment_created">Payment Created</MenuItem>
-                <MenuItem value="timesheet_approved">Timesheet Approved</MenuItem>
-                <MenuItem value="timesheet_rejected">Timesheet Rejected</MenuItem>
-                <MenuItem value="payment_completed">Payment Completed</MenuItem>
-                <MenuItem value="payment_rejected">Payment Rejected</MenuItem>
-                <MenuItem value="system">System Notification</MenuItem>
-              </Select>
-            </FormControl>
-          </Grid>
-          <Grid item xs={12}><TextField fullWidth label="Title" value={title} onChange={(e) => setTitle(e.target.value)} required /></Grid>
-          <Grid item xs={12}><TextField fullWidth multiline rows={3} label="Message" value={message} onChange={(e) => setMessage(e.target.value)} required /></Grid>
-        </Grid>
-      </DialogContent>
-      <DialogActions sx={{ p: 2 }}>
-        <GhostButton onClick={handleClose}>Cancel</GhostButton>
-        <PrimaryButton onClick={handleSubmit} disabled={loading || !recipientIds || !type || !title || !message}>
-          {loading ? 'Sending...' : 'Send'}
-        </PrimaryButton>
-      </DialogActions>
-    </Dialog>
-  );
-};
-
+/**
+ * HR notifications: list, mark read, delete.
+ * (Stats, system overview and sending notifications were removed: their endpoints do not exist.)
+ */
 const NotificationsPanel: React.FC = () => {
   const [notifications, setNotifications] = useState<Notification[]>([]);
-  const [systemNotifications, setSystemNotifications] = useState<SystemNotifications | null>(null);
-  const [stats, setStats] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [sendDialogOpen, setSendDialogOpen] = useState(false);
   const [filters, setFilters] = useState<NotificationFilters>({ page: 1, limit: 20 });
   const [pagination, setPagination] = useState({ page: 1, limit: 20, total: 0, pages: 0 });
   const [unreadCount, setUnreadCount] = useState(0);
+  const { showSuccess, showError } = useSnackbar();
+  const { confirm, dialog: confirmDialog } = useConfirm();
 
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const [notificationsData, systemData, statsData] = await Promise.all([
-        notificationService.getNotifications(filters),
-        notificationService.getSystemNotifications(),
-        notificationService.getStats(),
-      ]);
+      const notificationsData = await notificationService.getNotifications(filters);
       setNotifications(notificationsData.notifications);
       setPagination(notificationsData.pagination);
       setUnreadCount(notificationsData.unreadCount);
-      setSystemNotifications(systemData);
-      setStats(statsData);
-    } catch (err: any) {
-      setError('Failed to load notification data');
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, 'Failed to load notifications'));
     } finally {
       setLoading(false);
     }
+  }, [filters]);
+
+  useEffect(() => { loadData(); }, [loadData]);
+
+  const handleMarkAsRead = async (n: Notification) => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      await notificationService.markAsRead(n.id);
+      await loadData();
+    } catch (err: unknown) {
+      showError(getErrorMessage(err, 'Failed to mark notification as read'));
+    } finally {
+      setBusy(false);
+    }
   };
 
-  useEffect(() => { loadData(); }, [filters]);
-
-  const handleMarkAsRead = async (id: number) => { await notificationService.markAsRead(id); await loadData(); };
-  const handleDeleteNotification = async (id: number) => { await notificationService.deleteNotification(id); await loadData(); };
-  const handleMarkAllAsRead = async () => { await notificationService.markAllAsRead(); await loadData(); };
-  const handleSendNotification = async (recipientIds: number[], type: string, title: string, message: string) => {
-    await notificationService.sendBulkNotifications({ recipient_ids: recipientIds, type, title, message });
-    await loadData();
+  const handleDeleteNotification = async (n: Notification) => {
+    if (busy) return;
+    const ok = await confirm({
+      title: 'Delete notification?',
+      message: `"${n.title}" will be permanently removed. This cannot be undone.`,
+      confirmLabel: 'Delete',
+      danger: true,
+    });
+    if (!ok) return;
+    setBusy(true);
+    try {
+      await notificationService.deleteNotification(n.id);
+      showSuccess('Notification deleted');
+      await loadData();
+    } catch (err: unknown) {
+      showError(getErrorMessage(err, 'Failed to delete notification'));
+    } finally {
+      setBusy(false);
+    }
   };
 
-  if (loading && notifications.length === 0) {
+  const handleMarkAllAsRead = async () => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      await notificationService.markAllAsRead();
+      showSuccess('All notifications marked as read');
+      await loadData();
+    } catch (err: unknown) {
+      showError(getErrorMessage(err, 'Failed to mark all as read'));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (loading && notifications.length === 0 && !error) {
     return <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: 400 }}><CircularProgress size={48} /></Box>;
   }
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-      {error && <Alert severity="error" onClose={() => setError(null)}>{error}</Alert>}
-
-      {/* Stats */}
-      {stats && (
-        <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'repeat(2, 1fr)', md: 'repeat(4, 1fr)' }, gap: '16px' }}>
-          <StatCard label="Total Notifications" value={stats.total} sub="All time" dotColor="#4B5563" />
-          <StatCard label="Unread" value={stats.unread} sub="Need attention" dotColor="#CC1F1F" />
-          <StatCard label="Pending Timesheets" value={systemNotifications?.pendingTimesheets || 0} sub="Awaiting review" dotColor="#ED6C02" />
-          <StatCard label="Pending Payments" value={systemNotifications?.pendingPayments || 0} sub="Awaiting processing" dotColor="#16A34A" />
-        </Box>
+      {confirmDialog}
+      {error && (
+        <Alert severity="error" onClose={() => setError(null)} action={<GhostButton onClick={loadData}>Retry</GhostButton>}>
+          {error}
+        </Alert>
       )}
 
       {/* Actions */}
-      <Box sx={{ display: 'flex', gap: 1 }}>
-        <PrimaryButton onClick={() => setSendDialogOpen(true)}>Send Notification</PrimaryButton>
-        <GhostButton onClick={handleMarkAllAsRead} disabled={unreadCount === 0}>Mark All as Read</GhostButton>
-        <GhostButton onClick={loadData} disabled={loading}>Refresh</GhostButton>
+      <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', alignItems: 'center' }}>
+        <GhostButton onClick={handleMarkAllAsRead} disabled={busy || unreadCount === 0}>Mark All as Read</GhostButton>
+        <GhostButton onClick={loadData} disabled={loading || busy}>Refresh</GhostButton>
+        <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary, ml: 1 }}>
+          {unreadCount} unread
+        </Typography>
       </Box>
-
-      {/* System Overview */}
-      {systemNotifications && (
-        <Box sx={{ border: (theme) => `1px solid ${theme.palette.divider}`, borderRadius: '10px', bgcolor: (theme) => theme.palette.background.paper, p: 3 }}>
-          <Typography sx={{ fontSize: 13, fontWeight: 700, color: (theme) => theme.palette.text.secondary, textTransform: 'uppercase', letterSpacing: '0.07em', mb: 2 }}>System Overview</Typography>
-          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, 1fr)', md: 'repeat(3, 1fr)' }, gap: 2, mb: 2 }}>
-            {[
-              ['Pending Timesheets', systemNotifications.pendingTimesheets],
-              ['Pending Profile Changes', systemNotifications.pendingProfileChanges],
-              ['Pending Payments', systemNotifications.pendingPayments],
-            ].map(([label, value]) => (
-              <Box key={String(label)}>
-                <Typography sx={{ fontSize: 12, fontWeight: 600, color: (theme) => theme.palette.text.secondary }}>{label}</Typography>
-                <Typography sx={{ fontSize: 20, fontWeight: 700, color: '#ED6C02' }}>{value}</Typography>
-              </Box>
-            ))}
-          </Box>
-          {systemNotifications.recentActivities.length > 0 && (
-            <>
-              <Typography sx={{ fontSize: 12, fontWeight: 600, color: (theme) => theme.palette.text.secondary, mb: 1 }}>Recent Activities</Typography>
-              {systemNotifications.recentActivities.map((activity, index) => (
-                <Box key={index} sx={{ p: 1.5, bgcolor: (theme) => theme.palette.background.default, borderRadius: '6px', mb: 0.5 }}>
-                  <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.primary }}>{activity.message}</Typography>
-                  <Typography sx={{ fontSize: 12, color: (theme) => theme.palette.text.secondary }}>{new Date(activity.timestamp).toLocaleString()}</Typography>
-                </Box>
-              ))}
-            </>
-          )}
-        </Box>
-      )}
 
       {/* Filter */}
       <Box sx={{ display: 'flex', gap: 2 }}>
         <FormControl sx={{ minWidth: 200 }} size="small">
-          <InputLabel>Show</InputLabel>
-          <Select value={filters.unreadOnly ? 'true' : 'false'} onChange={(e) => setFilters(prev => ({ ...prev, unreadOnly: e.target.value === 'true', page: 1 }))} label="Show">
+          <InputLabel id="notifications-show-label">Show</InputLabel>
+          <Select
+            labelId="notifications-show-label"
+            value={filters.unreadOnly ? 'true' : 'false'}
+            onChange={(e) => setFilters(prev => ({ ...prev, unreadOnly: e.target.value === 'true', page: 1 }))}
+            label="Show"
+          >
             <MenuItem value="false">All Notifications</MenuItem>
             <MenuItem value="true">Unread Only</MenuItem>
           </Select>
@@ -246,13 +198,14 @@ const NotificationsPanel: React.FC = () => {
         {notifications.length === 0 ? (
           <Box sx={{ textAlign: 'center', py: 4 }}>
             <Typography sx={{ fontSize: 14, fontWeight: 600, color: (theme) => theme.palette.text.secondary }}>No notifications found</Typography>
-            <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary, mt: 0.5 }}>You're all caught up!</Typography>
+            <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary, mt: 0.5 }}>You&apos;re all caught up!</Typography>
           </Box>
         ) : (
           notifications.map((notification) => (
             <NotificationItem
               key={notification.id}
               notification={notification}
+              busy={busy}
               onMarkAsRead={handleMarkAsRead}
               onDelete={handleDeleteNotification}
             />
@@ -266,8 +219,6 @@ const NotificationsPanel: React.FC = () => {
           <Pagination count={pagination.pages} page={pagination.page} onChange={(_, p) => setFilters(prev => ({ ...prev, page: p }))} />
         </Box>
       )}
-
-      <SendNotificationDialog open={sendDialogOpen} onClose={() => setSendDialogOpen(false)} onSend={handleSendNotification} />
     </Box>
   );
 };

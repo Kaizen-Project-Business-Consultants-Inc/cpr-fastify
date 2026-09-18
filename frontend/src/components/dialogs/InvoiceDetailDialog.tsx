@@ -12,7 +12,6 @@ import {
   Grid,
   Divider,
   TextField,
-  Tooltip,
   Table,
   TableBody,
   TableCell,
@@ -21,9 +20,10 @@ import {
   TableRow,
   Paper,
 } from '@mui/material';
-import api, { getInvoiceDetails, postInvoiceToOrganization, emailInvoice, updateInvoice } from '../../services/api';
+import api, { getInvoiceDetails, postInvoiceToOrganization } from '../../services/api';
+import { useConfirm } from '../gtacpr';
+import { formatCurrencyOrDash as formatCurrency, applyTax } from '../../utils/formatters';
 import { tokenService } from '../../services/tokenService';
-import EmailIcon from '@mui/icons-material/Email';
 import PostAddIcon from '@mui/icons-material/PostAdd';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import { CheckCircle as PresentIcon, Cancel as AbsentIcon, People as PeopleIcon } from '@mui/icons-material';
@@ -32,12 +32,6 @@ import { formatDisplayDate } from '../../utils/dateUtils';
 import { API_URL } from '../../config';
 import ServiceDetailsTable from '../common/ServiceDetailsTable';
 import PaymentHistoryTable from '../common/PaymentHistoryTable';
-
-// Helper function to format currency
-const formatCurrency = (amount: number | string | null | undefined): string => {
-  if (amount == null) return 'N/A';
-  return `$${parseFloat(String(amount)).toFixed(2)}`;
-};
 
 interface InvoiceData {
   id?: number;
@@ -123,15 +117,7 @@ const InvoiceDetailDialog = ({
   const [invoice, setInvoice] = useState<InvoiceData | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
-  const [isSendingEmail, setIsSendingEmail] = useState(false);
-  const [isPostingToOrg, setIsPostingToOrg] = useState(false);
-  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
-  const [formData, setFormData] = useState({
-    amount: '',
-    dueDate: '',
-    status: '',
-    notes: '',
-  });
+  const { confirm, dialog: confirmDialog } = useConfirm();
   
   // Payment request processing state
 
@@ -160,15 +146,17 @@ const InvoiceDetailDialog = ({
   const getServiceDetails = (invoiceData: InvoiceData | null) => {
     if (!invoiceData) return [];
 
+    const base = invoiceData.ratePerStudent ? invoiceData.ratePerStudent * (invoiceData.studentsattendance || 0) : 0;
+    const { tax, total } = applyTax(base);
     return [{
       date: invoiceData.datecompleted || '',
       location: invoiceData.location || '',
       course: `${invoiceData.name} (${invoiceData.coursenumber})`,
       students: invoiceData.studentsattendance || 0,
       ratePerStudent: invoiceData.ratePerStudent || 0,
-      baseCost: invoiceData.ratePerStudent ? (invoiceData.ratePerStudent * (invoiceData.studentsattendance || 0)) : 0,
-      tax: invoiceData.ratePerStudent ? (invoiceData.ratePerStudent * (invoiceData.studentsattendance || 0) * 0.13) : 0,
-      total: invoiceData.ratePerStudent ? (invoiceData.ratePerStudent * (invoiceData.studentsattendance || 0) * 1.13) : 0,
+      baseCost: base,
+      tax,
+      total,
     }];
   };
 
@@ -277,12 +265,6 @@ const InvoiceDetailDialog = ({
           const data = await getInvoiceDetails(invoiceId) as InvoiceData;
           logger.info(`Invoice details fetched successfully: ${invoiceId}`);
           setInvoice(data);
-          setFormData({
-            amount: data.amount != null ? String(data.amount) : '',
-            dueDate: data.duedate || '',
-            status: data.paymentstatus || '',
-            notes: data.notes || '',
-          });
 
           // Fetch students for this course
           if (data.coursenumber) {
@@ -342,58 +324,6 @@ const InvoiceDetailDialog = ({
     } finally {
       isPostingRef.current = false;
     }
-  };
-
-  const handleSendEmail = async () => {
-    if (!invoiceId) return;
-    setIsSendingEmail(true);
-    logger.debug(
-      `[InvoiceDetailDialog] Attempting to send email for Invoice ID: ${invoiceId}`
-    );
-    try {
-      const response = await emailInvoice(invoiceId);
-      if (response && response.success) {
-        const message = response.message || 'Email queued successfully.';
-        setPreviewUrl(response.previewUrl || null);
-        if (onActionSuccess) onActionSuccess(message);
-      } else {
-        const errorMsg = response?.message || 'Failed to send email via API.';
-        throw new Error(errorMsg);
-      }
-    } catch (err: unknown) {
-      logger.error(`Error sending email for invoice ${invoiceId}:`, err);
-      const errObj = err as { message?: string };
-      if (onActionError) onActionError(errObj?.message || 'Failed to send email.');
-    } finally {
-      setIsSendingEmail(false);
-    }
-  };
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setIsLoading(true);
-    setError('');
-
-    try {
-      logger.info('Saving invoice details:', formData);
-      const savedInvoice = await updateInvoice(invoiceId!, formData);
-      logger.info('Invoice saved successfully:', savedInvoice);
-      onClose();
-    } catch (err: unknown) {
-      logger.error('Failed to save invoice:', err);
-      const errObj = err as { message?: string };
-      setError(errObj.message || 'Failed to save invoice');
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
-    const { name, value } = e.target;
-    setFormData(prev => ({
-      ...prev,
-      [name]: value,
-    }));
   };
 
   const handlePreview = () => {
@@ -485,46 +415,23 @@ const InvoiceDetailDialog = ({
     }
   };
 
-  // Keyboard shortcuts handler
-  useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (!open) return;
-      
-      // Ctrl+Enter = Approve invoice
-      if (event.ctrlKey && event.key === 'Enter') {
-        event.preventDefault();
-        const status = String(invoice?.approvalStatus || invoice?.approval_status || '').toLowerCase();
-        if (['pending approval', 'pending_approval', 'pending', 'draft', 'new'].includes(status)) {
-          handleProcessPayment();
-        }
-      }
-      
-      // Ctrl+D = Download PDF
-      if (event.ctrlKey && event.key === 'd') {
-        event.preventDefault();
-        handleDownload();
-      }
-      
-      // Escape = Close dialog
-      if (event.key === 'Escape') {
-        event.preventDefault();
-        onClose();
-      }
-    };
-
-    document.addEventListener('keydown', handleKeyDown);
-    return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [open, invoice?.approvalStatus]);
-
   const handleProcessPayment = async () => {
-    if (!invoice?.id) return;
-    
+    if (!invoice?.id || processingPayment) return;
+
+    const ok = await confirm({
+      title: 'Approve and send this invoice?',
+      message: `Invoice ${invoice.invoicenumber || ''} for ${invoice.organizationname || 'this organization'} will be approved, posted to the organization portal and emailed to their billing contact. These steps cannot be undone.`,
+      confirmLabel: 'Approve & Send',
+      danger: true,
+    });
+    if (!ok) return;
+
     setProcessingPayment(true);
     try {
       logger.info(`Processing invoice approval, posting, and email for invoice ${invoice.id}`);
       
       // Step 1: Approve the invoice
-      const approveResponse = await api.put(`/accounting/invoices/${invoice.id}`, {
+      const approveResponse = await api.put(`/accounting/invoices/${invoice.id}/approval`, {
         approval_status: 'approved',
         notes: paymentNotes || `Invoice approved by accounting`
       });
@@ -565,11 +472,6 @@ const InvoiceDetailDialog = ({
           <Typography variant="h6">
             Invoice Details {invoice ? `(#${invoice.invoicenumber})` : ''}
           </Typography>
-          <Tooltip title="Keyboard shortcuts: Ctrl+Enter (Approve), Ctrl+D (Download), Esc (Close)">
-            <Typography variant="caption" color="text.secondary" sx={{ cursor: 'help' }}>
-              ⌨️ Shortcuts
-            </Typography>
-          </Tooltip>
         </Box>
       </DialogTitle>
       <DialogContent dividers>
@@ -881,44 +783,6 @@ const InvoiceDetailDialog = ({
           </Button>
         )}
 
-
-
-        {/* Email Button - Only show if already posted */}
-        {invoice?.contactemail && Boolean(invoice?.posted_to_org) && (
-          <Button
-            onClick={handleSendEmail}
-            color='primary'
-            variant='outlined'
-            disabled={isLoading || isSendingEmail || !invoice || !invoice.contactemail}
-            startIcon={
-              isSendingEmail ? (
-                <CircularProgress size={20} color='inherit' />
-              ) : (
-                <EmailIcon />
-              )
-            }
-          >
-            {isSendingEmail
-              ? 'Sending...'
-              : invoice?.emailsentat
-                ? 'Resend Email'
-                : 'Send Email'}
-          </Button>
-        )}
-
-        {previewUrl && (
-          <Button
-            color='info'
-            variant='outlined'
-            href={previewUrl}
-            target='_blank'
-            rel='noopener noreferrer'
-            sx={{ ml: 1 }}
-          >
-            View Email Preview
-          </Button>
-        )}
-
         <Button onClick={handleDownload} color='info' variant='outlined'>
           Download PDF
         </Button>
@@ -928,6 +792,7 @@ const InvoiceDetailDialog = ({
         </Button>
         </Box>
       </DialogActions>
+      {confirmDialog}
     </Dialog>
   );
 };

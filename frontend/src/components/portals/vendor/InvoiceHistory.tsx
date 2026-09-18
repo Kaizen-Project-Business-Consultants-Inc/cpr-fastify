@@ -25,6 +25,10 @@ import SearchBar from '../../gtacpr/SearchBar';
 import DataTable, { DataTableRow } from '../../gtacpr/DataTable';
 import StatusChip from '../../gtacpr/StatusChip';
 import { GhostButton, PrimaryButton } from '../../gtacpr/Buttons';
+import LinkButton from '../../gtacpr/LinkButton';
+import { useConfirm } from '../../gtacpr/ConfirmDialog';
+import { useSnackbar } from '../../../contexts/SnackbarContext';
+import { formatCurrency, formatDisplayDate } from '../../../utils/formatters';
 
 interface Invoice {
   id: number;
@@ -113,6 +117,9 @@ const InvoiceHistory: React.FC = () => {
   const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null);
   const [viewDialogOpen, setViewDialogOpen] = useState(false);
   const [paymentHistory, setPaymentHistory] = useState<PaymentHistory[]>([]);
+  const [submitting, setSubmitting] = useState(false);
+  const { confirm, dialog: confirmDialog } = useConfirm();
+  const { showSuccess, showError } = useSnackbar();
 
   useEffect(() => {
     if (tabValue !== 5) setTabValue(5);
@@ -190,10 +197,7 @@ const InvoiceHistory: React.FC = () => {
     }
   };
 
-  const formatCurrency = (amount: number) =>
-    `$${amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-
-  const formatDate = (date: string) => new Date(date).toLocaleDateString();
+  const formatDate = (date: string) => formatDisplayDate(date);
 
   const handleDownload = async (invoiceId: number, invoiceNumber: string) => {
     try {
@@ -208,7 +212,7 @@ const InvoiceHistory: React.FC = () => {
       document.body.removeChild(link);
       window.URL.revokeObjectURL(url);
     } catch {
-      alert('Failed to download invoice');
+      showError('Failed to download invoice');
     }
   };
 
@@ -223,19 +227,31 @@ const InvoiceHistory: React.FC = () => {
       }
       setViewDialogOpen(true);
     } catch {
-      alert('Failed to load invoice details');
+      showError('Failed to load invoice details');
     }
   };
 
   const handleCloseViewDialog = () => { setViewDialogOpen(false); setSelectedInvoice(null); };
 
-  const handleSubmitToAdmin = async (invoiceId: number) => {
+  const handleSubmitToAdmin = async (invoice: Invoice) => {
+    if (submitting) return;
+    const ok = await confirm({
+      title: 'Submit to admin?',
+      message: `Invoice ${invoice.invoiceNumber} (${formatCurrency(invoice.total)}) will be sent to admin for review. You will not be able to edit it afterwards.`,
+      confirmLabel: 'Submit to Admin',
+    });
+    if (!ok) return;
+    setSubmitting(true);
     try {
-      await vendorApi.submitToAdmin(invoiceId);
-      alert('Invoice submitted to admin successfully');
+      await vendorApi.submitToAdmin(invoice.id);
+      showSuccess(`Invoice ${invoice.invoiceNumber} submitted to admin`);
+      handleCloseViewDialog();
       fetchInvoices();
-    } catch {
-      alert('Failed to submit invoice to admin');
+    } catch (err: unknown) {
+      const axiosErr = err as { response?: { data?: { error?: string } } };
+      showError(axiosErr.response?.data?.error || 'Failed to submit invoice to admin');
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -306,9 +322,9 @@ const InvoiceHistory: React.FC = () => {
             <StatusChip kind={getStatusKind(invoice.status)} label={getStatusLabel(invoice.status)} />
             <Typography sx={{ fontSize: 12.5, color: (theme) => theme.palette.text.secondary }}>{invoice.dueDate ? formatDate(invoice.dueDate) : '—'}</Typography>
             <Box sx={{ display: 'flex', gap: 0.5, justifyContent: 'flex-end' }}>
-              <Box onClick={() => handleView(invoice.id)} sx={{ fontSize: 12, fontWeight: 600, color: '#CC1F1F', cursor: 'pointer', '&:hover': { textDecoration: 'underline' } }}>View</Box>
-              <Typography sx={{ fontSize: 12, color: (theme) => theme.palette.divider }}>|</Typography>
-              <Box onClick={() => handleDownload(invoice.id, invoice.invoiceNumber)} sx={{ fontSize: 12, fontWeight: 600, color: (theme) => theme.palette.text.secondary, cursor: 'pointer', '&:hover': { textDecoration: 'underline', color: '#CC1F1F' } }}>PDF</Box>
+              <LinkButton onClick={() => handleView(invoice.id)} aria-label={`View invoice ${invoice.invoiceNumber}`}>View</LinkButton>
+              <Typography sx={{ fontSize: 12, color: (theme) => theme.palette.divider }} aria-hidden>|</Typography>
+              <LinkButton tone="neutral" onClick={() => handleDownload(invoice.id, invoice.invoiceNumber)} aria-label={`Download PDF for invoice ${invoice.invoiceNumber}`}>PDF</LinkButton>
             </Box>
           </DataTableRow>
         ))}
@@ -445,7 +461,7 @@ const InvoiceHistory: React.FC = () => {
             </Typography>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
               {selectedInvoice && <StatusChip kind={getStatusKind(selectedInvoice.status)} label={getStatusLabel(selectedInvoice.status)} />}
-              <IconButton onClick={handleCloseViewDialog} size="small"><CloseIcon /></IconButton>
+              <IconButton onClick={handleCloseViewDialog} size="small" aria-label="Close invoice details"><CloseIcon /></IconButton>
             </Box>
           </Box>
         </DialogTitle>
@@ -489,7 +505,7 @@ const InvoiceHistory: React.FC = () => {
                 <Grid container spacing={2}>
                   <Grid item xs={6}>
                     <Typography sx={{ fontSize: 11, color: (theme) => theme.palette.text.secondary, textTransform: 'uppercase' }}>Approved By</Typography>
-                    <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.primary, mt: 0.5 }}>{selectedInvoice.approvedByName || 'Admin User'}</Typography>
+                    <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.primary, mt: 0.5 }}>{selectedInvoice.approvedByName || '—'}</Typography>
                   </Grid>
                   <Grid item xs={6}>
                     <Typography sx={{ fontSize: 11, color: (theme) => theme.palette.text.secondary, textTransform: 'uppercase' }}>
@@ -525,9 +541,7 @@ const InvoiceHistory: React.FC = () => {
                   <Grid item xs={4}>
                     <Typography sx={{ fontSize: 11, color: (theme) => theme.palette.text.secondary, textTransform: 'uppercase' }}>Amount Paid</Typography>
                     <Typography sx={{ fontSize: 18, fontWeight: 700, color: '#16A34A', fontFamily: 'monospace' }}>
-                      {selectedInvoice.totalPaid && parseFloat(selectedInvoice.totalPaid.toString()) > 0
-                        ? formatCurrency(parseFloat(selectedInvoice.totalPaid.toString()))
-                        : formatCurrency(parseFloat(selectedInvoice.total?.toString() || '0'))}
+                      {formatCurrency(parseFloat(selectedInvoice.totalPaid?.toString() || '0'))}
                     </Typography>
                   </Grid>
                   <Grid item xs={4}>
@@ -593,12 +607,16 @@ const InvoiceHistory: React.FC = () => {
             <>
               <GhostButton onClick={() => handleDownload(selectedInvoice.id, selectedInvoice.invoiceNumber)}>Download PDF</GhostButton>
               {selectedInvoice.status === 'pending_submission' && (
-                <PrimaryButton onClick={() => handleSubmitToAdmin(selectedInvoice.id)}>Submit to Admin</PrimaryButton>
+                <PrimaryButton onClick={() => handleSubmitToAdmin(selectedInvoice)} disabled={submitting}>
+                  {submitting ? 'Submitting…' : 'Submit to Admin'}
+                </PrimaryButton>
               )}
             </>
           )}
         </DialogActions>
       </Dialog>
+
+      {confirmDialog}
     </Box>
   );
 }

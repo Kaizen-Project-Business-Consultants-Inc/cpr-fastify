@@ -27,6 +27,7 @@ import {
   Add as AddIcon,
 } from '@mui/icons-material';
 import { sysAdminApi } from '../../services/api';
+import { useConfirm } from '../gtacpr';
 
 interface Location {
   id: number;
@@ -66,6 +67,8 @@ const LocationsDialog: React.FC<LocationsDialogProps> = ({
   const [success, setSuccess] = useState('');
   const [editDialog, setEditDialog] = useState(false);
   const [editingLocation, setEditingLocation] = useState<Location | null>(null);
+  const [saving, setSaving] = useState(false);
+  const { confirm, dialog: confirmDialog } = useConfirm();
   const [formData, setFormData] = useState({
     locationName: '',
     address: '',
@@ -144,8 +147,9 @@ const LocationsDialog: React.FC<LocationsDialogProps> = ({
   };
 
   const handleSubmit = async () => {
-    if (!organization) return;
+    if (!organization || saving) return;
     try {
+      setSaving(true);
       setError('');
       if (editingLocation) {
         await sysAdminApi.updateOrganizationLocation(
@@ -163,14 +167,23 @@ const LocationsDialog: React.FC<LocationsDialogProps> = ({
     } catch (err: any) {
       setError(err.response?.data?.message || 'Failed to save location');
       console.error(err);
+    } finally {
+      setSaving(false);
     }
   };
 
-  const handleDelete = async (locationId: number) => {
+  const handleDelete = async (loc: Location) => {
     if (!organization) return;
+    const ok = await confirm({
+      title: 'Delete location?',
+      message: `"${loc.locationName}" will be removed from ${organization.organizationName}. This cannot be undone.`,
+      confirmLabel: 'Delete',
+      danger: true,
+    });
+    if (!ok) return;
     try {
       setError('');
-      await sysAdminApi.deleteOrganizationLocation(organization.id, locationId);
+      await sysAdminApi.deleteOrganizationLocation(organization.id, loc.id);
       setSuccess('Location removed successfully');
       loadLocations();
     } catch (err: any) {
@@ -298,6 +311,7 @@ const LocationsDialog: React.FC<LocationsDialogProps> = ({
                             size="small"
                             onClick={() => handleOpenEdit(loc)}
                             color="primary"
+                            aria-label={`Edit ${loc.locationName}`}
                           >
                             <EditIcon />
                           </IconButton>
@@ -305,8 +319,9 @@ const LocationsDialog: React.FC<LocationsDialogProps> = ({
                         <Tooltip title="Delete">
                           <IconButton
                             size="small"
-                            onClick={() => handleDelete(loc.id)}
+                            onClick={() => handleDelete(loc)}
                             color="error"
+                            aria-label={`Delete ${loc.locationName}`}
                           >
                             <DeleteIcon />
                           </IconButton>
@@ -437,17 +452,18 @@ const LocationsDialog: React.FC<LocationsDialogProps> = ({
           </Grid>
         </DialogContent>
         <DialogActions>
-          <Button onClick={handleCloseEdit}>Cancel</Button>
+          <Button onClick={handleCloseEdit} disabled={saving}>Cancel</Button>
           <Button
             onClick={handleSubmit}
             variant="contained"
             color="primary"
-            disabled={!formData.locationName}
+            disabled={!formData.locationName || saving}
           >
-            {editingLocation ? 'Update' : 'Create'}
+            {saving ? 'Saving…' : editingLocation ? 'Update' : 'Create'}
           </Button>
         </DialogActions>
       </Dialog>
+      {confirmDialog}
     </>
   );
 };

@@ -23,6 +23,8 @@ import DataTable, { DataTableRow } from '../gtacpr/DataTable';
 import StatusChip from '../gtacpr/StatusChip';
 import StatCard from '../gtacpr/StatCard';
 import { PrimaryButton } from '../gtacpr/Buttons';
+import { useConfirm, LinkButton } from '../gtacpr';
+import { formatDisplayDate } from '../../utils/formatters';
 
 const columns = [
   { key: 'vendor', label: 'VENDOR', width: '1.5fr' },
@@ -52,6 +54,8 @@ function getCertKind(status: string): 'active' | 'warning' | 'danger' | 'neutral
 const VendorManagement = ({ onShowSnackbar }: { onShowSnackbar: any }) => {
   const [vendors, setVendors] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const { confirm, dialog: confirmDialog } = useConfirm();
 
   const [showDialog, setShowDialog] = useState(false);
   const [editingVendor, setEditingVendor] = useState<any>(null);
@@ -122,23 +126,30 @@ const VendorManagement = ({ onShowSnackbar }: { onShowSnackbar: any }) => {
     setShowDialog(true);
   };
 
-  const handleDelete = async (vendor: any) => {
-    if (window.confirm(`Are you sure you want to deactivate the vendor "${vendor.vendorName}"?`)) {
-      try {
-        await sysAdminApi.deleteVendor(vendor.id);
-        onShowSnackbar?.('Vendor deactivated successfully', 'success');
-        loadVendors();
-      } catch (err: any) {
-        logger.error('Error deactivating vendor:', err);
-        onShowSnackbar?.('Failed to deactivate vendor', 'error');
-      }
+  const handleDeactivate = async (vendor: any) => {
+    const ok = await confirm({
+      title: 'Deactivate vendor?',
+      message: `"${vendor.vendorName}" will be marked inactive and hidden from vendor selection. You can reactivate it by editing the vendor.`,
+      confirmLabel: 'Deactivate',
+      danger: true,
+    });
+    if (!ok) return;
+    try {
+      await sysAdminApi.deleteVendor(vendor.id);
+      onShowSnackbar?.('Vendor deactivated successfully', 'success');
+      loadVendors();
+    } catch (err: any) {
+      logger.error('Error deactivating vendor:', err);
+      onShowSnackbar?.('Failed to deactivate vendor', 'error');
     }
   };
 
   const handleSubmit = async (e: any) => {
     e.preventDefault();
     if (!formData.vendorName.trim()) { onShowSnackbar?.('Vendor name is required', 'error'); return; }
+    if (saving) return;
     try {
+      setSaving(true);
       const submitData = {
         ...formData,
         contractStartDate: formData.contractStartDate || null,
@@ -158,6 +169,8 @@ const VendorManagement = ({ onShowSnackbar }: { onShowSnackbar: any }) => {
     } catch (err: any) {
       logger.error('Error saving vendor:', err);
       onShowSnackbar?.('Failed to save vendor', 'error');
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -170,8 +183,6 @@ const VendorManagement = ({ onShowSnackbar }: { onShowSnackbar: any }) => {
     const { value } = e.target;
     setFormData(prev => ({ ...prev, services: typeof value === 'string' ? value.split(',') : value }));
   };
-
-  const formatDate = (dateString: any) => dateString ? new Date(dateString).toLocaleDateString() : '—';
 
   const activeVendors = vendors.filter(v => v.status === 'active');
   const certified = vendors.filter(v => v.certificationStatus === 'Certified');
@@ -241,9 +252,9 @@ const VendorManagement = ({ onShowSnackbar }: { onShowSnackbar: any }) => {
             <StatusChip kind={getCertKind(vendor.certificationStatus)} label={vendor.certificationStatus || 'Not Set'} />
             {/* CONTRACT */}
             <Box>
-              <Typography sx={{ fontSize: 12, color: (theme) => theme.palette.text.secondary }}>{formatDate(vendor.contractStartDate)}</Typography>
+              <Typography sx={{ fontSize: 12, color: (theme) => theme.palette.text.secondary }}>{formatDisplayDate(vendor.contractStartDate)}</Typography>
               {vendor.contractEndDate && (
-                <Typography sx={{ fontSize: 11, color: (theme) => theme.palette.text.secondary }}>to {formatDate(vendor.contractEndDate)}</Typography>
+                <Typography sx={{ fontSize: 11, color: (theme) => theme.palette.text.secondary }}>to {formatDisplayDate(vendor.contractEndDate)}</Typography>
               )}
             </Box>
             {/* STATUS */}
@@ -253,15 +264,11 @@ const VendorManagement = ({ onShowSnackbar }: { onShowSnackbar: any }) => {
             />
             {/* ACTIONS */}
             <Box sx={{ display: 'flex', gap: 0.5, justifyContent: 'flex-end' }}>
-              <Box onClick={() => handleEdit(vendor)} sx={{ fontSize: 12, fontWeight: 600, color: '#CC1F1F', cursor: 'pointer', '&:hover': { textDecoration: 'underline' } }}>
-                Edit
-              </Box>
+              <LinkButton onClick={() => handleEdit(vendor)} aria-label={`Edit ${vendor.vendorName}`}>Edit</LinkButton>
               {vendor.status !== 'inactive' && (
                 <>
                   <Typography sx={{ fontSize: 12, color: (theme) => theme.palette.divider }}>|</Typography>
-                  <Box onClick={() => handleDelete(vendor)} sx={{ fontSize: 12, fontWeight: 600, color: (theme) => theme.palette.text.secondary, cursor: 'pointer', '&:hover': { textDecoration: 'underline', color: '#CC1F1F' } }}>
-                    Deactivate
-                  </Box>
+                  <LinkButton tone="neutral" onClick={() => handleDeactivate(vendor)} aria-label={`Deactivate ${vendor.vendorName}`}>Deactivate</LinkButton>
                 </>
               )}
             </Box>
@@ -327,10 +334,11 @@ const VendorManagement = ({ onShowSnackbar }: { onShowSnackbar: any }) => {
           </Box>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setShowDialog(false)}>Cancel</Button>
-          <Button onClick={handleSubmit} variant="contained">{editingVendor ? 'Update Vendor' : 'Create Vendor'}</Button>
+          <Button onClick={() => setShowDialog(false)} disabled={saving}>Cancel</Button>
+          <Button onClick={handleSubmit} variant="contained" disabled={saving}>{saving ? 'Saving…' : editingVendor ? 'Update Vendor' : 'Create Vendor'}</Button>
         </DialogActions>
       </Dialog>
+      {confirmDialog}
     </Box>
   );
 };

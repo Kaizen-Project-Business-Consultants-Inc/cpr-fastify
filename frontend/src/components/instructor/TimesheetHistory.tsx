@@ -1,3 +1,4 @@
+import { toLocalDateString } from '../../utils/formatters';
 import React, { useState, useEffect } from 'react';
 import {
   Box,
@@ -117,7 +118,7 @@ const TimesheetHistory: React.FC<TimesheetHistoryProps> = ({ onRefresh }) => {
     const end = new Date(start);
     end.setDate(start.getDate() + 6);
     
-    return `${formatDate(weekStartDate)} - ${formatDate(end.toISOString().split('T')[0])}`;
+    return `${formatDate(weekStartDate)} - ${formatDate(toLocalDateString(end))}`;
   };
 
   if (loading) {
