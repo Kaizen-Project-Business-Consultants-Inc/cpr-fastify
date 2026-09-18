@@ -12,7 +12,7 @@ Legend: 🔴 before taking paying customers · 🟡 soon · 🟢 when convenient
 - [ ] **Offsite database backup (BACKUP-2)**: `.github/workflows/backup.yml` (nightly 03:30 UTC) fetches the newest server dump, test-restores it, mirrors `uploads/vendor-invoices/`, and copies both to Backblaze B2 (90-day retention). **Blocked on secrets**: create a B2 bucket + application key and add `B2_KEY_ID`, `B2_APP_KEY`, `B2_BUCKET` to GitHub Actions secrets; then run the workflow once by hand.
 - [ ] **Durable uploads (S2)**: covered nightly by the same workflow once enabled; longer term, write vendor PDFs straight to the bucket at upload time.
 - [ ] **Hosting process limit (HOSTING-1)**: TMD LVE cap is 100 processes / 2 GB / 2 CPU. On 2026-09-17 git/npm/FTP on the server failed for hours with "Resource temporarily unavailable". Check cPanel → Resource Usage; remove leftover cron jobs (`crontest.sh`, the three Moodle crons if unused); consider the managed VPS before onboarding several customers.
-- [ ] **Baseline schema dump (4.1)**: 30 business tables have no DDL in the repo. Run `mysqldump --no-data` on production and add it as migration v0 so a fresh environment can be built from git.
+- [ ] **Baseline schema dump (4.1)**: 30 business tables have no DDL in the repo. Production is **MariaDB 11.4** (confirmed from the dump header 2026-09-18). Run `mysqldump --no-data` on production and add it as migration v0 so a fresh environment can be built from git.
 
 ## 🔴 Commercial / legal (no code)
 

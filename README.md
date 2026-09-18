@@ -11,7 +11,7 @@ A multi-portal web application for managing CPR/First Aid training operations �
 |-------|-----------|
 | Backend | Fastify 5, TypeScript (ESM), Zod validation, bundled with esbuild |
 | Frontend | React 18, MUI 5, Vite, TypeScript |
-| Database | MySQL 8 (InnoDB), forward-only migrations |
+| Database | MariaDB 11.4 in production (MySQL-compatible; migrations are written to run on either), forward-only migrations |
 | Auth | JWT access tokens + rotated, server-tracked refresh tokens; bcrypt; per-route role guards |
 | Email | Resend API |
 | CI/CD | GitHub Actions → lint/typecheck/tests → FTPS deploy to staging and production → Playwright E2E |
@@ -58,7 +58,7 @@ docs/                    audit, action plan, API reference, runbooks, program do
 
 ## Local development
 
-Prerequisites: Node.js 22, MySQL 8, npm.
+Prerequisites: Node.js 22, MariaDB 11 or MySQL 8, npm.
 
 ```bash
 git clone https://github.com/Kaizenpbc/cpr-fastify.git
@@ -117,7 +117,7 @@ In non-production, Swagger UI is served at `/api/v1/docs`.
 
 ## Database
 
-Forward-only migrations in `backend/src/config/migrations.ts` run at startup under a MySQL named lock, using `config/schemaHelpers.ts` so each is idempotent and portable to MySQL 8. Core business tables predate the migration system (see the note in `docs/AUDIT_2026-09-17.md` §6 about a baseline dump).
+Forward-only migrations in `backend/src/config/migrations.ts` run at startup under a MySQL named lock, using `config/schemaHelpers.ts` so each is idempotent and runs on both MariaDB and MySQL 8. Core business tables predate the migration system (see the note in `docs/AUDIT_2026-09-17.md` §6 about a baseline dump).
 
 ## CI/CD
 

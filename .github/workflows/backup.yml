@@ -16,14 +16,16 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     services:
-      mysql:
-        image: mysql:8
+      # Production is MariaDB 11.4 (the dump header says so and it uses MariaDB-only
+      # syntax such as DEFAULT curdate()), so the restore test must use MariaDB too.
+      mariadb:
+        image: mariadb:11.4
         env:
-          MYSQL_ROOT_PASSWORD: restoretest
-          MYSQL_DATABASE: restoretest
+          MARIADB_ROOT_PASSWORD: restoretest
+          MARIADB_DATABASE: restoretest
         ports: ['3306:3306']
         options: >-
-          --health-cmd "mysqladmin ping -h 127.0.0.1 -prestoretest"
+          --health-cmd "healthcheck.sh --connect --innodb_initialized"
           --health-interval 10s --health-timeout 5s --health-retries 10
     env:
       B2_KEY_ID: ${{ secrets.B2_KEY_ID }}
