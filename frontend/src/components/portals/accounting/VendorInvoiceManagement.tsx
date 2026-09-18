@@ -305,7 +305,14 @@ const VendorInvoiceManagement: React.FC = () => {
 
     try {
       setProcessingPayment(true);
-      const response = await adminApi.processVendorPayment(selectedInvoice.id, paymentData);
+      // paymentData.amount is kept as a string for the editable TextField;
+      // the server requires a real number (z.number()), so it must be parsed
+      // before sending or every payment 400s with "Expected number, received
+      // string" and nothing is ever recorded.
+      const response = await adminApi.processVendorPayment(selectedInvoice.id, {
+        ...paymentData,
+        amount: parseFloat(paymentData.amount),
+      });
 
       showSuccess(response.message || 'Payment processed successfully');
 

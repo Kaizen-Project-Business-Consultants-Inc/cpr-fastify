@@ -312,7 +312,10 @@ test.describe.serial('Workflow: vendor invoice submit -> approve -> pay', () => 
       }),
       confirmDialog.getByRole('button', { name: 'Process Payment' }).click(),
     ]);
-    expect(response.ok(), `POST .../payments -> ${response.status()}`).toBeTruthy();
+    expect(
+      response.ok(),
+      `POST .../payments -> ${response.status()}: ${await response.text().catch(() => '')}`
+    ).toBeTruthy();
 
     await ctx.close();
   });
