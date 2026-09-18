@@ -10,11 +10,17 @@ const approveSchema = z.object({
   notes: z.string().optional(),
 });
 
+// The accounting UI's PaymentData (frontend/src/types/api.ts) sends
+// camelCase — amount, paymentDate, paymentMethod, referenceNumber, notes.
+// This schema previously required snake_case, which zod silently drops
+// (they're all optional), so paying a vendor invoice from the UI has always
+// thrown 500 "An unexpected error occurred" and no payment was ever
+// recorded. Same bug class/fix as billing.ts's paymentSchema.
 const paymentSchema = z.object({
   amount: z.number().positive(),
-  payment_date: z.string().optional(),
-  payment_method: z.string().optional(),
-  reference_number: z.string().optional(),
+  paymentDate: z.string().optional(),
+  paymentMethod: z.string().optional(),
+  referenceNumber: z.string().optional(),
   notes: z.string().optional(),
 });
 
@@ -310,8 +316,8 @@ export async function vendorAdminRoutes(app: FastifyInstance) {
       const [payResult] = await conn.query<ResultSetHeader>(
         `INSERT INTO vendor_payments (vendor_invoice_id, amount, payment_date, payment_method, reference_number, notes, status, processed_by, processed_at)
          VALUES (?, ?, ?, ?, ?, ?, 'processed', ?, CURRENT_TIMESTAMP)`,
-        [id, data.amount, data.payment_date ?? new Date().toISOString().split('T')[0], data.payment_method ?? null,
-         data.reference_number ?? null, data.notes ?? null, request.userId]
+        [id, data.amount, data.paymentDate ?? new Date().toISOString().split('T')[0], data.paymentMethod ?? null,
+         data.referenceNumber ?? null, data.notes ?? null, request.userId]
       );
 
       const invoiceTotal = Number(invoiceRows[0].total) || Number(invoiceRows[0].amount) || 0;

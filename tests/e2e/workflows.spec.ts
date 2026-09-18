@@ -18,12 +18,13 @@ import type { BrowserContext, Page } from '@playwright/test';
 test.describe.serial('Workflow: availability -> course request -> instructor assignment', () => {
   // Once an instructor is assigned to a course on a given date, they no
   // longer show up as "available" for a second course on that same date —
-  // correct real behaviour, but it means re-running this suite on the same
-  // calendar day needs a fresh date each time, not just a fresh location, or
-  // the second run finds zero available instructors. Spread across ~10 days
-  // (still well past the 11-day lock window) so same-day reruns don't collide.
+  // correct real behaviour, but it means re-running this suite needs a fresh
+  // date each time, not just a fresh location, or the run finds zero
+  // available instructors. `runId % 10` (10ms-scale noise) collides far too
+  // easily across back-to-back runs; spread across ~300 days instead, keyed
+  // off the current second, still comfortably past the 11-day lock window.
   const runId = Date.now();
-  const date = farFutureDate(45 + (runId % 10));
+  const date = farFutureDate(45 + (Math.floor(runId / 1000) % 300));
   const location = `${TEST_MARKER} (run ${runId})`;
   const notes = `${TEST_MARKER} (run ${runId})`;
 
@@ -260,12 +261,19 @@ test.describe.serial('Workflow: vendor invoice submit -> approve -> pay', () => 
     await expect(dialog).toBeVisible({ timeout: 15000 });
     const approveBtn = dialog.getByRole('button', { name: 'Submit to Accounting' });
     await expect(approveBtn).toBeVisible({ timeout: 15000 });
+    await approveBtn.click();
+
+    // "Submit to Accounting" opens its own "Approve Invoice" confirmation
+    // dialog with an Approval Notes field, separate from the invoice detail
+    // dialog behind it.
+    const confirmDialog = pg.getByRole('dialog').filter({ hasText: 'Approve Invoice' });
+    await expect(confirmDialog).toBeVisible({ timeout: 15000 });
 
     const [response] = await Promise.all([
       pg.waitForResponse((r) => r.url().includes('/approve') && r.request().method() === 'POST', {
         timeout: 20000,
       }),
-      approveBtn.click(),
+      confirmDialog.getByRole('button', { name: 'Approve Invoice' }).click(),
     ]);
     expect(response.ok(), `POST .../approve -> ${response.status()}`).toBeTruthy();
 
