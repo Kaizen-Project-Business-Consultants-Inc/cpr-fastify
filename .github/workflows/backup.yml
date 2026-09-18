@@ -1,0 +1,116 @@
+name: Nightly offsite backup
+
+# Copies the server-side nightly mysqldump (02:00 server time, /home/kaizenmo/backups)
+# and the vendor-invoice uploads to Backblaze B2, after proving the dump restores.
+# Needs secrets: FTP_SERVER, FTP_USERNAME, FTP_PASSWORD (already used by deploys) and
+# B2_KEY_ID, B2_APP_KEY, B2_BUCKET. Without the B2 secrets the job exits early with a notice.
+
+on:
+  schedule:
+    - cron: '30 3 * * *'   # 03:30 UTC daily (dump runs at 02:00 server time)
+  workflow_dispatch:
+
+jobs:
+  backup:
+    name: Verify and copy offsite
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      mysql:
+        image: mysql:8
+        env:
+          MYSQL_ROOT_PASSWORD: restoretest
+          MYSQL_DATABASE: restoretest
+        ports: ['3306:3306']
+        options: >-
+          --health-cmd "mysqladmin ping -h 127.0.0.1 -prestoretest"
+          --health-interval 10s --health-timeout 5s --health-retries 10
+    env:
+      B2_KEY_ID: ${{ secrets.B2_KEY_ID }}
+      B2_APP_KEY: ${{ secrets.B2_APP_KEY }}
+      B2_BUCKET: ${{ secrets.B2_BUCKET }}
+    steps:
+      - name: Check offsite storage is configured
+        id: cfg
+        run: |
+          if [ -z "$B2_KEY_ID" ] || [ -z "$B2_APP_KEY" ] || [ -z "$B2_BUCKET" ]; then
+            echo "::warning::B2_KEY_ID / B2_APP_KEY / B2_BUCKET secrets are not set — offsite backup skipped."
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Fetch newest dump from the server
+        if: steps.cfg.outputs.configured == 'true'
+        run: |
+          set -e
+          mkdir -p work/dumps work/uploads
+          LIST=$(curl -s --ssl-reqd --insecure -u "${{ secrets.FTP_USERNAME }}:${{ secrets.FTP_PASSWORD }}" \
+            "ftp://${{ secrets.FTP_SERVER }}/backups/" | awk '{print $9}' | grep -E '^cpr_.*\.sql\.gz$' | sort | tail -1)
+          [ -n "$LIST" ] || { echo "No cpr_*.sql.gz found in /backups"; exit 1; }
+          echo "newest dump: $LIST"
+          curl -s --ssl-reqd --insecure -u "${{ secrets.FTP_USERNAME }}:${{ secrets.FTP_PASSWORD }}" \
+            "ftp://${{ secrets.FTP_SERVER }}/backups/$LIST" -o "work/dumps/$LIST"
+          gzip -t "work/dumps/$LIST"
+          echo "DUMP=$LIST" >> "$GITHUB_ENV"
+          # Refuse dumps older than 36h — the server-side cron may have stopped.
+          STAMP=$(echo "$LIST" | sed -E 's/^cpr_([0-9]{8})_([0-9]{6})\.sql\.gz$/\1 \2/')
+          DUMP_TS=$(date -u -d "$(echo $STAMP | awk '{print substr($1,1,4)"-"substr($1,5,2)"-"substr($1,7,2)" "substr($2,1,2)":"substr($2,3,2)":"substr($2,5,2)}')" +%s)
+          AGE_H=$(( ( $(date -u +%s) - DUMP_TS ) / 3600 ))
+          echo "dump age: ${AGE_H}h"
+          [ "$AGE_H" -le 36 ] || { echo "::error::Newest dump is ${AGE_H}h old — is the server cron still running?"; exit 1; }
+
+      - name: Prove the dump restores
+        if: steps.cfg.outputs.configured == 'true'
+        run: |
+          set -e
+          gunzip -c "work/dumps/$DUMP" | mysql -h 127.0.0.1 -uroot -prestoretest restoretest
+          TABLES=$(mysql -h 127.0.0.1 -uroot -prestoretest -N -e "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='restoretest'")
+          USERS=$(mysql -h 127.0.0.1 -uroot -prestoretest -N -e "SELECT COUNT(*) FROM restoretest.users" 2>/dev/null || echo 0)
+          echo "restored $TABLES tables, users rows: $USERS"
+          [ "$TABLES" -gt 10 ] || { echo "::error::Restore produced only $TABLES tables"; exit 1; }
+
+      - name: Mirror vendor-invoice uploads from the server
+        if: steps.cfg.outputs.configured == 'true'
+        run: |
+          # Best effort: the folder may be empty or absent.
+          curl -s --ssl-reqd --insecure -u "${{ secrets.FTP_USERNAME }}:${{ secrets.FTP_PASSWORD }}" \
+            "ftp://${{ secrets.FTP_SERVER }}/cpr.kpbc.ca/backend/uploads/vendor-invoices/" 2>/dev/null \
+            | awk '{print $9}' | grep -vE '^\.\.?$' > work/upload-list.txt || true
+          COUNT=$(grep -c . work/upload-list.txt || true)
+          echo "upload files on server: $COUNT"
+          while read -r f; do
+            [ -n "$f" ] && curl -s --ssl-reqd --insecure -u "${{ secrets.FTP_USERNAME }}:${{ secrets.FTP_PASSWORD }}" \
+              "ftp://${{ secrets.FTP_SERVER }}/cpr.kpbc.ca/backend/uploads/vendor-invoices/$f" -o "work/uploads/$f" || true
+          done < work/upload-list.txt
+
+      - name: Install rclone
+        if: steps.cfg.outputs.configured == 'true'
+        run: curl -fsSL https://rclone.org/install.sh | sudo bash >/dev/null 2>&1
+
+      - name: Copy to Backblaze B2 (keep 90 days of dumps)
+        if: steps.cfg.outputs.configured == 'true'
+        run: |
+          set -e
+          export RCLONE_CONFIG_B2_TYPE=b2
+          export RCLONE_CONFIG_B2_ACCOUNT="$B2_KEY_ID"
+          export RCLONE_CONFIG_B2_KEY="$B2_APP_KEY"
+          rclone copy work/dumps "b2:$B2_BUCKET/db" --no-traverse
+          rclone sync work/uploads "b2:$B2_BUCKET/uploads/vendor-invoices" --create-empty-src-dirs
+          rclone delete "b2:$B2_BUCKET/db" --min-age 90d
+          echo "=== offsite db backups:"; rclone ls "b2:$B2_BUCKET/db" | tail -5
+
+      - name: Email on failure
+        if: failure()
+        uses: dawidd6/action-send-mail@v4
+        with:
+          server_address: smtp.gmail.com
+          server_port: 587
+          username: ${{ secrets.SMTP_USERNAME }}
+          password: ${{ secrets.SMTP_PASSWORD }}
+          subject: "CPR offsite backup FAILED — ${{ github.run_id }}"
+          to: ${{ secrets.NOTIFY_EMAIL }}
+          from: "CPR CI/CD <${{ secrets.SMTP_USERNAME }}>"
+          body: |
+            The nightly offsite backup failed. Check:
+            https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
