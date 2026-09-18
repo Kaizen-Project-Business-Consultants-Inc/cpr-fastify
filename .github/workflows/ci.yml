@@ -28,6 +28,10 @@ jobs:
       - run: npx tsc --noEmit
       - run: npx eslint src/
       - run: npx vitest run
+      - name: API reference is up to date (docs/API.md is generated from the route table)
+        run: |
+          npm run docs:api
+          cd .. && git diff --exit-code -- docs/API.md || { echo "docs/API.md is stale — run 'npm run docs:api' in backend/ and commit"; exit 1; }
 
   frontend:
     name: Frontend — test & build

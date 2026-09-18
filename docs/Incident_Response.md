@@ -2,7 +2,7 @@
 
 **Date**: 2026-06-28
 **App**: https://cpr.kpbc.ca (Production), https://stagecprapp.kpbc.ca (Staging)
-**Stack**: Fastify 5 + React on TMD Hosting (Apache + Passenger, Node.js)
+**Stack**: Fastify 5 + React on TMD Hosting (LiteSpeed + Passenger, Node.js)
 
 ---
 
@@ -47,7 +47,7 @@ curl -s https://cpr.kpbc.ca/api/v1/health
 Also check metrics for error spikes:
 
 ```bash
-curl -s https://cpr.kpbc.ca/api/v1/metrics
+curl -s https://cpr.kpbc.ca/metrics    (root-level, not under /api/v1)
 ```
 
 Review request counts, error rate, and latency values.
@@ -62,7 +62,7 @@ Review request counts, error rate, and latency values.
 ### Step 3: Check Passenger / Application Logs
 
 1. Log in to **cPanel** (TMD Hosting)
-2. Go to **Metrics > Errors** (Apache error log)
+2. Go to **Metrics > Errors** (LiteSpeed error log)
 3. Look for:
    - `App ... crashed` or `Passenger` errors
    - `ECONNREFUSED` (database connection refused)
@@ -90,8 +90,8 @@ Review request counts, error rate, and latency values.
 
 ### Step 6: Check Recent Deploys
 
-1. The auto-deploy cron pulls from `master` hourly at `:18`
-2. Production deploy script: `/home/kaizenmo/deploy-production.sh`
+1. Every push to `master` deploys staging AND production through GitHub Actions (`.github/workflows/ci.yml`); the server-side deploy crons were retired on 2026-09-17
+2. Open https://github.com/Kaizenpbc/cpr-fastify/actions — the run shows lint/typecheck/tests, both deploys with health checks, and the Playwright E2E result
 3. Check if a recent commit broke something:
    ```bash
    # On server or via GitHub
@@ -107,10 +107,11 @@ Review request counts, error rate, and latency values.
 
 **When**: App is unresponsive but server/DB are fine; after config changes.
 
+From cPanel: **File Manager -> `cpr.kpbc.ca/tmp/restart.txt` -> Edit -> change anything -> Save**.
+
+Or over FTPS (credentials from GitHub Secrets):
 ```bash
-# SSH or cPanel Terminal
-cd /home/kaizenmo/cpr.kpbc.ca
-touch tmp/restart.txt
+echo "restart-$(date +%s)" | curl --ssl-reqd --insecure -u "$FTP_USERNAME:$FTP_PASSWORD" -T - "ftp://$FTP_SERVER/cpr.kpbc.ca/tmp/restart.txt"
 ```
 
 Passenger detects the timestamp change and restarts the Node.js process. Verify with:
@@ -124,38 +125,23 @@ curl -s https://cpr.kpbc.ca/api/v1/health
 **When**: A recent deploy introduced a breaking change.
 
 ```bash
-cd /home/kaizenmo/cpr.kpbc.ca-src
 git log --oneline -5          # identify the bad commit
 git revert <bad-commit-hash>  # create a revert commit
-git push origin master        # push to trigger auto-deploy at :18
-
-# Or for immediate effect, run the deploy manually:
-cd /home/kaizenmo
-bash deploy-production.sh
+git push origin master        # CI deploys it to staging and production (~10 min)
+gh run watch
 ```
 
-**Emergency rollback** (restore previous dist without git):
+See `ROLLBACK.md` for the full procedure.
 
-```bash
-cd /home/kaizenmo/cpr.kpbc.ca
-rm -rf backend/dist
-cp -r backend/dist-backup backend/dist
-touch tmp/restart.txt
-```
-
-Note: `dist-backup/` is overwritten on every deploy. If you may need it, copy it elsewhere first.
+**If the app will not start** (503 / "Initial Loading"): the backend is a single bundled file; a package the bundle still loads from the host's `node_modules` may be missing or stale — see `ROLLBACK.md` ("If the app will not start after a deploy").
 
 ### 4.3 Fix and Redeploy
 
 **When**: You have identified the bug and have a fix ready.
 
 1. Push the fix to `master` on GitHub
-2. Wait for GitHub Actions CI to pass (tsc + vitest)
-3. Either wait for the hourly auto-deploy at `:18`, or run manually:
-   ```bash
-   ssh kaizenmo@<server>
-   bash /home/kaizenmo/deploy-production.sh
-   ```
+2. Watch the GitHub Actions run (lint, typecheck, tests, bundle smoke test, deploy staging + production, E2E)
+3. Nothing to run on the server — CI restarts the app
 4. Verify: `curl -s https://cpr.kpbc.ca/api/v1/health`
 
 For FTPS manual deploy (if SSH is unavailable):
@@ -261,7 +247,7 @@ Store completed reports in `docs/incidents/` with the naming convention `YYYY-MM
 | **Sentry dashboard** | Linked via `SENTRY_DSN` in production `.htaccess` |
 | **UptimeRobot dashboard** | Configured to monitor `/api/v1/health`, alerts to kpbcma@gmail.com |
 | **Server paths** | App: `/home/kaizenmo/cpr.kpbc.ca`, Source: `/home/kaizenmo/cpr.kpbc.ca-src/` |
-| **Deploy scripts** | Production: `/home/kaizenmo/deploy-production.sh`, Staging: `/home/kaizenmo/deploy-staging.sh` |
+| **Deploy** | GitHub Actions on push to `master` (`.github/workflows/ci.yml`); no server-side scripts |
 | **Backup script** | `/home/kaizenmo/backup-cpr.sh` (cron at 2:00 AM, 7-day rotation) |
 | **Email service** | Resend API (sends from `noreply@kpbc.ca`) |
 

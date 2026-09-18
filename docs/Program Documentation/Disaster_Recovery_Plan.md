@@ -39,14 +39,14 @@ These targets reflect the current shared hosting infrastructure. They should be 
 | Component | Detail |
 |-----------|--------|
 | **Hosting provider** | TMD Hosting (shared hosting plan) |
-| **Web server** | Apache with Phusion Passenger (serves Node.js) |
+| **Web server** | LiteSpeed with Phusion Passenger (serves Node.js) |
 | **Application runtime** | Node.js with Fastify 5 |
 | **Database** | MySQL (`kaizenmo_cpr` database, user `kaizenmo_cpruser`) |
 | **Server account** | `/home/kaizenmo/` |
 | **Application path** | `/home/kaizenmo/cpr.kpbc.ca/` |
 | **Source code path** | `/home/kaizenmo/cpr.kpbc.ca-src/` |
 | **LVE resource limits** | 100 concurrent processes, 2 GB RAM, 2 CPU cores |
-| **SSL/TLS** | Managed by Apache; HSTS enabled |
+| **SSL/TLS** | Managed by LiteSpeed; HSTS enabled |
 | **DNS** | Managed via cPanel on TMD Hosting |
 | **Email** | Resend API (sends from `noreply@kpbc.ca`) |
 | **Monitoring** | UptimeRobot (health endpoint every 5 min), Sentry (error tracking) |
@@ -116,7 +116,7 @@ This is tracked as **BACKUP-2** in the project TODO. The planned remediation is 
    curl -s https://cpr.kpbc.ca/api/v1/health
    ```
    Expected response: `{"status":"UP"}` with HTTP 200.
-4. If the application does not recover, check Apache/Passenger error logs in cPanel under **Metrics > Errors**.
+4. If the application does not recover, check LiteSpeed/Passenger error logs in cPanel under **Metrics > Errors**.
 5. Look for `ENOMEM`, `MODULE_NOT_FOUND`, or `App ... crashed` messages.
 6. Check LVE resource usage in cPanel -- if limits are being hit, see Scenario 6 in the Incident Response runbook.
 7. If the crash is related to a recent deploy, proceed to Scenario 5 (Deployment Failure).

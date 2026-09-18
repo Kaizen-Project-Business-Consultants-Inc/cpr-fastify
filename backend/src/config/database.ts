@@ -9,8 +9,8 @@ let pool: mysql.Pool;
 // with DB_POOL_SIZE if the hosting changes.
 const POOL_SIZE = Number(process.env.DB_POOL_SIZE) > 0 ? Number(process.env.DB_POOL_SIZE) : 6;
 
-export async function connectDatabase() {
-  pool = mysql.createPool({
+function createPool(): mysql.Pool {
+  return mysql.createPool({
     host: env.DB_HOST,
     port: env.DB_PORT,
     user: env.DB_USER,
@@ -23,11 +23,24 @@ export async function connectDatabase() {
     enableKeepAlive: true,
     timezone: '+00:00',
   });
+}
+
+export async function connectDatabase() {
+  pool = createPool();
 
   // Verify connection
   const conn = await pool.getConnection();
   logger.info({ poolSize: POOL_SIZE }, 'Database connected');
   conn.release();
+}
+
+/**
+ * Create the pool WITHOUT verifying a connection. Only for tooling that needs to
+ * build the app (e.g. generating the OpenAPI reference) with no database available.
+ * Route modules call getPool() at registration time, so the pool object must exist.
+ */
+export function initPoolForTooling() {
+  pool = createPool();
 }
 
 export async function closeDatabaseConnections() {

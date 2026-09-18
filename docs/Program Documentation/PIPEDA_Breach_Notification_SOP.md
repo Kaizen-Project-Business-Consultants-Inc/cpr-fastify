@@ -84,7 +84,7 @@ This procedure covers breaches originating from any vector: unauthorized access,
 | Unusual error volumes | Sentry | Mass 403 errors, SQL injection attempts, authentication bypass attempts |
 | Unexpected downtime followed by data changes | UptimeRobot + database review | Service goes down and data is modified during the outage window |
 | User or customer reports | Email / direct contact | User reports seeing another organization's data, or activity they did not perform |
-| Unknown access origins | Server access logs (Apache) | Connections from unrecognized IP addresses performing administrative actions |
+| Unknown access origins | Server access logs (LiteSpeed) | Connections from unrecognized IP addresses performing administrative actions |
 | Credential compromise indicators | Sentry / audit logs | Successful logins from multiple geographies in a short window, brute-force patterns |
 
 ### 5.2 Who Detects

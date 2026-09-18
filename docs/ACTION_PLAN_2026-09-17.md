@@ -1,5 +1,7 @@
 # Action Plan — from the 2026-09-17 audit
 
+> **Status (2026-09-18):** Phases 0–5 complete and deployed to staging and production. Phase 6 (docs) in progress. Deferred items are tracked in `TODO.md` (baseline schema dump 4.1, pagination 4.9, admin transactions 4.10, password rotation 0.1).
+
 Source: `docs/AUDIT_2026-09-17.md`. Each item names the file(s), the fix, the check that proves it, and who must do it (**You** = needs credentials/hosting access or a product decision; **Code** = can be done in the repo). Effort: S < 1 h, M = half day, L = 1-2 days.
 
 Ordering principle: stop bleeding (security), then fix what users hit every day, then delete dead code so everything after is smaller, then make CI honest, then schema/ops, then product polish, then docs.

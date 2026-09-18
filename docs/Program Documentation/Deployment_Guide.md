@@ -261,11 +261,11 @@ Deploy to staging first to validate changes before pushing to production.
 | Detail | Value |
 |--------|-------|
 | **Provider** | TMD Hosting (shared hosting) |
-| **Web server** | Apache with Passenger (Node.js app server) |
+| **Web server** | LiteSpeed with Passenger (Node.js app server) |
 | **Node.js** | v22 |
 | **OS** | Linux (shared hosting -- no root access) |
 | **Resource limits (LVE)** | 100 processes, 2 GB RAM, 2 CPU cores |
-| **SSL** | Apache handles HTTPS termination; HSTS enabled |
+| **SSL** | LiteSpeed handles HTTPS termination; HSTS enabled |
 
 ### Server Paths
 

@@ -1,60 +1,72 @@
-# Production Rollback Procedure
+# Rollback Procedure
 
-## Quick Rollback (< 5 minutes)
+Every push to `master` deploys to **both** environments through GitHub Actions
+(`.github/workflows/ci.yml`): staging (`stagecprapp.kpbc.ca`) and production (`cpr.kpbc.ca`).
+There are no server-side deploy crons any more; CI uploads a self-contained backend bundle
+and the built frontend over FTPS, touches `tmp/restart.txt` to restart Passenger, and
+health-checks each environment.
 
-Pushing a revert to `master` triggers an automatic deploy via CI/CD.
+## Quick rollback (about 10 minutes end to end)
 
-### 1. Identify the last known good commit
-```bash
-git log --oneline -10
-```
-
-### 2. Revert and push
-```bash
-git revert HEAD --no-edit   # Revert last commit
-# OR for multiple commits:
-git revert HEAD~N..HEAD --no-edit
-
-git push origin master
-```
-
-CI/CD will automatically: build backend + frontend, deploy via FTPS, restart Passenger, and run a health check.
-
-### 3. Monitor the deploy
-```bash
-gh run watch          # Watch the CI/CD pipeline
-# Or check: https://github.com/Kaizenpbc/cpr-fastify/actions
-```
-
-## Database Rollback
-
-Database migrations are forward-only. If a migration causes issues:
-
-1. Check `schema_migrations` table for the problematic version
-2. Manually reverse the migration SQL
-3. Delete the row from `schema_migrations`:
-   ```sql
-   DELETE FROM schema_migrations WHERE version = N;
+1. Find the last known good commit:
+   ```bash
+   git log --oneline -10
    ```
+2. Revert and push (this is just another deploy):
+   ```bash
+   git revert HEAD --no-edit          # last commit
+   # or a range:
+   git revert HEAD~N..HEAD --no-edit
+   git push origin master
+   ```
+3. Watch it land:
+   ```bash
+   gh run watch
+   ```
+   or https://github.com/Kaizenpbc/cpr-fastify/actions
 
-## Emergency: Force Restart Without Deploy
+The run is green only if lint, type-check, unit tests, the bundle smoke test, both
+deploys, both health checks and the Playwright E2E suite against staging all pass.
 
-Restart Passenger without redeploying (uses FTP credentials from GitHub Secrets or env):
-```bash
-echo "restart" | curl --ftp-ssl -k -u "$FTP_USERNAME:$FTP_PASSWORD" \
-  -T - "ftp://$FTP_SERVER/cpr.kpbc.ca/tmp/restart.txt"
-```
+## If the app will not start after a deploy
 
-## Verification After Rollback
+Symptoms: health returns 503, or pages hang on "Initial Loading".
 
-1. **Health check**: `curl -s https://cpr.kpbc.ca/api/v1/health`
-2. **Login test**: `curl -s https://cpr.kpbc.ca/api/v1/auth/login -H "Content-Type: application/json" -d '{"username":"...","password":"..."}'`
-3. **Frontend**: Open https://cpr.kpbc.ca in browser, verify login page loads
+- The backend is a single bundled file (`backend/dist/index.js`). A few packages are
+  still loaded from the host's `node_modules` (see `EXTERNAL` in `backend/build.mjs`).
+  If one of those was upgraded in the repo, the host copy is stale — either add the
+  package to the bundle (remove it from `EXTERNAL`) or install it on the host.
+- Restart without redeploying (FTPS credentials from GitHub Secrets):
+  ```bash
+  echo "restart-$(date +%s)" | curl --ssl-reqd --insecure -u "$FTP_USERNAME:$FTP_PASSWORD" \
+    -T - "ftp://$FTP_SERVER/cpr.kpbc.ca/tmp/restart.txt"
+  ```
+  (use `stagecprapp.kpbc.ca` for staging). From cPanel: File Manager → `cpr.kpbc.ca/tmp/restart.txt`
+  → Edit → change anything → Save.
+
+## Database
+
+Migrations are forward-only and run at startup under a MySQL named lock
+(`backend/src/config/migrations.ts`). To undo one:
+
+1. Reverse its SQL by hand (the guarded helpers in `config/schemaHelpers.ts` make the
+   forward direction idempotent, so re-running after a fix is safe).
+2. `DELETE FROM schema_migrations WHERE version = N;`
+3. Redeploy or restart.
+
+Nightly `mysqldump` runs at 02:00 on the server with 7-day rotation (`/home/kaizenmo/backup-cpr.sh`).
+An offsite copy is still an open item (see TODO).
+
+## Verify after a rollback
+
+1. `curl -s https://cpr.kpbc.ca/api/v1/health` → `{"status":"UP"...}`
+2. Open https://cpr.kpbc.ca/login in a fresh tab (Ctrl+F5) — the login form renders.
+3. Log in with a test account and click through the sidebar.
 
 ## Monitoring
 
-- **CI/CD status**: https://github.com/Kaizenpbc/cpr-fastify/actions
-- **Health endpoint**: `GET /api/v1/health` returns 200 (UP) or 503 (DEGRADED)
-- **Backend logs**: cPanel Error Logs
-- **Client errors**: Logged via `POST /client-errors` with `clientError: true` tag
-- **Error tracking**: Sentry (if configured via `SENTRY_DSN`)
+- CI/CD: https://github.com/Kaizenpbc/cpr-fastify/actions (email on success/failure)
+- Health: `GET /api/v1/health` (200 UP / 503 DEGRADED); UptimeRobot polls every 5 min
+- Metrics: `GET /metrics` (root-level)
+- Errors: Sentry when `SENTRY_DSN` is set; client errors via `POST /api/v1/client-errors`
+- Server logs: cPanel → Metrics → Errors (LiteSpeed/Passenger)

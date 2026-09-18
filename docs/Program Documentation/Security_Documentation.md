@@ -2,7 +2,7 @@
 
 **Last Updated**: 2026-06-28
 **System**: CPR Training Management System (Fastify 5 / React 18 / MySQL)
-**Environment**: TMD Hosting (shared), Apache reverse proxy, Passenger
+**Environment**: TMD Hosting (shared), LiteSpeed reverse proxy, Passenger
 
 ---
 
@@ -240,7 +240,7 @@ In production (`NODE_ENV === 'production'`), the following headers are set:
 | Header | Value |
 |--------|-------|
 | Content-Security-Policy | `default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' fonts.googleapis.com; font-src 'self' fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self' <FRONTEND_URL>` |
-| Strict-Transport-Security | Enabled (HSTS) -- Apache terminates TLS and sets HSTS headers |
+| Strict-Transport-Security | Enabled (HSTS) -- LiteSpeed terminates TLS and sets HSTS headers |
 | X-Frame-Options | Set by Helmet defaults (SAMEORIGIN) |
 | X-Content-Type-Options | Set by Helmet defaults (nosniff) |
 | X-DNS-Prefetch-Control | Set by Helmet defaults (off) |
@@ -383,7 +383,7 @@ Every HTTP request/response is logged via an `onResponse` hook in `backend/src/a
 
 ### Encryption in Transit
 
-- **TLS/HTTPS**: Apache reverse proxy terminates TLS. HSTS headers are enabled to prevent protocol downgrade attacks.
+- **TLS/HTTPS**: LiteSpeed reverse proxy terminates TLS. HSTS headers are enabled to prevent protocol downgrade attacks.
 - **Cookie security**: Refresh token cookies are set with `secure: true` (HTTPS-only) and `sameSite: 'strict'`.
 
 ### Encryption at Rest

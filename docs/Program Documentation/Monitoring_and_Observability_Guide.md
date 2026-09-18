@@ -2,7 +2,7 @@
 
 **Date**: 2026-06-28
 **App**: https://cpr.kpbc.ca (Production), https://stagecprapp.kpbc.ca (Staging)
-**Stack**: Fastify 5 + React on TMD Hosting (Apache + Passenger, Node.js)
+**Stack**: Fastify 5 + React on TMD Hosting (LiteSpeed + Passenger, Node.js)
 
 ---
 
@@ -59,7 +59,7 @@ The health endpoint verifies database connectivity by executing `SELECT 1` again
 - A non-200 response or timeout triggers a DOWN alert to `kpbcma@gmail.com`.
 - During incident response, `curl -s https://cpr.kpbc.ca/api/v1/health` is the first diagnostic step (see `docs/Incident_Response.md`, Step 1).
 
-> **Note**: The health endpoint is registered at `/health` on the Fastify instance but is accessible at `/api/v1/health` due to Passenger/Apache proxy configuration. UptimeRobot uses the `/api/v1/health` path.
+> **Note**: The health endpoint is registered at `/health` on the Fastify instance but is accessible at `/api/v1/health` due to Passenger/LiteSpeed proxy configuration. UptimeRobot uses the `/api/v1/health` path.
 
 ---
 
@@ -142,7 +142,7 @@ The metrics plugin attaches an `onResponse` hook to every request and accumulate
 
 ### What It Detects
 
-- **Site completely down**: Passenger crashed, Apache down, DNS failure, SSL certificate expired.
+- **Site completely down**: Passenger crashed, LiteSpeed down, DNS failure, SSL certificate expired.
 - **Database unreachable**: Health endpoint returns HTTP 503 with `"status": "DEGRADED"`.
 - **Timeout**: Application is alive but too slow to respond within UptimeRobot's timeout window.
 
@@ -232,14 +232,14 @@ export const logger = pino({
 
 ### Where Logs Are Stored
 
-Logs are written to **stdout**. On TMD Hosting, Passenger captures stdout from the Node.js process and routes it to the Apache error log.
+Logs are written to **stdout**. On TMD Hosting, Passenger captures stdout from the Node.js process and routes it to the LiteSpeed error log.
 
 ### How to Access Logs
 
 | Method | Steps |
 |--------|-------|
-| **cPanel UI** | Login to cPanel > Metrics > Errors. Shows recent Apache/Passenger error log entries. |
-| **SSH** | `ssh kaizenmo@<server>` then check the Apache error log path (typically `/home/kaizenmo/logs/error.log` or similar). |
+| **cPanel UI** | Login to cPanel > Metrics > Errors. Shows recent LiteSpeed/Passenger error log entries. |
+| **SSH** | `ssh kaizenmo@<server>` then check the LiteSpeed error log path (typically `/home/kaizenmo/logs/error.log` or similar). |
 | **cPanel Terminal** | Use the cPanel browser-based terminal if SSH is unavailable. |
 
 ### What Is Logged
@@ -422,7 +422,7 @@ The current monitoring setup provides basic visibility but has several gaps that
 | **No PagerDuty/OpsGenie integration** | UptimeRobot only sends email. If the email is missed, downtime goes unnoticed. | Delayed incident response, especially outside business hours. |
 | **No automated alerting on error rate spikes** | The `/metrics` endpoint must be manually checked. A sudden spike in 500 errors will only be caught via Sentry (if reviewed) or user reports. | Partial outages can persist for hours before detection. |
 | **No database monitoring** | No visibility into connection pool utilization, query performance, slow queries, or table lock contention. | Database bottlenecks are invisible until they cause timeouts or 500 errors. |
-| **No log aggregation** | Logs are in Passenger/Apache error logs on the server. No centralized log search or alerting. | Debugging requires SSH access; no proactive alerting on log patterns. |
+| **No log aggregation** | Logs are in Passenger/LiteSpeed error logs on the server. No centralized log search or alerting. | Debugging requires SSH access; no proactive alerting on log patterns. |
 | **No uptime monitoring for staging** | Only production is monitored by UptimeRobot. | Staging issues may go unnoticed, reducing confidence in pre-production testing. |
 | **Metrics are in-memory only** | Counters reset on every Passenger restart. No historical data. | Cannot analyze trends or compare performance over time. |
 | **No offsite backups** | Database backups are on the same server as the database (BACKUP-2). | Single point of failure for data recovery. |

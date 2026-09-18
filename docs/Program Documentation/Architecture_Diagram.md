@@ -1,7 +1,7 @@
 # CPR Training Management System - Architecture Diagrams
 
 **Last Updated**: 2026-06-28
-**Stack**: Fastify 5 (Node.js 22) + React 18 + MySQL on TMD Hosting (Apache + Passenger)
+**Stack**: Fastify 5 (Node.js 22) + React 18 + MySQL on TMD Hosting (LiteSpeed + Passenger)
 
 This document provides text-based architecture diagrams using Mermaid syntax. Render these in any Mermaid-compatible viewer (GitHub, VS Code with Mermaid extension, mermaid.live, etc.).
 
@@ -18,7 +18,7 @@ graph TB
     end
 
     subgraph TMD["TMD Hosting Server"]
-        Apache["Apache (HTTPS + .htaccess)"]
+        LiteSpeed["LiteSpeed (HTTPS + .htaccess)"]
         Passenger["Phusion Passenger"]
         Fastify["Fastify 5 (Node.js 22)"]
         MySQL["MySQL Database"]
@@ -32,18 +32,18 @@ graph TB
         GitHub["GitHub (Repo + CI/CD)"]
     end
 
-    Browser -->|"HTTPS"| Apache
-    Apache -->|"Static files"| StaticFiles
-    Apache -->|"API requests"| Passenger
+    Browser -->|"HTTPS"| LiteSpeed
+    LiteSpeed -->|"Static files"| StaticFiles
+    LiteSpeed -->|"API requests"| Passenger
     Passenger -->|"Node.js process"| Fastify
     Fastify -->|"SQL queries"| MySQL
     Fastify -->|"Send emails"| Resend
     Fastify -->|"Report errors"| Sentry
-    UptimeRobot -->|"GET /api/v1/health"| Apache
+    UptimeRobot -->|"GET /api/v1/health"| LiteSpeed
     GitHub -->|"FTPS deploy"| TMD
 ```
 
-Apache terminates TLS and serves the frontend static files directly. API requests (`/api/v1/*`) are proxied through Passenger to the Fastify backend. The SPA fallback (`.htaccess` rewrite rules + Fastify `setNotFoundHandler`) ensures client-side routing works for deep links.
+LiteSpeed terminates TLS and serves the frontend static files directly. API requests (`/api/v1/*`) are proxied through Passenger to the Fastify backend. The SPA fallback (`.htaccess` rewrite rules + Fastify `setNotFoundHandler`) ensures client-side routing works for deep links.
 
 ---
 
@@ -417,7 +417,7 @@ graph LR
     subgraph TMD["TMD Hosting Server"]
         Cron["Hourly Cron (:48)"]
         DeployScript["deploy-production.sh"]
-        Apache2["Apache + SSL"]
+        LiteSpeed2["LiteSpeed + SSL"]
         Passenger2["Passenger"]
         Fastify2["Fastify 5"]
         MySQL2[("MySQL")]
@@ -439,7 +439,7 @@ graph LR
     Restart --> Passenger2
     Passenger2 --> Fastify2
     Fastify2 -->|"runMigrations()"| MySQL2
-    Apache2 --> Passenger2
+    LiteSpeed2 --> Passenger2
 ```
 
 ### Deployment Paths
@@ -458,8 +458,8 @@ graph TB
         UptimeRobot2["UptimeRobot"]
     end
 
-    subgraph Server["TMD Server (Apache + LVE: 2GB RAM, 2 CPU, 100 procs)"]
-        Apache3["Apache 2.4<br/>HTTPS termination<br/>HSTS + .htaccess"]
+    subgraph Server["TMD Server (LiteSpeed + LVE: 2GB RAM, 2 CPU, 100 procs)"]
+        LiteSpeed3["LiteSpeed<br/>HTTPS termination<br/>HSTS + .htaccess"]
 
         subgraph AppDir["/home/kaizenmo/cpr.kpbc.ca/"]
             Public["public/<br/>(React SPA static files)"]
@@ -473,10 +473,10 @@ graph TB
         NodeJS["Node.js 22 Process"]
     end
 
-    Client -->|"HTTPS :443"| Apache3
-    UptimeRobot2 -->|"GET /api/v1/health<br/>every 5 min"| Apache3
-    Apache3 -->|"Static files"| Public
-    Apache3 -->|"/api/* requests"| Passenger3
+    Client -->|"HTTPS :443"| LiteSpeed3
+    UptimeRobot2 -->|"GET /api/v1/health<br/>every 5 min"| LiteSpeed3
+    LiteSpeed3 -->|"Static files"| Public
+    LiteSpeed3 -->|"/api/* requests"| Passenger3
     Passenger3 -->|"Manages lifecycle"| NodeJS
     ServerJS --> NodeJS
     NodeJS --> BackendDist
