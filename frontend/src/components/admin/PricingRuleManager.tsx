@@ -6,6 +6,8 @@ import { formatCurrency } from '../../utils/formatters';
 import logger from '../../utils/logger';
 import DataTable, { DataTableRow } from '../gtacpr/DataTable';
 import { PrimaryButton } from '../gtacpr/Buttons';
+import LinkButton from '../gtacpr/LinkButton';
+import { useConfirm } from '../gtacpr/ConfirmDialog';
 
 const columns = [
   { key: 'org', label: 'ORGANIZATION', width: '1.5fr' },
@@ -21,6 +23,7 @@ function PricingRuleManager() {
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' as 'success' | 'error' | 'warning' | 'info' });
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingRule, setEditingRule] = useState(null);
+  const { confirm, dialog: confirmDialog } = useConfirm();
 
   const fetchPricingRules = useCallback(async () => {
     setLoading(true);
@@ -45,22 +48,29 @@ function PricingRuleManager() {
   const handleAddOpen = () => { setEditingRule(null); setDialogOpen(true); };
   const handleEditOpen = (rule: any) => { setEditingRule(rule); setDialogOpen(true); };
 
-  const handleDelete = async (id: any) => {
-    if (window.confirm(`Delete Pricing Rule ID: ${id}? This cannot be undone.`)) {
-      try {
-        setError('');
-        await api.deletePricingRule(id);
-        showSnackbar(`Pricing rule deleted successfully.`, 'success');
-        fetchPricingRules();
-      } catch (err: any) {
-        logger.error(`Error deleting pricing rule ${id}:`, err);
-        showSnackbar(err.message || 'Failed to delete pricing rule.', 'error');
-      }
+  const handleDelete = async (rule: any) => {
+    const id = rule.pricingid;
+    const label = `${rule.organizationname || 'All organizations'} / ${rule.name || 'All course types'} (${formatCurrency(rule.price)})`;
+    const ok = await confirm({
+      title: 'Delete pricing rule?',
+      message: `${label} will be removed. Future invoices for this organization and course will have no price until a new rule is added. This cannot be undone.`,
+      confirmLabel: 'Delete',
+      danger: true,
+    });
+    if (!ok) return;
+    try {
+      setError('');
+      await api.deletePricingRule(id);
+      showSnackbar('Pricing rule deleted.', 'success');
+      fetchPricingRules();
+    } catch (err: any) {
+      logger.error(`Error deleting pricing rule ${id}:`, err);
+      showSnackbar(err.message || 'Failed to delete pricing rule.', 'error');
     }
   };
 
   const handleDialogClose = () => { setDialogOpen(false); setEditingRule(null); };
-  const handleDialogSave = () => { fetchPricingRules(); };
+  const handleDialogSave = () => { showSnackbar(editingRule ? 'Pricing rule updated.' : 'Pricing rule added.', 'success'); fetchPricingRules(); };
 
   if (loading) {
     return (
@@ -90,9 +100,9 @@ function PricingRuleManager() {
               <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>{rule.name || 'All Types'}</Typography>
               <Typography sx={{ fontSize: 14, fontWeight: 700, color: (theme) => theme.palette.text.primary, fontFamily: 'monospace', textAlign: 'right' }}>{formatCurrency(rule.price)}</Typography>
               <Box sx={{ display: 'flex', gap: 0.5, justifyContent: 'flex-end' }}>
-                <Box onClick={() => handleEditOpen(rule)} sx={{ fontSize: 12, fontWeight: 600, color: '#CC1F1F', cursor: 'pointer', '&:hover': { textDecoration: 'underline' } }}>Edit</Box>
+                <LinkButton onClick={() => handleEditOpen(rule)} aria-label={`Edit pricing rule ${rule.pricingid}`}>Edit</LinkButton>
                 <Typography sx={{ fontSize: 12, color: (theme) => theme.palette.divider }}>|</Typography>
-                <Box onClick={() => handleDelete(rule.pricingid)} sx={{ fontSize: 12, fontWeight: 600, color: (theme) => theme.palette.text.secondary, cursor: 'pointer', '&:hover': { textDecoration: 'underline', color: '#CC1F1F' } }}>Delete</Box>
+                <LinkButton tone="neutral" onClick={() => handleDelete(rule)} aria-label={`Delete pricing rule ${rule.pricingid}`}>Delete</LinkButton>
               </Box>
             </DataTableRow>
           ))}
@@ -104,6 +114,7 @@ function PricingRuleManager() {
       </Snackbar>
 
       <PricingRuleDialog open={dialogOpen} onClose={handleDialogClose} onSave={handleDialogSave} rule={editingRule} />
+      {confirmDialog}
     </Box>
   );
 }

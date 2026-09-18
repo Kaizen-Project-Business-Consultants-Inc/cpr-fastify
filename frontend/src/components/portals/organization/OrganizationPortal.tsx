@@ -39,6 +39,7 @@ import OrganizationArchive from './views/OrganizationArchive';
 import OrganizationPricing from './views/OrganizationPricing';
 import OrganizationPaidInvoices from './views/OrganizationPaidInvoices';
 import { Routes, Route, Navigate } from 'react-router-dom';
+import { PortalNotFound } from '../../gtacpr';
 
 // TypeScript interfaces - flexible to accommodate different data shapes
 interface User {
@@ -279,7 +280,7 @@ const OrganizationPortal: React.FC<OrganizationPortalProps> = ({
             <Route path="billing" element={
               loading ? <CircularProgress /> :
               error ? <Alert severity="error">{error}</Alert> :
-              <OrganizationBilling invoices={invoices as never} billingSummary={billingSummary as never} onPaymentSuccess={handlePaymentSuccess} />
+              <OrganizationBilling invoices={invoices as never} billingSummary={billingSummary as never} organizationData={organizationData as never} onPaymentSuccess={handlePaymentSuccess} />
             } />
             <Route path="paid-invoices" element={
               loading ? <CircularProgress /> :
@@ -290,7 +291,7 @@ const OrganizationPortal: React.FC<OrganizationPortalProps> = ({
             <Route path="pricing" element={<OrganizationPricing organizationId={user?.organizationId || 0} />} />
             <Route path="analytics" element={<OrganizationAnalytics courses={courses as never} archivedCourses={archivedCourses as never} invoices={invoices as never} billingSummary={billingSummary as never} organizationData={organizationData as never} />} />
             <Route path="" element={<Navigate to="dashboard" replace />} />
-            <Route path="*" element={<Box sx={{ p: 3 }}><Typography sx={{ fontSize: 14, fontWeight: 600, color: (theme) => theme.palette.text.secondary }}>View not found</Typography></Box>} />
+            <Route path="*" element={<PortalNotFound homePath="/organization/dashboard" />} />
           </Routes>
         </Box>
       </OrganizationLayout>

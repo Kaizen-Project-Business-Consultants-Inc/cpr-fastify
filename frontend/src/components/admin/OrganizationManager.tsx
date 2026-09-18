@@ -1,11 +1,14 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import * as api from '../../services/api';
-import { Box, Typography, CircularProgress, Alert, ButtonBase } from '@mui/material';
+import { Box, Typography, CircularProgress, Alert } from '@mui/material';
 import OrganizationDialog from './OrganizationDialog';
 import { formatPhoneNumber } from 'react-phone-number-input';
 import DataTable, { DataTableRow } from '../gtacpr/DataTable';
 import UserAvatar from '../gtacpr/UserAvatar';
 import { PrimaryButton } from '../gtacpr/Buttons';
+import LinkButton from '../gtacpr/LinkButton';
+import { useConfirm } from '../gtacpr/ConfirmDialog';
+import { useSnackbar } from '../../contexts/SnackbarContext';
 
 const formatPhone = (phoneString: any) => {
   if (!phoneString) return '—';
@@ -32,6 +35,8 @@ function OrganizationManager() {
   const [error, setError] = useState('');
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingOrg, setEditingOrg] = useState(null);
+  const { confirm, dialog: confirmDialog } = useConfirm();
+  const { showSuccess, showError } = useSnackbar();
 
   const fetchOrganizations = useCallback(async () => {
     setLoading(true);
@@ -50,13 +55,28 @@ function OrganizationManager() {
 
   const handleAddOpen = () => { setEditingOrg(null); setDialogOpen(true); };
   const handleEditOpen = (org: any) => { setEditingOrg(org); setDialogOpen(true); };
-  const handleDelete = async (orgId: any) => {
-    if (window.confirm(`Are you sure you want to delete organization ID ${orgId}?`)) {
-      alert(`DELETE Organization ${orgId} API call not implemented yet.`);
+  const handleDelete = async (org: any) => {
+    const name = org.organizationName || `organization #${org.id}`;
+    const ok = await confirm({
+      title: 'Delete organization?',
+      message: `${name} will be deleted. Its users will lose access and this cannot be undone.`,
+      confirmLabel: 'Delete',
+      danger: true,
+    });
+    if (!ok) return;
+    try {
+      await api.api.delete(`/sysadmin/organizations/${org.id}`);
+      showSuccess(`${name} deleted`);
+      fetchOrganizations();
+    } catch (err: any) {
+      showError(err?.response?.data?.error?.message || err?.response?.data?.error || err?.message || 'Failed to delete organization');
     }
   };
   const handleDialogClose = () => { setDialogOpen(false); setEditingOrg(null); };
-  const handleDialogSave = () => { fetchOrganizations(); };
+  const handleDialogSave = () => {
+    showSuccess(editingOrg ? 'Organization updated' : 'Organization added');
+    fetchOrganizations();
+  };
 
   const formatAddress = (org: any) => {
     const parts = [org.addressStreet, org.addressCity, org.addressProvince].filter(Boolean);
@@ -96,9 +116,9 @@ function OrganizationManager() {
               <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>{formatPhone(org.contactPhone)}</Typography>
               <Typography sx={{ fontSize: 12.5, color: (theme) => theme.palette.text.secondary }}>{formatAddress(org)}</Typography>
               <Box sx={{ display: 'flex', gap: 0.5, justifyContent: 'flex-end' }}>
-                <ButtonBase onClick={() => handleEditOpen(org)} sx={{ fontSize: 12, fontWeight: 600, color: '#CC1F1F', '&:hover': { textDecoration: 'underline' }, '&:focus-visible': { outline: '2px solid #CC1F1F', outlineOffset: '2px' } }}>Edit</ButtonBase>
+                <LinkButton onClick={() => handleEditOpen(org)} aria-label={`Edit ${org.organizationName}`}>Edit</LinkButton>
                 <Typography sx={{ fontSize: 12, color: (theme) => theme.palette.divider }}>|</Typography>
-                <ButtonBase onClick={() => handleDelete(org.id)} sx={{ fontSize: 12, fontWeight: 600, color: (theme) => theme.palette.text.secondary, '&:hover': { textDecoration: 'underline', color: '#CC1F1F' }, '&:focus-visible': { outline: '2px solid #CC1F1F', outlineOffset: '2px' } }}>Delete</ButtonBase>
+                <LinkButton tone="neutral" onClick={() => handleDelete(org)} aria-label={`Delete ${org.organizationName}`}>Delete</LinkButton>
               </Box>
             </DataTableRow>
           ))}
@@ -106,6 +126,7 @@ function OrganizationManager() {
       )}
 
       <OrganizationDialog open={dialogOpen} onClose={handleDialogClose} onSave={handleDialogSave} organization={editingOrg} />
+      {confirmDialog}
     </Box>
   );
 }

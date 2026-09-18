@@ -16,7 +16,7 @@ import {
 import * as api from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
 import logger from '../../utils/logger';
-import { getTodayDate } from '../../utils/dateUtils';
+import { getTodayDate, toLocalDateString } from '../../utils/formatters';
 import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
 import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
 import { DatePicker } from '@mui/x-date-pickers/DatePicker';
@@ -139,8 +139,12 @@ const ScheduleCourseForm: React.FC<ScheduleCourseFormProps> = ({ onCourseSchedul
       return;
     }
 
+    if (isSubmitting) return;
+    setIsSubmitting(true);
+
     try {
-      const formattedDate = formData.scheduledDate.toISOString().split('T')[0];
+      // Local calendar date: toISOString() would shift evening Ontario dates to the next day (UTC)
+      const formattedDate = toLocalDateString(formData.scheduledDate);
       const response = await api.organizationApi.requestCourse({
         scheduledDate: formattedDate,
         location: formData.location,
@@ -162,9 +166,11 @@ const ScheduleCourseForm: React.FC<ScheduleCourseFormProps> = ({ onCourseSchedul
       } else {
         setError(response.data.message || 'Failed to submit course request');
       }
-    } catch (err: any) {
-      console.error('Error submitting course request:', err);
+    } catch (err: unknown) {
+      logger.error('Error submitting course request:', err);
       setError('Failed to submit course request. Please try again.');
+    } finally {
+      setIsSubmitting(false);
     }
   };
 

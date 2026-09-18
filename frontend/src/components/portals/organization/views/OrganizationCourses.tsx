@@ -19,6 +19,7 @@ import { api } from '../../../../services/api';
 import { formatDisplayDate } from '../../../../utils/dateUtils';
 import DataTable, { DataTableRow } from '../../../gtacpr/DataTable';
 import StatusChip from '../../../gtacpr/StatusChip';
+import LinkButton from '../../../gtacpr/LinkButton';
 import { GhostButton } from '../../../gtacpr/Buttons';
 
 interface Course {
@@ -234,7 +235,7 @@ const OrganizationCourses: React.FC<OrganizationCoursesProps> = ({
                       sx={{ fontSize: 12, fontWeight: 600, color: uploadDisabled ? (theme) => theme.palette.text.secondary : '#CC1F1F', cursor: uploadDisabled ? 'default' : 'pointer', '&:hover': uploadDisabled ? {} : { textDecoration: 'underline' } }}
                     >Upload</Box>
                   </Tooltip>
-                  <Box onClick={() => handleViewStudentsClick(course)} sx={{ fontSize: 12, fontWeight: 600, color: '#CC1F1F', cursor: 'pointer', '&:hover': { textDecoration: 'underline' } }}>Students</Box>
+                  <LinkButton onClick={() => handleViewStudentsClick(course)} aria-label={`View students for ${course.courseTypeName}`}>Students</LinkButton>
                 </Box>
               </DataTableRow>
             );

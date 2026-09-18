@@ -19,6 +19,7 @@ import {
   IconButton,
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
+import { useConfirm } from '../gtacpr/ConfirmDialog';
 import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
 // Phone Input Libraries
@@ -45,6 +46,7 @@ function OrganizationDialog({ open, onClose, onSave, organization }: { open: any
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string | boolean>>({}); // State for field-specific errors
+  const { confirm, dialog: confirmDialog } = useConfirm();
   const isEditMode = Boolean(organization?.id || organization?.organizationId);
 
   // Locations state
@@ -116,7 +118,15 @@ function OrganizationDialog({ open, onClose, onSave, organization }: { open: any
 
   const handleDeleteLocation = async (locationId: number) => {
     const orgId = organization?.id || organization?.organizationId;
-    if (!orgId || !window.confirm('Delete this location?')) return;
+    if (!orgId) return;
+    const loc = locations.find((l) => l.id === locationId);
+    const ok = await confirm({
+      title: 'Delete location?',
+      message: `${loc?.name || 'This location'} will be removed from ${orgData.organizationName || 'this organization'}. This cannot be undone.`,
+      confirmLabel: 'Delete',
+      danger: true,
+    });
+    if (!ok) return;
 
     try {
       await api.deleteOrganizationLocation(orgId, locationId);
@@ -155,6 +165,10 @@ function OrganizationDialog({ open, onClose, onSave, organization }: { open: any
       newFieldErrors.contactName = 'Contact Name required';
     if (!orgData.contactEmail)
       newFieldErrors.contactEmail = 'Contact Email required';
+    else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(orgData.contactEmail))
+      newFieldErrors.contactEmail = 'Enter a valid email address';
+    if (orgData.ceoEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(orgData.ceoEmail))
+      newFieldErrors.ceoEmail = 'Enter a valid email address';
     if (!orgData.contactPhone)
       newFieldErrors.contactPhone = 'Contact Phone required';
 
@@ -181,6 +195,7 @@ function OrganizationDialog({ open, onClose, onSave, organization }: { open: any
   };
 
   return (
+    <>
     <Dialog open={open} onClose={onClose} maxWidth='md' fullWidth>
       <DialogTitle>
         {isEditMode ? 'Edit Organization' : 'Add New Organization'}
@@ -248,10 +263,12 @@ function OrganizationDialog({ open, onClose, onSave, organization }: { open: any
           <Grid xs={12} sm={6}>
             <TextField
               name='contactName'
-              label='Contact Name'
+              label='Contact Name *'
               value={orgData.contactName}
               onChange={e => handleChange('contactName', e.target.value)}
               fullWidth
+              error={Boolean(fieldErrors.contactName)}
+              helperText={fieldErrors.contactName || ''}
             />
           </Grid>
           <Grid xs={12} sm={6}>
@@ -275,11 +292,13 @@ function OrganizationDialog({ open, onClose, onSave, organization }: { open: any
           <Grid xs={12} sm={12}>
             <TextField
               name='contactEmail'
-              label='Contact Email'
+              label='Contact Email *'
               value={orgData.contactEmail}
               type='email'
               onChange={e => handleChange('contactEmail', e.target.value)}
               fullWidth
+              error={Boolean(fieldErrors.contactEmail)}
+              helperText={fieldErrors.contactEmail || ''}
             />
           </Grid>
           {/* CEO Details */}
@@ -318,6 +337,8 @@ function OrganizationDialog({ open, onClose, onSave, organization }: { open: any
               type='email'
               onChange={e => handleChange('ceoEmail', e.target.value)}
               fullWidth
+              error={Boolean(fieldErrors.ceoEmail)}
+              helperText={fieldErrors.ceoEmail || ''}
             />
           </Grid>
         </Grid>
@@ -339,7 +360,7 @@ function OrganizationDialog({ open, onClose, onSave, organization }: { open: any
                     <ListItem
                       key={loc.id}
                       secondaryAction={
-                        <IconButton edge='end' size='small' onClick={() => handleDeleteLocation(loc.id)}>
+                        <IconButton edge='end' size='small' aria-label={`Delete location ${loc.name}`} onClick={() => handleDeleteLocation(loc.id)}>
                           <DeleteIcon fontSize='small' />
                         </IconButton>
                       }
@@ -393,6 +414,8 @@ function OrganizationDialog({ open, onClose, onSave, organization }: { open: any
         </Button>
       </DialogActions>
     </Dialog>
+    {confirmDialog}
+    </>
   );
 }
 

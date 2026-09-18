@@ -18,6 +18,7 @@ import DataTable, { DataTableRow } from '../../gtacpr/DataTable';
 import StatusChip from '../../gtacpr/StatusChip';
 import StatCard from '../../gtacpr/StatCard';
 import { GhostButton } from '../../gtacpr/Buttons';
+import { formatCurrency, formatDisplayDate } from '../../../utils/formatters';
 
 interface PaidVendorInvoice {
   id: number;
@@ -135,15 +136,14 @@ const PaidVendorInvoices: React.FC = () => {
     setPaymentHistory([]);
   };
 
-  const formatCurrency = (amount: number | string) => {
-    const num = typeof amount === 'string' ? parseFloat(amount) : amount;
-    return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(num || 0);
+  const toNumber = (v: number | string | null | undefined) => {
+    const n = typeof v === 'string' ? parseFloat(v) : v;
+    return n == null || Number.isNaN(n) ? 0 : n;
   };
-
-  const formatDate = (dateString: string) => {
-    if (!dateString) return 'N/A';
-    return new Date(dateString).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
-  };
+  /** total - totalPaid, never below zero (overpayments show as $0.00 due). */
+  const balanceDue = (inv: { total: number | string; totalPaid: number | string }) =>
+    Math.max(0, Math.round((toNumber(inv.total) - toNumber(inv.totalPaid)) * 100) / 100);
+  const formatDate = (dateString: string) => formatDisplayDate(dateString, 'N/A');
 
   if (loading) return <Box sx={{ display: 'flex', justifyContent: 'center', p: 4 }}><CircularProgress size={24} /></Box>;
 
@@ -187,11 +187,11 @@ const PaidVendorInvoices: React.FC = () => {
               </Box>
               <Typography sx={{ fontSize: 12, color: (theme) => theme.palette.text.secondary, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{invoice.description}</Typography>
               <Typography sx={{ fontSize: 13, fontWeight: 600, color: (theme) => theme.palette.text.primary, fontFamily: 'monospace', textAlign: 'right' }}>{formatCurrency(invoice.total)}</Typography>
-              <Typography sx={{ fontSize: 13, fontWeight: 600, color: '#16A34A', fontFamily: 'monospace', textAlign: 'right' }}>{formatCurrency(invoice.totalPaid || invoice.total)}</Typography>
+              <Typography sx={{ fontSize: 13, fontWeight: 600, color: '#16A34A', fontFamily: 'monospace', textAlign: 'right' }}>{formatCurrency(toNumber(invoice.totalPaid))}</Typography>
               <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>{formatDate(invoice.paidAt || invoice.sentToAccountingAt)}</Typography>
               <StatusChip kind="success" label="Paid" />
               <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>
-                <ButtonBase onClick={() => handleView(invoice)} sx={{ fontSize: 12, fontWeight: 600, color: '#CC1F1F', '&:hover': { textDecoration: 'underline' }, '&:focus-visible': { outline: '2px solid #CC1F1F', outlineOffset: '2px' } }}>View</ButtonBase>
+                <ButtonBase aria-label={`View invoice ${invoice.invoiceNumber}`} onClick={() => handleView(invoice)} sx={{ fontSize: 12, fontWeight: 600, color: '#CC1F1F', '&:hover': { textDecoration: 'underline' }, '&:focus-visible': { outline: '2px solid #CC1F1F', outlineOffset: '2px' } }}>View</ButtonBase>
               </Box>
             </DataTableRow>
           ))}
@@ -235,8 +235,8 @@ const PaidVendorInvoices: React.FC = () => {
                 <Typography sx={{ fontSize: 13, fontWeight: 700, color: (theme) => theme.palette.text.secondary, textTransform: 'uppercase', letterSpacing: '0.07em', mb: 1 }}>Payment Summary</Typography>
                 <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, 1fr)', md: 'repeat(3, 1fr)' }, gap: 2 }}>
                   <StatCard label="Total Invoice Amount" value={formatCurrency(selectedInvoice.total)} dotColor="#2563EB" />
-                  <StatCard label="Amount Paid" value={formatCurrency(selectedInvoice.totalPaid || selectedInvoice.total)} dotColor="#16A34A" />
-                  <StatCard label="Balance Due" value="$0.00" dotColor="#16A34A" />
+                  <StatCard label="Amount Paid" value={formatCurrency(toNumber(selectedInvoice.totalPaid))} dotColor="#16A34A" />
+                  <StatCard label="Balance Due" value={formatCurrency(balanceDue(selectedInvoice))} dotColor={balanceDue(selectedInvoice) > 0 ? '#ED6C02' : '#16A34A'} />
                 </Box>
                 <Box sx={{ p: 1.5, bgcolor: (theme) => theme.palette.mode === 'dark' ? 'rgba(22, 163, 74, 0.1)' : '#F0FDF4', borderRadius: '8px', border: (theme) => `1px solid ${theme.palette.mode === 'dark' ? 'rgba(22, 163, 74, 0.3)' : '#BBF7D0'}`, mt: 2, textAlign: 'center' }}>
                   <Typography sx={{ fontSize: 13, fontWeight: 600, color: '#16A34A' }}>Payment Complete: This invoice has been fully paid</Typography>

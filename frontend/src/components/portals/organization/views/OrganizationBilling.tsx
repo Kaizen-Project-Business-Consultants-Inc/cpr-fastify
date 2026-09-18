@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useMemo } from 'react';
 import {
   Box,
   Typography,
@@ -19,13 +19,15 @@ import {
   CircularProgress,
   Tooltip,
 } from '@mui/material';
-import { formatDisplayDate } from '../../../../utils/dateUtils';
+import { formatDisplayDate, formatCurrency, getTodayDate, HST_RATE } from '../../../../utils/formatters';
 import { api } from '../../../../services/api';
 import PaymentHistoryTable from '../../../common/PaymentHistoryTable';
 import ServiceDetailsTable from '../../../common/ServiceDetailsTable';
 import DataTable, { DataTableRow } from '../../../gtacpr/DataTable';
 import StatusChip from '../../../gtacpr/StatusChip';
 import StatCard from '../../../gtacpr/StatCard';
+import LinkButton from '../../../gtacpr/LinkButton';
+import { useConfirm } from '../../../gtacpr/ConfirmDialog';
 import { PrimaryButton, GhostButton } from '../../../gtacpr/Buttons';
 
 // TypeScript interfaces
@@ -89,9 +91,19 @@ interface BillingSummary {
   recent_invoices: Invoice[];
 }
 
+interface OrganizationInfo {
+  id?: number;
+  name?: string;
+  address?: string | null;
+  contact_email?: string | null;
+  contact_phone?: string | null;
+}
+
 interface OrganizationBillingProps {
   invoices: Invoice[];
   billingSummary: BillingSummary | undefined;
+  /** The organization's profile, used for the invoice "Bill To" block. */
+  organizationData?: OrganizationInfo;
   onPaymentSuccess?: () => void;
 }
 
@@ -121,8 +133,16 @@ const attendanceColumns = [
 const OrganizationBilling: React.FC<OrganizationBillingProps> = ({
   invoices,
   billingSummary,
+  organizationData,
   onPaymentSuccess,
 }) => {
+  const { confirm, dialog: confirmDialog } = useConfirm();
+
+  // Filters (client-side over the loaded list)
+  const [searchTerm, setSearchTerm] = useState('');
+  const [statusFilter, setStatusFilter] = useState('');
+  const [courseTypeFilter, setCourseTypeFilter] = useState('');
+
   // State for invoice detail dialog
   const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -133,7 +153,7 @@ const OrganizationBilling: React.FC<OrganizationBillingProps> = ({
     amount: '',
     payment_method: '',
     reference_number: '',
-    payment_date: new Date().toISOString().split('T')[0],
+    payment_date: getTodayDate(),
     notes: '',
   });
   const [submittingPayment, setSubmittingPayment] = useState(false);
@@ -181,7 +201,7 @@ const OrganizationBilling: React.FC<OrganizationBillingProps> = ({
       const url = window.URL.createObjectURL(new Blob([response.data]));
       const a = document.createElement('a');
       a.href = url;
-      a.download = `invoices-${new Date().toISOString().split('T')[0]}.csv`;
+      a.download = `invoices-${getTodayDate()}.csv`;
       a.click();
       window.URL.revokeObjectURL(url);
     } catch { setExportError('Failed to export invoices'); }
@@ -194,7 +214,28 @@ const OrganizationBilling: React.FC<OrganizationBillingProps> = ({
   const balanceCalculationTimer = useRef<NodeJS.Timeout | null>(null);
 
   // Ensure invoices is an array
-  const safeInvoices = Array.isArray(invoices) ? invoices : [];
+  const safeInvoices = useMemo(() => (Array.isArray(invoices) ? invoices : []), [invoices]);
+
+  // Course types come from the loaded invoices, never a hard-coded list
+  const courseTypes = useMemo(
+    () => Array.from(new Set(safeInvoices.map((i) => i.course_type_name).filter(Boolean))).sort(),
+    [safeInvoices]
+  );
+
+  const filteredInvoices = useMemo(() => {
+    const term = searchTerm.trim().toLowerCase();
+    return safeInvoices.filter((invoice) => {
+      const status = (invoice.payment_status || invoice.status || '').toLowerCase();
+      const matchesSearch =
+        !term ||
+        [invoice.invoice_number, invoice.course_type_name, invoice.location]
+          .filter(Boolean)
+          .some((v) => String(v).toLowerCase().includes(term));
+      const matchesStatus = !statusFilter || status === statusFilter;
+      const matchesCourseType = !courseTypeFilter || invoice.course_type_name === courseTypeFilter;
+      return matchesSearch && matchesStatus && matchesCourseType;
+    });
+  }, [safeInvoices, searchTerm, statusFilter, courseTypeFilter]);
 
   // Get status kind for StatusChip
   const getStatusKind = (status: string): 'success' | 'active' | 'warning' | 'danger' | 'neutral' | 'inactive' | 'brand' | 'pending' => {
@@ -312,7 +353,17 @@ const OrganizationBilling: React.FC<OrganizationBillingProps> = ({
   };
 
   // Handle mark invoice as paid
-  const handleMarkAsPaid = async (invoiceId: number) => {
+  const handleMarkAsPaid = async (invoice: Invoice) => {
+    if (markingAsPaid) return;
+
+    const ok = await confirm({
+      title: 'Mark invoice as paid?',
+      message: `Invoice ${invoice.invoice_number} will be marked as paid. Accounting will be notified and this cannot be undone from this portal.`,
+      confirmLabel: 'Mark Paid',
+    });
+    if (!ok) return;
+
+    const invoiceId = invoice.id;
     setMarkingAsPaid(invoiceId);
     setMarkAsPaidError(null);
 
@@ -364,6 +415,17 @@ const OrganizationBilling: React.FC<OrganizationBillingProps> = ({
       return;
     }
 
+    // Confirm before sending. The ref stays set while the dialog is open so a second click is ignored.
+    const ok = await confirm({
+      title: 'Submit payment?',
+      message: `Submit a payment of ${formatCurrency(paymentForm.amount)} for invoice ${selectedInvoice.invoice_number}? It will be sent to accounting for verification.`,
+      confirmLabel: 'Submit Payment',
+    });
+    if (!ok) {
+      isSubmittingRef.current = false;
+      return;
+    }
+
     setSubmittingPayment(true);
     setPaymentError(null);
 
@@ -382,7 +444,7 @@ const OrganizationBilling: React.FC<OrganizationBillingProps> = ({
         const responseData = response.data.data;
         const message = responseData?.is_full_payment
           ? 'Full payment submitted successfully! Awaiting verification.'
-          : `Partial payment of $${parseFloat(paymentForm.amount).toFixed(2)} submitted. Remaining balance: $${responseData?.remaining_balance?.toFixed(2) || '0.00'}`;
+          : `Partial payment of ${formatCurrency(paymentForm.amount)} submitted. Remaining balance: ${formatCurrency(responseData?.remaining_balance)}`;
 
         setPaymentSuccessMessage(message);
         setPaymentSuccess(true);
@@ -431,23 +493,14 @@ const OrganizationBilling: React.FC<OrganizationBillingProps> = ({
         amount: Number(invoice.balance_due || 0).toFixed(2),
         payment_method: '',
         reference_number: '',
-        payment_date: new Date().toISOString().split('T')[0],
+        payment_date: getTodayDate(),
         notes: '',
       };
 
       setPaymentForm(formData);
 
-      // Open payment dialog immediately
       setPaymentDialogOpen(true);
-
-      // Check state immediately after
-
-      // Check state after a micro delay
-      setTimeout(() => {
-      }, 0);
-
     }
-
   };
 
   // Handle payment dialog close
@@ -468,7 +521,7 @@ const OrganizationBilling: React.FC<OrganizationBillingProps> = ({
       amount: '',
       payment_method: '',
       reference_number: '',
-      payment_date: new Date().toISOString().split('T')[0],
+      payment_date: getTodayDate(),
       notes: '',
     });
   };
@@ -651,15 +704,28 @@ const OrganizationBilling: React.FC<OrganizationBillingProps> = ({
   const getServiceDetails = (invoice: Invoice) => {
     if (!invoice) return [];
 
+    // When the API does not send a breakdown, back the subtotal out of the tax-inclusive total.
+    const total = Number(invoice.amount || 0);
+    const baseCost = invoice.base_cost != null
+      ? Number(invoice.base_cost)
+      : Math.round((total / (1 + HST_RATE)) * 100) / 100;
+    const tax = invoice.tax_amount != null
+      ? Number(invoice.tax_amount)
+      : Math.round((total - baseCost) * 100) / 100;
+    const students = Number(invoice.students_billed || 0);
+    const ratePerStudent = invoice.rate_per_student != null
+      ? Number(invoice.rate_per_student)
+      : students > 0 ? Math.round((baseCost / students) * 100) / 100 : 0;
+
     return [{
       date: invoice.course_date,
       location: invoice.location,
       course: invoice.course_type_name,
-      students: invoice.students_billed,
-      ratePerStudent: invoice.rate_per_student || 9.00,
-      baseCost: invoice.base_cost || (invoice.amount * 0.885),
-      tax: invoice.tax_amount || (invoice.amount * 0.115),
-      total: invoice.amount,
+      students,
+      ratePerStudent,
+      baseCost,
+      tax,
+      total,
     }];
   };
 
@@ -703,15 +769,23 @@ const OrganizationBilling: React.FC<OrganizationBillingProps> = ({
           <Box sx={{ flex: '0 0 auto', minWidth: 220 }}>
             <TextField
               fullWidth
-              label="Search invoices..."
+              label="Search invoices"
               variant="outlined"
               size="small"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              inputProps={{ 'aria-label': 'Search invoices' }}
             />
           </Box>
           <Box sx={{ flex: '0 0 auto', minWidth: 160 }}>
             <FormControl fullWidth size="small">
-              <InputLabel>Status</InputLabel>
-              <Select label="Status" defaultValue="">
+              <InputLabel id="billing-status-label">Status</InputLabel>
+              <Select
+                labelId="billing-status-label"
+                label="Status"
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value)}
+              >
                 <MenuItem value="">All Statuses</MenuItem>
                 <MenuItem value="pending">Pending</MenuItem>
                 <MenuItem value="overdue">Overdue</MenuItem>
@@ -722,31 +796,36 @@ const OrganizationBilling: React.FC<OrganizationBillingProps> = ({
           </Box>
           <Box sx={{ flex: '0 0 auto', minWidth: 160 }}>
             <FormControl fullWidth size="small">
-              <InputLabel>Course Type</InputLabel>
-              <Select label="Course Type" defaultValue="">
+              <InputLabel id="billing-course-type-label">Course Type</InputLabel>
+              <Select
+                labelId="billing-course-type-label"
+                label="Course Type"
+                value={courseTypeFilter}
+                onChange={(e) => setCourseTypeFilter(e.target.value)}
+              >
                 <MenuItem value="">All Types</MenuItem>
-                <MenuItem value="cpr">CPR</MenuItem>
-                <MenuItem value="first_aid">First Aid</MenuItem>
-                <MenuItem value="bls">BLS</MenuItem>
+                {courseTypes.map((type) => <MenuItem key={type} value={type}>{type}</MenuItem>)}
               </Select>
             </FormControl>
           </Box>
           <Typography sx={{ fontSize: 12, color: (theme) => theme.palette.text.secondary, ml: 'auto' }}>
-            {safeInvoices.length} invoices found
+            {filteredInvoices.length} of {safeInvoices.length} invoices
           </Typography>
         </Box>
 
         <DataTable
           columns={invoiceColumns}
-          shownCount={safeInvoices.length}
+          shownCount={filteredInvoices.length}
           totalCount={safeInvoices.length}
         >
-          {safeInvoices.length === 0 ? (
+          {filteredInvoices.length === 0 ? (
             <Box sx={{ p: 3, textAlign: 'center' }}>
-              <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>No invoices found</Typography>
+              <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>
+                {safeInvoices.length === 0 ? 'No invoices found' : 'No invoices match your filters'}
+              </Typography>
             </Box>
           ) : (
-            safeInvoices.map((invoice) => {
+            filteredInvoices.map((invoice) => {
               const oldestUnpaid = getOldestUnpaidInvoice();
               const isOldestUnpaid = oldestUnpaid?.id === invoice.id;
               const hasOlderUnpaid = hasOlderUnpaidInvoices(invoice);
@@ -781,7 +860,7 @@ const OrganizationBilling: React.FC<OrganizationBillingProps> = ({
                   {/* Base Cost */}
                   {invoice.base_cost ? (
                     <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary, textAlign: 'right', fontFamily: 'monospace' }}>
-                      ${Number(invoice.base_cost).toFixed(2)}
+                      {formatCurrency(invoice.base_cost)}
                     </Typography>
                   ) : (
                     <Typography sx={{ fontSize: 12, color: '#CC1F1F', textAlign: 'right' }}>
@@ -792,7 +871,7 @@ const OrganizationBilling: React.FC<OrganizationBillingProps> = ({
                   {/* Tax (HST) */}
                   {invoice.tax_amount ? (
                     <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary, textAlign: 'right', fontFamily: 'monospace' }}>
-                      ${Number(invoice.tax_amount).toFixed(2)}
+                      {formatCurrency(invoice.tax_amount)}
                     </Typography>
                   ) : (
                     <Typography sx={{ fontSize: 12, color: '#CC1F1F', textAlign: 'right' }}>
@@ -803,7 +882,7 @@ const OrganizationBilling: React.FC<OrganizationBillingProps> = ({
                   {/* Total */}
                   {invoice.amount ? (
                     <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary, textAlign: 'right', fontFamily: 'monospace' }}>
-                      ${Number(invoice.amount).toFixed(2)}
+                      {formatCurrency(invoice.amount)}
                     </Typography>
                   ) : (
                     <Typography sx={{ fontSize: 12, color: '#CC1F1F', textAlign: 'right' }}>
@@ -818,7 +897,7 @@ const OrganizationBilling: React.FC<OrganizationBillingProps> = ({
                     textAlign: 'right',
                     fontFamily: 'monospace',
                   }}>
-                    ${Number(invoice.amount_paid || 0).toFixed(2)}
+                    {formatCurrency(invoice.amount_paid || 0)}
                   </Typography>
 
                   {/* Balance Due */}
@@ -829,7 +908,7 @@ const OrganizationBilling: React.FC<OrganizationBillingProps> = ({
                     fontFamily: 'monospace',
                     fontWeight: 600,
                   }}>
-                    ${Number(invoice.balance_due || 0).toFixed(2)}
+                    {formatCurrency(invoice.balance_due || 0)}
                   </Typography>
 
                   {/* Due Date */}
@@ -861,25 +940,18 @@ const OrganizationBilling: React.FC<OrganizationBillingProps> = ({
 
                   {/* Actions */}
                   <Box sx={{ display: 'flex', gap: 1, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
-                    <Box
-                      onClick={() => handleInvoiceClick(invoice)}
-                      sx={{ fontSize: 12, fontWeight: 600, color: '#CC1F1F', cursor: 'pointer', '&:hover': { textDecoration: 'underline' } }}
-                    >
+                    <LinkButton onClick={() => handleInvoiceClick(invoice)} aria-label={`View invoice ${invoice.invoice_number}`}>
                       View
-                    </Box>
+                    </LinkButton>
                     {invoice.balance_due <= 0 && invoice.payment_status !== 'paid' && (
-                      <Box
-                        onClick={() => !markingAsPaid && handleMarkAsPaid(invoice.id)}
-                        sx={{
-                          fontSize: 12,
-                          fontWeight: 600,
-                          color: markingAsPaid === invoice.id ? (theme) => theme.palette.text.secondary : '#16A34A',
-                          cursor: markingAsPaid === invoice.id ? 'not-allowed' : 'pointer',
-                          '&:hover': { textDecoration: markingAsPaid === invoice.id ? 'none' : 'underline' },
-                        }}
+                      <LinkButton
+                        onClick={() => handleMarkAsPaid(invoice)}
+                        disabled={markingAsPaid !== null}
+                        aria-label={`Mark invoice ${invoice.invoice_number} as paid`}
+                        sx={{ color: '#16A34A' }}
                       >
                         {markingAsPaid === invoice.id ? 'Marking...' : 'Mark Paid'}
-                      </Box>
+                      </LinkButton>
                     )}
                     {invoice.balance_due > 0 && invoice.payment_status !== 'paid' && !canSubmitPayment(invoice) && (
                       <Typography sx={{ fontSize: 12, color: '#ED6C02', fontWeight: 600 }}>
@@ -909,12 +981,9 @@ const OrganizationBilling: React.FC<OrganizationBillingProps> = ({
             <Typography sx={{ fontSize: 18, fontWeight: 700, color: (theme) => theme.palette.text.primary }}>
               Invoice Details - {selectedInvoice?.invoice_number}
             </Typography>
-            <Box
-              onClick={handleDialogClose}
-              sx={{ fontSize: 12, fontWeight: 600, color: '#CC1F1F', cursor: 'pointer', '&:hover': { textDecoration: 'underline' } }}
-            >
+            <LinkButton onClick={handleDialogClose} aria-label="Close invoice details">
               Close
-            </Box>
+            </LinkButton>
           </Box>
         </DialogTitle>
         <DialogContent id="invoice-details-dialog-description">
@@ -950,9 +1019,19 @@ const OrganizationBilling: React.FC<OrganizationBillingProps> = ({
               <Typography sx={{ fontSize: 13.5, fontWeight: 600, color: (theme) => theme.palette.text.primary, mb: 0.5 }}>
                 Bill To:
               </Typography>
-              <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>Your Organization</Typography>
-              <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>Organization Address</Typography>
-              <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>Contact Information</Typography>
+              <Typography sx={{ fontSize: 13, fontWeight: 600, color: (theme) => theme.palette.text.primary }}>
+                {organizationData?.name || '—'}
+              </Typography>
+              {organizationData?.address && (
+                <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary, whiteSpace: 'pre-line' }}>
+                  {organizationData.address}
+                </Typography>
+              )}
+              {(organizationData?.contact_email || organizationData?.contact_phone) && (
+                <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>
+                  {[organizationData?.contact_email, organizationData?.contact_phone].filter(Boolean).join(' · ')}
+                </Typography>
+              )}
 
               <Divider sx={{ my: 2 }} />
 
@@ -1039,7 +1118,7 @@ const OrganizationBilling: React.FC<OrganizationBillingProps> = ({
                     <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
                       <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}><strong>Invoice Total:</strong></Typography>
                       <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary, fontFamily: 'monospace' }}>
-                        ${invoiceTotal.toFixed(2)}
+                        {formatCurrency(invoiceTotal)}
                       </Typography>
                     </Box>
 
@@ -1047,14 +1126,14 @@ const OrganizationBilling: React.FC<OrganizationBillingProps> = ({
                     <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                       <Typography sx={{ fontSize: 13, color: '#16A34A' }}><strong>Verified Payments:</strong></Typography>
                       <Typography sx={{ fontSize: 13, color: '#16A34A', fontFamily: 'monospace' }}>
-                        -${verifiedTotal.toFixed(2)}
+                        -{formatCurrency(verifiedTotal)}
                       </Typography>
                     </Box>
                     {verifiedPayments.length > 0 && (
                       <Box sx={{ pl: 2, mt: 0.5 }}>
                         {verifiedPayments.map((payment, idx) => (
                           <Typography key={idx} sx={{ fontSize: 11, color: (theme) => theme.palette.text.secondary }}>
-                            {formatDisplayDate(payment.payment_date || payment.paymentDate)} - ${Number(payment.amount_paid || payment.amountPaid || payment.amount || 0).toFixed(2)} ({formatPaymentMethod(payment.payment_method || payment.paymentMethod || '')})
+                            {formatDisplayDate(payment.payment_date || payment.paymentDate)} - {formatCurrency(payment.amount_paid || payment.amountPaid || payment.amount || 0)} ({formatPaymentMethod(payment.payment_method || payment.paymentMethod || '')})
                           </Typography>
                         ))}
                       </Box>
@@ -1067,7 +1146,7 @@ const OrganizationBilling: React.FC<OrganizationBillingProps> = ({
                         Balance Due:
                       </Typography>
                       <Typography sx={{ fontSize: 13, fontWeight: 700, color: balanceAfterVerified > 0 ? '#CC1F1F' : '#16A34A', fontFamily: 'monospace' }}>
-                        ${balanceAfterVerified.toFixed(2)}
+                        {formatCurrency(balanceAfterVerified)}
                       </Typography>
                     </Box>
 
@@ -1078,14 +1157,14 @@ const OrganizationBilling: React.FC<OrganizationBillingProps> = ({
                         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                           <Typography sx={{ fontSize: 13, color: '#ED6C02' }}><strong>Pending Verification:</strong></Typography>
                           <Typography sx={{ fontSize: 13, color: '#ED6C02', fontFamily: 'monospace' }}>
-                            -${pendingTotal.toFixed(2)}
+                            -{formatCurrency(pendingTotal)}
                           </Typography>
                         </Box>
                         <Box sx={{ pl: 2, mt: 0.5 }}>
                           {pendingPayments.map((payment, idx) => (
                             <Box key={idx} sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                               <Typography sx={{ fontSize: 11, color: (theme) => theme.palette.text.secondary }}>
-                                {formatDisplayDate(payment.payment_date || payment.paymentDate)} - ${Number(payment.amount_paid || payment.amountPaid || payment.amount || 0).toFixed(2)} ({formatPaymentMethod(payment.payment_method || payment.paymentMethod || '')}) -
+                                {formatDisplayDate(payment.payment_date || payment.paymentDate)} - {formatCurrency(payment.amount_paid || payment.amountPaid || payment.amount || 0)} ({formatPaymentMethod(payment.payment_method || payment.paymentMethod || '')}) -
                               </Typography>
                               <StatusChip kind="pending" label="Awaiting Verification" />
                             </Box>
@@ -1099,7 +1178,7 @@ const OrganizationBilling: React.FC<OrganizationBillingProps> = ({
                             <strong>Balance After Verification:</strong>
                           </Typography>
                           <Typography sx={{ fontSize: 13, color: '#6366F1', fontFamily: 'monospace' }}>
-                            ${balanceAfterPending.toFixed(2)}
+                            {formatCurrency(balanceAfterPending)}
                           </Typography>
                         </Box>
                         <Typography sx={{ fontSize: 11, color: (theme) => theme.palette.text.secondary }}>
@@ -1141,18 +1220,7 @@ const OrganizationBilling: React.FC<OrganizationBillingProps> = ({
         <DialogActions>
           {selectedInvoice && canSubmitPayment(selectedInvoice) && (
             <PrimaryButton
-              onClick={(e) => {
-
-                // Force the function call with the invoice directly
-                if (selectedInvoice) {
-                  handlePaymentDialogOpen(selectedInvoice);
-                }
-
-
-                // Add a timeout to check state
-                setTimeout(() => {
-                }, 100);
-              }}
+              onClick={() => { if (selectedInvoice) handlePaymentDialogOpen(selectedInvoice); }}
               sx={{ mr: 'auto' }}
             >
               Submit Payment
@@ -1214,7 +1282,7 @@ const OrganizationBilling: React.FC<OrganizationBillingProps> = ({
                 Total Amount:{' '}
                 {selectedInvoice.amount ? (
                   <Box component="span" sx={{ fontFamily: 'monospace' }}>
-                    ${Number(selectedInvoice.amount).toFixed(2)}
+                    {formatCurrency(selectedInvoice.amount)}
                   </Box>
                 ) : (
                   <Box component="span" sx={{ color: '#CC1F1F', fontSize: 12 }}>N/A</Box>
@@ -1223,13 +1291,13 @@ const OrganizationBilling: React.FC<OrganizationBillingProps> = ({
               <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>
                 Amount Paid:{' '}
                 <Box component="span" sx={{ fontFamily: 'monospace' }}>
-                  ${Number(selectedInvoice.amount_paid || 0).toFixed(2)}
+                  {formatCurrency(selectedInvoice.amount_paid || 0)}
                 </Box>
               </Typography>
               <Typography sx={{ fontSize: 13, fontWeight: 700, color: '#CC1F1F' }}>
                 Balance Due:{' '}
                 <Box component="span" sx={{ fontFamily: 'monospace' }}>
-                  ${Number(selectedInvoice.balance_due || 0).toFixed(2)}
+                  {formatCurrency(selectedInvoice.balance_due || 0)}
                 </Box>
               </Typography>
             </Box>
@@ -1268,11 +1336,11 @@ const OrganizationBilling: React.FC<OrganizationBillingProps> = ({
                 helperText={
                   balanceCalculation ? (
                     balanceCalculation.is_overpayment ? (
-                      `Payment exceeds outstanding balance ($${balanceCalculation.current_outstanding_balance.toFixed(2)})`
+                      `Payment exceeds outstanding balance (${formatCurrency(balanceCalculation.current_outstanding_balance)})`
                     ) : balanceCalculation.is_full_payment ? (
-                      `This will complete the payment. Remaining balance: $${balanceCalculation.remaining_balance_after_payment.toFixed(2)}`
+                      `This will complete the payment. Remaining balance: ${formatCurrency(balanceCalculation.remaining_balance_after_payment)}`
                     ) : (
-                      `Partial payment. Remaining balance: $${balanceCalculation.remaining_balance_after_payment.toFixed(2)}`
+                      `Partial payment. Remaining balance: ${formatCurrency(balanceCalculation.remaining_balance_after_payment)}`
                     )
                   ) : paymentForm.amount ? (
                     'Calculating balance...'
@@ -1403,6 +1471,8 @@ const OrganizationBilling: React.FC<OrganizationBillingProps> = ({
           {paymentError}
         </Alert>
       </Snackbar>
+
+      {confirmDialog}
 
       {/* Mark as Paid Success/Error Messages */}
       <Snackbar

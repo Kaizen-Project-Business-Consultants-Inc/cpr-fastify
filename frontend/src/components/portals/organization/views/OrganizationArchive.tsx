@@ -15,9 +15,10 @@ import {
   Alert,
 } from '@mui/material';
 import { api } from '../../../../services/api';
-import { formatDisplayDate } from '../../../../utils/dateUtils';
+import { formatDisplayDate, getTodayDate } from '../../../../utils/formatters';
 import DataTable, { DataTableRow } from '../../../gtacpr/DataTable';
 import StatusChip from '../../../gtacpr/StatusChip';
+import LinkButton from '../../../gtacpr/LinkButton';
 import { GhostButton } from '../../../gtacpr/Buttons';
 
 interface Course {
@@ -27,7 +28,7 @@ interface Course {
   location: string;
   registeredStudents: number;
   status: string;
-  instructor: string;
+  instructor: string | null;
   notes?: string;
   confirmedDate?: string;
   requestSubmittedDate: string;
@@ -93,7 +94,7 @@ const OrganizationArchive: React.FC<OrganizationArchiveProps> = ({ courses }) =>
       const url = window.URL.createObjectURL(new Blob([response.data]));
       const a = document.createElement('a');
       a.href = url;
-      a.download = `roster-${new Date().toISOString().split('T')[0]}.csv`;
+      a.download = `roster-${getTodayDate()}.csv`;
       a.click();
       window.URL.revokeObjectURL(url);
     } catch { setExportError('Failed to export roster'); }
@@ -126,16 +127,27 @@ const OrganizationArchive: React.FC<OrganizationArchiveProps> = ({ courses }) =>
     setStudentError(null);
   };
 
-  const filteredCourses = courses.filter(course => {
-    const matchesSearch = course.courseTypeName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      course.location.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      course.instructor.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesStatus = statusFilter === 'all' || course.status.toLowerCase() === statusFilter.toLowerCase();
+  const safeCourses = Array.isArray(courses) ? courses : [];
+  const term = searchTerm.trim().toLowerCase();
+
+  const filteredCourses = safeCourses.filter(course => {
+    // Instructor (and other fields) can be null for archived/cancelled courses
+    const matchesSearch =
+      !term ||
+      [course.courseTypeName, course.location, course.instructor]
+        .filter(Boolean)
+        .some((v) => String(v).toLowerCase().includes(term));
+    const matchesStatus = statusFilter === 'all' || (course.status || '').toLowerCase() === statusFilter.toLowerCase();
     const matchesCourseType = courseTypeFilter === 'all' || course.courseTypeName === courseTypeFilter;
     return matchesSearch && matchesStatus && matchesCourseType;
   });
 
-  const courseTypes = Array.from(new Set(courses.map(course => course.courseTypeName))).sort();
+  const courseTypes = Array.from(new Set(safeCourses.map(course => course.courseTypeName).filter(Boolean))).sort();
+
+  const formatStatus = (status: string | null | undefined) => {
+    if (!status) return 'Unknown';
+    return status.charAt(0).toUpperCase() + status.slice(1).replace(/_/g, ' ');
+  };
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
@@ -150,18 +162,18 @@ const OrganizationArchive: React.FC<OrganizationArchiveProps> = ({ courses }) =>
           <GhostButton onClick={handleExportCSV}>Export CSV</GhostButton>
         </Box>
         <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, 1fr)', md: 'repeat(3, 1fr)' }, gap: 2 }}>
-          <TextField fullWidth label="Search courses..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} size="small" />
+          <TextField fullWidth label="Search courses" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} size="small" inputProps={{ 'aria-label': 'Search archived courses' }} />
           <FormControl fullWidth size="small">
-            <InputLabel>Status</InputLabel>
-            <Select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} label="Status">
+            <InputLabel id="archive-status-label">Status</InputLabel>
+            <Select labelId="archive-status-label" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} label="Status">
               <MenuItem value="all">All Statuses</MenuItem>
               <MenuItem value="completed">Completed</MenuItem>
               <MenuItem value="cancelled">Cancelled</MenuItem>
             </Select>
           </FormControl>
           <FormControl fullWidth size="small">
-            <InputLabel>Course Type</InputLabel>
-            <Select value={courseTypeFilter} onChange={(e) => setCourseTypeFilter(e.target.value)} label="Course Type">
+            <InputLabel id="archive-course-type-label">Course Type</InputLabel>
+            <Select labelId="archive-course-type-label" value={courseTypeFilter} onChange={(e) => setCourseTypeFilter(e.target.value)} label="Course Type">
               <MenuItem value="all">All Course Types</MenuItem>
               {courseTypes.map(type => <MenuItem key={type} value={type}>{type}</MenuItem>)}
             </Select>
@@ -175,18 +187,18 @@ const OrganizationArchive: React.FC<OrganizationArchiveProps> = ({ courses }) =>
           <Typography sx={{ fontSize: 14, fontWeight: 600, color: (theme) => theme.palette.text.secondary }}>No archived courses found</Typography>
         </Box>
       ) : (
-        <DataTable columns={columns} shownCount={filteredCourses.length} totalCount={courses.length}>
+        <DataTable columns={columns} shownCount={filteredCourses.length} totalCount={safeCourses.length}>
           {filteredCourses.map((course) => (
             <DataTableRow key={course.id} columns={columns}>
               <Typography sx={{ fontSize: 13.5, fontWeight: 600, color: (theme) => theme.palette.text.primary }}>{course.courseTypeName}</Typography>
               <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>{course.location}</Typography>
               <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>{course.instructor || '—'}</Typography>
               <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.primary }}>{course.studentsAttended || 0} / {course.registeredStudents}</Typography>
-              <StatusChip kind={getStatusKind(course.status)} label={course.status.charAt(0).toUpperCase() + course.status.slice(1).replace('_', ' ')} />
-              <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>{formatDisplayDate(course.confirmedDate || '')}</Typography>
-              <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>{formatDisplayDate(course.archivedAt || '')}</Typography>
+              <StatusChip kind={getStatusKind(course.status)} label={formatStatus(course.status)} />
+              <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>{formatDisplayDate(course.confirmedDate)}</Typography>
+              <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>{formatDisplayDate(course.archivedAt)}</Typography>
               <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>
-                <Box onClick={() => handleViewStudentsClick(course)} sx={{ fontSize: 12, fontWeight: 600, color: '#CC1F1F', cursor: 'pointer', '&:hover': { textDecoration: 'underline' } }}>Students</Box>
+                <LinkButton onClick={() => handleViewStudentsClick(course)} aria-label={`View students for ${course.courseTypeName}`}>Students</LinkButton>
               </Box>
             </DataTableRow>
           ))}
@@ -194,8 +206,8 @@ const OrganizationArchive: React.FC<OrganizationArchiveProps> = ({ courses }) =>
       )}
 
       {/* Student Dialog */}
-      <Dialog open={studentDialogOpen} onClose={handleCloseStudentDialog} maxWidth="md" fullWidth>
-        <DialogTitle sx={{ fontSize: 18, fontWeight: 700, color: (theme) => theme.palette.text.primary }}>
+      <Dialog open={studentDialogOpen} onClose={handleCloseStudentDialog} maxWidth="md" fullWidth aria-labelledby="archive-students-dialog-title">
+        <DialogTitle id="archive-students-dialog-title" sx={{ fontSize: 18, fontWeight: 700, color: (theme) => theme.palette.text.primary }}>
           Students — {selectedCourse?.courseTypeName}
         </DialogTitle>
         <DialogContent>
@@ -211,7 +223,10 @@ const OrganizationArchive: React.FC<OrganizationArchiveProps> = ({ courses }) =>
                 <DataTableRow key={student.id} columns={studentColumns}>
                   <Typography sx={{ fontSize: 13, fontWeight: 600, color: (theme) => theme.palette.text.primary }}>{student.firstName} {student.lastName}</Typography>
                   <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>{student.email}</Typography>
-                  <StatusChip kind={student.attended ? 'success' : 'danger'} label={student.attended ? 'Attended' : 'No Show'} />
+                  <StatusChip
+                    kind={student.attended ? 'success' : student.attendanceMarked ? 'danger' : 'neutral'}
+                    label={student.attended ? 'Attended' : student.attendanceMarked ? 'No Show' : 'Not marked'}
+                  />
                 </DataTableRow>
               ))}
             </DataTable>

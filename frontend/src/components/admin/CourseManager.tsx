@@ -6,6 +6,7 @@ import CourseDialog from './CourseDialog';
 import { formatDisplayDate } from '../../utils/dateUtils';
 import DataTable, { DataTableRow } from '../gtacpr/DataTable';
 import { PrimaryButton } from '../gtacpr/Buttons';
+import { useConfirm } from '../gtacpr/ConfirmDialog';
 
 interface Course {
   id: number;
@@ -32,6 +33,7 @@ const columns = [
 ];
 
 const CourseManager: React.FC<CourseManagerProps> = ({ showSnackbar }) => {
+  const { confirm, dialog: confirmDialog } = useConfirm();
   const [courses, setCourses] = useState<Course[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -58,7 +60,13 @@ const CourseManager: React.FC<CourseManagerProps> = ({ showSnackbar }) => {
   const handleEditOpen = (course: Course) => { setEditingCourse(course); setDialogOpen(true); };
 
   const handleDelete = async (id: number, name: string) => {
-    if (window.confirm(`Delete course "${name}"? This cannot be undone.`)) {
+    const ok = await confirm({
+      title: 'Delete course?',
+      message: `"${name}" will be deleted. This cannot be undone.`,
+      confirmLabel: 'Delete',
+      danger: true,
+    });
+    if (ok) {
       try {
         setError(null);
         const response = await api.delete(`/sysadmin/courses/${id}`);
@@ -140,6 +148,7 @@ const CourseManager: React.FC<CourseManagerProps> = ({ showSnackbar }) => {
       )}
 
       <CourseDialog open={dialogOpen} onClose={() => { setDialogOpen(false); setEditingCourse(null); }} onSave={handleSave as any} course={editingCourse || undefined} />
+      {confirmDialog}
     </Box>
   );
 };

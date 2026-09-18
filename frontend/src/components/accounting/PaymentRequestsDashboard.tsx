@@ -20,6 +20,9 @@ import StatCard from '../gtacpr/StatCard';
 import StatusChip from '../gtacpr/StatusChip';
 import DataTable, { DataTableRow } from '../gtacpr/DataTable';
 import { PrimaryButton, GhostButton } from '../gtacpr/Buttons';
+import LinkButton from '../gtacpr/LinkButton';
+import { useSnackbar } from '../../contexts/SnackbarContext';
+import { formatCurrency, formatCurrencyOrDash, formatDisplayDate } from '../../utils/formatters';
 
 /* ── helpers ─────────────────────────────────────────────────── */
 
@@ -80,6 +83,7 @@ const PaymentRequestDetailDialog: React.FC<PaymentRequestDetailDialogProps> = ({
   const [paymentMethod, setPaymentMethod] = useState('direct_deposit');
   const [notes, setNotes] = useState('');
   const [processing, setProcessing] = useState(false);
+  const { showSuccess, showError } = useSnackbar();
 
   const handleClose = () => {
     onClose();
@@ -93,7 +97,7 @@ const PaymentRequestDetailDialog: React.FC<PaymentRequestDetailDialogProps> = ({
     if (!request) return;
 
     if (action === 'return_to_hr' && !notes.trim()) {
-      alert('Notes are required when returning to HR.');
+      showError('Notes are required when returning to HR.');
       return;
     }
 
@@ -105,13 +109,14 @@ const PaymentRequestDetailDialog: React.FC<PaymentRequestDetailDialogProps> = ({
         notes: notes.trim()
       });
 
+      showSuccess(action === 'approve' ? 'Payment request approved' : 'Payment request returned to HR');
       if (onActionSuccess) {
         onActionSuccess();
       }
       handleClose();
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Error processing payment request:', error);
-      alert('Failed to process payment request. Please try again.');
+      showError('Failed to process payment request. Please try again.');
     } finally {
       setProcessing(false);
     }
@@ -119,9 +124,16 @@ const PaymentRequestDetailDialog: React.FC<PaymentRequestDetailDialogProps> = ({
 
   if (!request) return null;
 
-  const baseAmount = request.baseAmount || ((request.totalHours ?? 0) * (request.hourlyRate || 25));
-  const bonusAmount = request.bonusAmount || ((request.coursesTaught ?? 0) * (request.courseBonus || 50));
-  const totalAmount = request.amount || (baseAmount + bonusAmount);
+  // Never invent pay rates: show what HR sent, or a dash.
+  const baseAmount: number | undefined =
+    request.baseAmount ??
+    (request.totalHours != null && request.hourlyRate != null ? request.totalHours * request.hourlyRate : undefined);
+  const bonusAmount: number | undefined =
+    request.bonusAmount ??
+    (request.coursesTaught != null && request.courseBonus != null ? request.coursesTaught * request.courseBonus : undefined);
+  const totalAmount: number | undefined =
+    request.amount ?? (baseAmount != null && bonusAmount != null ? baseAmount + bonusAmount : undefined);
+  const mono = { fontFamily: 'monospace' } as const;
 
   return (
     <Dialog open={open} onClose={handleClose} maxWidth="lg" fullWidth>
@@ -151,9 +163,9 @@ const PaymentRequestDetailDialog: React.FC<PaymentRequestDetailDialogProps> = ({
             <Box sx={detailSection}>
               <Typography sx={sectionHeader}>Payment Information</Typography>
               <Typography sx={{ fontSize: 22, fontWeight: 700, color: '#16A34A', fontFamily: 'monospace', mb: 0.5 }}>
-                ${Number(totalAmount).toFixed(2)}
+                {formatCurrencyOrDash(totalAmount)}
               </Typography>
-              {labelValue('Payment Date', new Date(request.paymentDate).toLocaleDateString())}
+              {labelValue('Payment Date', formatDisplayDate(request.paymentDate))}
               {labelValue('Payment Method', request.paymentMethod?.replace('_', ' ').toUpperCase())}
             </Box>
           </Box>
@@ -162,20 +174,26 @@ const PaymentRequestDetailDialog: React.FC<PaymentRequestDetailDialogProps> = ({
           <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 2 }}>
             <Box sx={detailSection}>
               <Typography sx={sectionHeader}>Timesheet Information</Typography>
-              {labelValue('Week Starting', request.weekStartDate ? new Date(request.weekStartDate).toLocaleDateString() : '-')}
-              {labelValue('Total Hours', `${request.totalHours} hours`)}
-              {labelValue('Courses Taught', `${request.coursesTaught} courses`)}
+              {labelValue('Week Starting', formatDisplayDate(request.weekStartDate))}
+              {labelValue('Total Hours', request.totalHours != null ? `${request.totalHours} hours` : '—')}
+              {labelValue('Courses Taught', request.coursesTaught != null ? `${request.coursesTaught} courses` : '—')}
               {request.timesheetComment && labelValue('HR Comment', request.timesheetComment)}
             </Box>
 
             <Box sx={detailSection}>
               <Typography sx={sectionHeader}>Payment Breakdown</Typography>
-              {labelValue('Hourly Rate', <Box component="span" sx={{ fontFamily: 'monospace' }}>${request.hourlyRate || 25}/hr</Box>)}
-              {labelValue('Course Bonus', <Box component="span" sx={{ fontFamily: 'monospace' }}>${request.courseBonus || 50}/course</Box>)}
-              {labelValue('Base Amount', <Box component="span" sx={{ fontFamily: 'monospace' }}>${Number(baseAmount).toFixed(2)} ({request.totalHours}h x ${request.hourlyRate || 25})</Box>)}
-              {labelValue('Bonus Amount', <Box component="span" sx={{ fontFamily: 'monospace' }}>${Number(bonusAmount).toFixed(2)} ({request.coursesTaught} courses x ${request.courseBonus || 50})</Box>)}
+              {labelValue('Hourly Rate', <Box component="span" sx={mono}>{request.hourlyRate != null ? `${formatCurrency(request.hourlyRate)}/hr` : '—'}</Box>)}
+              {labelValue('Course Bonus', <Box component="span" sx={mono}>{request.courseBonus != null ? `${formatCurrency(request.courseBonus)}/course` : '—'}</Box>)}
+              {labelValue('Base Amount', <Box component="span" sx={mono}>
+                {formatCurrencyOrDash(baseAmount)}
+                {request.totalHours != null && request.hourlyRate != null ? ` (${request.totalHours}h x ${formatCurrency(request.hourlyRate)})` : ''}
+              </Box>)}
+              {labelValue('Bonus Amount', <Box component="span" sx={mono}>
+                {formatCurrencyOrDash(bonusAmount)}
+                {request.coursesTaught != null && request.courseBonus != null ? ` (${request.coursesTaught} courses x ${formatCurrency(request.courseBonus)})` : ''}
+              </Box>)}
               <Typography sx={{ fontSize: 16, fontWeight: 700, color: '#16A34A', fontFamily: 'monospace', mt: 1 }}>
-                Total: ${Number(totalAmount).toFixed(2)}
+                Total: {formatCurrencyOrDash(totalAmount)}
               </Typography>
               {request.tierName && labelValue('Pay Tier', request.tierName)}
             </Box>
@@ -192,7 +210,7 @@ const PaymentRequestDetailDialog: React.FC<PaymentRequestDetailDialogProps> = ({
                       {classDetail.course_name}
                     </Typography>
                     <Typography sx={{ fontSize: 12, color: (theme) => theme.palette.text.secondary }}>
-                      Hours: {classDetail.hours} | Date: {new Date(classDetail.date).toLocaleDateString()}
+                      Hours: {classDetail.hours} | Date: {formatDisplayDate(classDetail.date)}
                       {classDetail.location && ` | Location: ${classDetail.location}`}
                     </Typography>
                   </Box>
@@ -460,7 +478,18 @@ const PaymentRequestsDashboard: React.FC = () => {
       {/* Payment Requests Table */}
       <Box sx={{ border: (theme) => `1px solid ${theme.palette.divider}`, borderRadius: '10px', bgcolor: (theme) => theme.palette.background.paper }}>
         <DataTable columns={columns}>
-          {requests.map((request) => (
+          {loading && requests.length === 0 ? (
+            <Box sx={{ py: 4, display: 'flex', justifyContent: 'center' }} role="status" aria-label="Loading">
+              <CircularProgress size={24} />
+            </Box>
+          ) : requests.length === 0 ? (
+            <Box sx={{ py: 4, textAlign: 'center' }}>
+              <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>
+                No payment requests match the current filters
+              </Typography>
+            </Box>
+          ) : (
+          requests.map((request) => (
             <DataTableRow key={request.id} columns={columns}>
               <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.primary }}>{request.id}</Typography>
               <Box>
@@ -472,7 +501,7 @@ const PaymentRequestsDashboard: React.FC = () => {
                 </Typography>
               </Box>
               <Typography sx={{ fontSize: 13, fontWeight: 700, color: (theme) => theme.palette.text.primary, fontFamily: 'monospace' }}>
-                ${Number(request.amount).toFixed(2)}
+                {formatCurrency(request.amount)}
               </Typography>
               <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.primary }}>{request.weekStartDate}</Typography>
               <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.primary }}>
@@ -483,25 +512,20 @@ const PaymentRequestsDashboard: React.FC = () => {
                 label={request.status.toUpperCase()}
               />
               <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.primary }}>
-                {new Date(request.createdAt).toLocaleDateString()}
+                {formatDisplayDate(request.createdAt)}
               </Typography>
-              <Box
+              <LinkButton
+                aria-label={`View payment request ${request.id}`}
                 onClick={() => {
                   setSelectedRequest(request);
                   setDetailDialogOpen(true);
                 }}
-                sx={{
-                  fontSize: 12,
-                  fontWeight: 600,
-                  color: '#CC1F1F',
-                  cursor: 'pointer',
-                  '&:hover': { textDecoration: 'underline' },
-                }}
               >
                 View
-              </Box>
+              </LinkButton>
             </DataTableRow>
-          ))}
+          ))
+          )}
         </DataTable>
 
         {/* Pagination */}

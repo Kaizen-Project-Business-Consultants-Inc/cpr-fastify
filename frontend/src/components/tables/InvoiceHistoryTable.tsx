@@ -20,7 +20,8 @@ import KeyboardArrowUpIcon from '@mui/icons-material/KeyboardArrowUp';
 import VisibilityIcon from '@mui/icons-material/Visibility';
 import PictureAsPdfIcon from '@mui/icons-material/PictureAsPdf';
 import PreviewIcon from '@mui/icons-material/Preview';
-import { formatDisplayDate } from '../../utils/dateUtils';
+import { formatCurrency, formatDisplayDate, applyTax } from '../../utils/formatters';
+import { useSnackbar } from '../../contexts/SnackbarContext';
 import PaymentHistoryTable from '../common/PaymentHistoryTable';
 import * as api from '../../services/api';
 import { API_URL } from '../../config';
@@ -32,11 +33,6 @@ import InfoIcon from '@mui/icons-material/Info';
 import PostAddIcon from '@mui/icons-material/PostAdd';
 
 // Helper functions (copied from AccountsReceivableTable - consider moving to utils)
-const formatCurrency = (amount: any) => {
-  if (amount == null || isNaN(amount)) return '$0.00';
-  return `$${parseFloat(amount).toFixed(2)}`;
-};
-
 const getStatusChipColor = (status: any) => {
   switch (status?.toLowerCase()) {
     case 'paid':
@@ -170,6 +166,7 @@ const PaymentDetails = ({ invoiceId, onViewInvoice }: { invoiceId: any; onViewIn
 
 const InvoiceHistoryTable = ({ invoices = [], onRefresh }: { invoices?: any[]; onRefresh?: any }) => {
   const [expandedRowId, setExpandedRowId] = useState(null); // State to track expanded row
+  const { showError } = useSnackbar();
 
   // Auto-refresh every 30 seconds
   useEffect(() => {
@@ -286,7 +283,7 @@ const InvoiceHistoryTable = ({ invoices = [], onRefresh }: { invoices?: any[]; o
             console.error(
               '[PDF Download] Failed to open new tab - popup blocked?'
             );
-            alert(
+            showError(
               'Download blocked by browser. Please check your popup blocker settings or try right-clicking the download button and selecting "Save link as..."'
             );
           }
@@ -295,7 +292,7 @@ const InvoiceHistoryTable = ({ invoices = [], onRefresh }: { invoices?: any[]; o
 
     } catch (error: any) {
       console.error('[PDF Download] Error:', error);
-      alert(`Failed to download PDF: ${error.message}`);
+      showError(`Failed to download PDF: ${error.message}`);
     }
   };
 
@@ -366,7 +363,7 @@ const InvoiceHistoryTable = ({ invoices = [], onRefresh }: { invoices?: any[]; o
                 hover
                 sx={{
                   '& > *': { borderBottom: 'unset' },
-                  backgroundColor: index % 2 !== 0 ? '#f9f9f9' : 'inherit',
+                  backgroundColor: (theme) => (index % 2 !== 0 ? theme.palette.action.hover : 'inherit'),
                 }}
               >
                 <TableCell>
@@ -409,7 +406,7 @@ const InvoiceHistoryTable = ({ invoices = [], onRefresh }: { invoices?: any[]; o
               </TableCell>
               <TableCell align='right'>
                 {invoice.ratePerStudent ?
-                  <strong>${Number(invoice.ratePerStudent || 0).toFixed(2)}</strong> :
+                  <strong>{formatCurrency(invoice.ratePerStudent)}</strong> :
                   <Typography variant="body2" color="error.main" fontSize="small">
                     Pricing not configured
                   </Typography>
@@ -417,7 +414,7 @@ const InvoiceHistoryTable = ({ invoices = [], onRefresh }: { invoices?: any[]; o
               </TableCell>
               <TableCell align='right'>
                 {invoice.ratePerStudent && invoice.studentsBilled ?
-                  <strong>${(Number(invoice.ratePerStudent) * Number(invoice.studentsBilled)).toFixed(2)}</strong> :
+                  <strong>{formatCurrency(applyTax(Number(invoice.ratePerStudent) * Number(invoice.studentsBilled)).subtotal)}</strong> :
                   <Typography variant="body2" color="error.main" fontSize="small">
                     N/A
                   </Typography>
@@ -425,7 +422,7 @@ const InvoiceHistoryTable = ({ invoices = [], onRefresh }: { invoices?: any[]; o
               </TableCell>
               <TableCell align='right'>
                 {invoice.ratePerStudent && invoice.studentsBilled ?
-                  <strong>${(Number(invoice.ratePerStudent) * Number(invoice.studentsBilled) * 0.13).toFixed(2)}</strong> :
+                  <strong>{formatCurrency(applyTax(Number(invoice.ratePerStudent) * Number(invoice.studentsBilled)).tax)}</strong> :
                   <Typography variant="body2" color="error.main" fontSize="small">
                     N/A
                   </Typography>
@@ -433,7 +430,7 @@ const InvoiceHistoryTable = ({ invoices = [], onRefresh }: { invoices?: any[]; o
               </TableCell>
               <TableCell align='right'>
                 {invoice.ratePerStudent && invoice.studentsBilled ?
-                  <strong>${(Number(invoice.ratePerStudent) * Number(invoice.studentsBilled) * 1.13).toFixed(2)}</strong> :
+                  <strong>{formatCurrency(applyTax(Number(invoice.ratePerStudent) * Number(invoice.studentsBilled)).total)}</strong> :
                   <Typography variant="body2" color="error.main" fontSize="small">
                     N/A
                   </Typography>
@@ -485,6 +482,7 @@ const InvoiceHistoryTable = ({ invoices = [], onRefresh }: { invoices?: any[]; o
                 >
                   <Tooltip title='Preview Invoice'>
                     <IconButton
+                      aria-label={`Preview invoice ${invoice.invoiceNumber}`}
                       size='small'
                       onClick={() => handlePreview(invoice.invoiceId)}
                       color='primary'
@@ -494,6 +492,7 @@ const InvoiceHistoryTable = ({ invoices = [], onRefresh }: { invoices?: any[]; o
                   </Tooltip>
                   <Tooltip title='Download PDF'>
                     <IconButton
+                      aria-label={`Download PDF for invoice ${invoice.invoiceNumber}`}
                       size='small'
                       onClick={() =>
                         handleDownloadPDF(invoice.invoiceId, invoice.invoiceNumber)
@@ -510,7 +509,7 @@ const InvoiceHistoryTable = ({ invoices = [], onRefresh }: { invoices?: any[]; o
             <TableRow>
               <TableCell
                 style={{ paddingBottom: 0, paddingTop: 0 }}
-                colSpan={17}
+                colSpan={20}
               >
                 {/* Adjust colSpan based on total columns */}
                 <Collapse

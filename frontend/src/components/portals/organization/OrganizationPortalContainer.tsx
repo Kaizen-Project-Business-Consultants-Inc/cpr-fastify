@@ -113,7 +113,8 @@ const OrganizationPortalContainer: React.FC = () => {
       const response = await api.get('/organization/profile', {
         params: { _t: Date.now() }
       });
-      return response.data;
+      // The API wraps the record as { success, data }; unwrap so views get the organization itself
+      return response.data?.data ?? response.data;
     },
     enabled: !!user?.organizationId,
   });

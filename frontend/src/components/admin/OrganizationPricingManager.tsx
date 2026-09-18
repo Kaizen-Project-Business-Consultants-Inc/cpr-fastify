@@ -16,6 +16,7 @@ import logger from '../../utils/logger';
 import DataTable, { DataTableRow } from '../gtacpr/DataTable';
 import StatusChip from '../gtacpr/StatusChip';
 import { PrimaryButton, GhostButton } from '../gtacpr/Buttons';
+import { useConfirm } from '../gtacpr/ConfirmDialog';
 
 interface OrganizationPricing {
   id: number;
@@ -45,6 +46,7 @@ const columns = [
 ];
 
 function OrganizationPricingManager() {
+  const { confirm, dialog: confirmDialog } = useConfirm();
   const [pricingData, setPricingData] = useState<OrganizationPricing[]>([]);
   const [organizations, setOrganizations] = useState<Organization[]>([]);
   const [classTypes, setClassTypes] = useState<ClassType[]>([]);
@@ -85,7 +87,14 @@ function OrganizationPricingManager() {
   const handleEditOpen = (pricing: OrganizationPricing) => { setEditingPricing(pricing); setDialogOpen(true); };
 
   const handleDelete = async (id: number) => {
-    if (window.confirm('Are you sure you want to delete this pricing record?')) {
+    const target = pricingData.find((p) => p.id === id);
+    const ok = await confirm({
+      title: 'Delete pricing record?',
+      message: `${target?.organizationName || 'This organization'} / ${target?.classTypeName || 'course'} pricing will be removed. This cannot be undone.`,
+      confirmLabel: 'Delete',
+      danger: true,
+    });
+    if (ok) {
       try {
         setError('');
         await api.deleteCoursePricing(id);
@@ -230,6 +239,7 @@ function OrganizationPricingManager() {
           {snackbar.message}
         </Alert>
       </Snackbar>
+      {confirmDialog}
     </Box>
   );
 }

@@ -176,9 +176,10 @@ function PricingRuleDialog({ open, onClose, onSave, rule }: { open: any; onClose
           <Box sx={{ mt: 2 }}>
             <Grid2 container spacing={2}>
               <Grid2 xs={12} sm={6}>
-                <FormControl fullWidth>
-                  <InputLabel>Organization</InputLabel>
+                <FormControl fullWidth error={Boolean(fieldErrors.organizationId)}>
+                  <InputLabel id='pricing-rule-org-label'>Organization</InputLabel>
                   <Select
+                    labelId='pricing-rule-org-label'
                     value={formData.organizationId || ''}
                     onChange={handleChange}
                     name='organizationId'
@@ -193,12 +194,14 @@ function PricingRuleDialog({ open, onClose, onSave, rule }: { open: any; onClose
                       </MenuItem>
                     ))}
                   </Select>
+                  {fieldErrors.organizationId && <FormHelperText>{fieldErrors.organizationId}</FormHelperText>}
                 </FormControl>
               </Grid2>
               <Grid2 xs={12} sm={6}>
-                <FormControl fullWidth>
-                  <InputLabel>Course Name</InputLabel>
+                <FormControl fullWidth error={Boolean(fieldErrors.courseTypeId)}>
+                  <InputLabel id='pricing-rule-course-label'>Course Name</InputLabel>
                   <Select
+                    labelId='pricing-rule-course-label'
                     value={formData.courseTypeId || ''}
                     onChange={handleChange}
                     name='courseTypeId'
@@ -213,6 +216,7 @@ function PricingRuleDialog({ open, onClose, onSave, rule }: { open: any; onClose
                       </MenuItem>
                     ))}
                   </Select>
+                  {fieldErrors.courseTypeId && <FormHelperText>{fieldErrors.courseTypeId}</FormHelperText>}
                 </FormControl>
               </Grid2>
               <Grid2 xs={12} sm={6}>

@@ -18,13 +18,7 @@ import {
   TableHead,
   TableRow,
   Chip,
-  ToggleButton,
-  ToggleButtonGroup,
 } from '@mui/material';
-import {
-  ViewList as DetailedIcon,
-  Summarize as SummaryIcon,
-} from '@mui/icons-material';
 import {
   TrendingUp as IncomeIcon,
   TrendingDown as ExpenseIcon,
@@ -46,6 +40,8 @@ import {
   Line,
 } from 'recharts';
 import api from '../../services/api';
+import SegmentedToggle from '../gtacpr/SegmentedToggle';
+import { formatCurrency, formatDisplayDate } from '../../utils/formatters';
 
 interface MoneyInTransaction {
   id: number;
@@ -94,6 +90,118 @@ interface FinancialSummary {
   }>;
 }
 
+type RawRow = Record<string, unknown>;
+
+const num = (v: unknown): number => {
+  const n = typeof v === 'string' ? parseFloat(v) : typeof v === 'number' ? v : NaN;
+  return Number.isFinite(n) ? n : 0;
+};
+const str = (v: unknown): string => (v == null ? '' : String(v));
+const dateKey = (v: unknown): string => str(v).slice(0, 10); // YYYY-MM-DD, no UTC shift
+const round2 = (n: number) => Math.round(n * 100) / 100;
+const monthLabel = (ym: string) => {
+  const [y, m] = ym.split('-').map(Number);
+  return new Date(y, m - 1, 1).toLocaleDateString('en-CA', { month: 'short', year: 'numeric' });
+};
+
+/** Pull the row array out of the two list endpoints regardless of pagination wrapper. */
+const extractRows = (payload: unknown): RawRow[] => {
+  const d = (payload as { data?: unknown } | undefined)?.data;
+  if (Array.isArray(d)) return d as RawRow[];
+  const inner = d as { invoices?: unknown; data?: unknown } | undefined;
+  if (Array.isArray(inner?.invoices)) return inner!.invoices as RawRow[];
+  if (Array.isArray(inner?.data)) return inner!.data as RawRow[];
+  return [];
+};
+
+/**
+ * There is no /accounting/financial-summary endpoint. Build the summary on the client from
+ * the invoice list (money in = verified payments applied to invoices) and the vendor invoice
+ * list (money out = processed vendor payments). Instructor payouts are not tracked here.
+ */
+export const buildFinancialSummary = (
+  invoices: RawRow[],
+  vendorInvoices: RawRow[],
+  startDate: string,
+  endDate: string
+): FinancialSummary => {
+  const inRange = (d: string) => !!d && d >= startDate && d <= endDate;
+
+  const moneyIn: MoneyInTransaction[] = invoices
+    .filter((i) => num(i.amount_paid ?? i.amountPaid) > 0)
+    .map((i) => ({
+      id: num(i.id),
+      date: dateKey(i.paid_date ?? i.paidDate ?? i.invoice_date ?? i.invoiceDate),
+      organization_name: str(i.organization_name ?? i.organizationName),
+      invoice_number: str(i.invoice_number ?? i.invoiceNumber),
+      payment_method: '—',
+      reference_number: '—',
+      amount: num(i.amount_paid ?? i.amountPaid),
+      status: str(i.payment_status ?? i.paymentStatus ?? i.status),
+    }))
+    .filter((t) => inRange(t.date))
+    .sort((a, b) => b.date.localeCompare(a.date));
+
+  const moneyOut: MoneyOutTransaction[] = vendorInvoices
+    .filter((v) => num(v.total_paid ?? v.totalPaid) > 0)
+    .map((v) => ({
+      id: num(v.id),
+      date: dateKey(v.paid_at ?? v.paidAt ?? v.paid_date ?? v.payment_date ?? v.updated_at ?? v.invoice_date ?? v.invoiceDate),
+      category: 'vendor' as const,
+      payee_name: str(v.vendor_name ?? v.vendorName),
+      invoice_number: str(v.invoice_number ?? v.invoiceNumber),
+      description: str(v.description),
+      reference_number: '—',
+      amount: num(v.total_paid ?? v.totalPaid),
+    }))
+    .filter((t) => inRange(t.date))
+    .sort((a, b) => b.date.localeCompare(a.date));
+
+  const sum = (xs: { amount: number }[]) => round2(xs.reduce((a, x) => a + x.amount, 0));
+  const months = new Map<string, { money_in: number; money_out: number }>();
+  const bump = (d: string, k: 'money_in' | 'money_out', amt: number) => {
+    const ym = d.slice(0, 7);
+    const e = months.get(ym) ?? { money_in: 0, money_out: 0 };
+    e[k] += amt;
+    months.set(ym, e);
+  };
+  moneyIn.forEach((t) => bump(t.date, 'money_in', t.amount));
+  moneyOut.forEach((t) => bump(t.date, 'money_out', t.amount));
+
+  const totalIn = sum(moneyIn);
+  const totalOut = sum(moneyOut);
+  return {
+    period: { start_date: startDate, end_date: endDate },
+    money_in: {
+      organization_payments: { amount: totalIn, count: moneyIn.length },
+      total: totalIn,
+      transactions: moneyIn,
+    },
+    money_out: {
+      vendor_payments: { amount: totalOut, count: moneyOut.length },
+      instructor_payments: { amount: 0, count: 0 },
+      total: totalOut,
+      transactions: moneyOut,
+    },
+    net_cash_flow: round2(totalIn - totalOut),
+    monthly_breakdown: [...months.entries()]
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([month, v]) => ({
+        month,
+        month_label: monthLabel(month),
+        money_in: round2(v.money_in),
+        money_out: round2(v.money_out),
+      })),
+  };
+};
+
+/** Escape one CSV cell: quote, double inner quotes, neutralise formula-leading characters. */
+export const csvCell = (value: unknown): string => {
+  let s = value == null ? '' : String(value);
+  if (/^[=+\-@\t\r]/.test(s)) s = `'${s}`;
+  return `"${s.replace(/"/g, '""')}"`;
+};
+
 interface GroupedInvoice {
   invoice_number: string;
   organization_name: string;
@@ -116,19 +224,13 @@ const FinancialSummaryView: React.FC = () => {
   } = useQuery<FinancialSummary>({
     queryKey: ['financial-summary', startDate, endDate],
     queryFn: async () => {
-      const response = await api.get('/accounting/financial-summary', {
-        params: { start_date: startDate, end_date: endDate },
-      });
-      return response.data.data;
+      const [invoicesRes, vendorRes] = await Promise.all([
+        api.get('/accounting/invoices', { params: { page: 1, limit: 500 } }),
+        api.get('/accounting/vendor-invoices'),
+      ]);
+      return buildFinancialSummary(extractRows(invoicesRes.data), extractRows(vendorRes.data), startDate, endDate);
     },
   });
-
-  const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat('en-CA', {
-      style: 'currency',
-      currency: 'CAD',
-    }).format(amount);
-  };
 
   // Group transactions by invoice for summary view
   const groupedInvoices: GroupedInvoice[] = React.useMemo(() => {
@@ -157,15 +259,6 @@ const FinancialSummaryView: React.FC = () => {
       new Date(b.last_payment_date).getTime() - new Date(a.last_payment_date).getTime()
     );
   }, [summary?.money_in.transactions]);
-
-  const handleViewModeChange = (
-    _event: React.MouseEvent<HTMLElement>,
-    newMode: 'summary' | 'detailed' | null
-  ) => {
-    if (newMode !== null) {
-      setViewMode(newMode);
-    }
-  };
 
   const handleExportCSV = () => {
     if (!summary) return;
@@ -198,7 +291,7 @@ const FinancialSummaryView: React.FC = () => {
       ['MONEY IN TRANSACTIONS'],
       ['Date', 'Organization', 'Invoice #', 'Payment Method', 'Reference #', 'Amount'],
       ...(summary.money_in.transactions || []).map(txn => [
-        new Date(txn.date).toLocaleDateString('en-CA'),
+        formatDisplayDate(txn.date),
         txn.organization_name,
         txn.invoice_number,
         txn.payment_method || '',
@@ -209,13 +302,13 @@ const FinancialSummaryView: React.FC = () => {
       ['MONEY OUT TRANSACTIONS'],
       ['Date', 'Category', 'Payee', 'Reference/Description', 'Amount'],
       ...(summary.money_out.transactions || []).map(txn => [
-        new Date(txn.date).toLocaleDateString('en-CA'),
+        formatDisplayDate(txn.date),
         txn.category === 'vendor' ? 'Vendor' : 'Instructor',
         txn.payee_name,
         txn.invoice_number || txn.reference_number || txn.description || '',
         formatCurrency(txn.amount),
       ]),
-    ].map(row => row.join(',')).join('\n');
+    ].map(row => row.map(csvCell).join(',')).join('\n');
 
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const link = document.createElement('a');
@@ -289,6 +382,12 @@ const FinancialSummaryView: React.FC = () => {
           </Button>
         </Box>
       </Box>
+
+      <Alert severity="info" sx={{ mb: 3 }}>
+        Computed from invoice and vendor-invoice records: money in is verified payments applied to
+        organization invoices, money out is processed vendor payments. Instructor payouts and
+        per-payment method/reference details are not available in this view.
+      </Alert>
 
       {summary && (
         <>
@@ -459,21 +558,14 @@ const FinancialSummaryView: React.FC = () => {
                 </Typography>
               </Box>
               <Box display="flex" alignItems="center" gap={2}>
-                <ToggleButtonGroup
+                <SegmentedToggle
                   value={viewMode}
-                  exclusive
-                  onChange={handleViewModeChange}
-                  size="small"
-                >
-                  <ToggleButton value="summary">
-                    <SummaryIcon sx={{ mr: 0.5, fontSize: 18 }} />
-                    Summary
-                  </ToggleButton>
-                  <ToggleButton value="detailed">
-                    <DetailedIcon sx={{ mr: 0.5, fontSize: 18 }} />
-                    Detailed
-                  </ToggleButton>
-                </ToggleButtonGroup>
+                  options={[
+                    { value: 'summary', label: 'Summary' },
+                    { value: 'detailed', label: 'Detailed' },
+                  ]}
+                  onChange={(v) => setViewMode(v as 'summary' | 'detailed')}
+                />
                 <Typography variant="h6" sx={{ color: '#4caf50' }}>
                   Total: {formatCurrency(summary.money_in.total)}
                 </Typography>
@@ -507,7 +599,7 @@ const FinancialSummaryView: React.FC = () => {
                               />
                             </TableCell>
                             <TableCell>
-                              {new Date(inv.last_payment_date).toLocaleDateString('en-CA')}
+                              {formatDisplayDate(inv.last_payment_date)}
                             </TableCell>
                             <TableCell align="right" sx={{ color: '#4caf50', fontWeight: 'medium' }}>
                               {formatCurrency(inv.total_payments)}
@@ -542,7 +634,7 @@ const FinancialSummaryView: React.FC = () => {
                         summary.money_in.transactions.map((txn) => (
                           <TableRow key={txn.id} hover>
                             <TableCell>
-                              {new Date(txn.date).toLocaleDateString('en-CA')}
+                              {formatDisplayDate(txn.date)}
                             </TableCell>
                             <TableCell>{txn.organization_name}</TableCell>
                             <TableCell>{txn.invoice_number}</TableCell>
@@ -604,7 +696,7 @@ const FinancialSummaryView: React.FC = () => {
                     summary.money_out.transactions.map((txn) => (
                       <TableRow key={`${txn.category}-${txn.id}`} hover>
                         <TableCell>
-                          {new Date(txn.date).toLocaleDateString('en-CA')}
+                          {formatDisplayDate(txn.date)}
                         </TableCell>
                         <TableCell>
                           <Chip

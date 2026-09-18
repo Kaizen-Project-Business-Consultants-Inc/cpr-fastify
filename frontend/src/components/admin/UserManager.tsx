@@ -8,6 +8,8 @@ import DataTable, { DataTableRow } from '../gtacpr/DataTable';
 import UserAvatar from '../gtacpr/UserAvatar';
 import RoleChip from '../gtacpr/RoleChip';
 import { PrimaryButton } from '../gtacpr/Buttons';
+import LinkButton from '../gtacpr/LinkButton';
+import { useConfirm } from '../gtacpr/ConfirmDialog';
 
 const formatPhone = (phoneString: any) => {
   if (!phoneString) return '—';
@@ -38,6 +40,7 @@ function UserManager() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingUser, setEditingUser] = useState(null);
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' as 'success' | 'error' | 'warning' | 'info' });
+  const { confirm, dialog: confirmDialog } = useConfirm();
 
   const fetchUsers = useCallback(async () => {
     setLoading(true);
@@ -62,23 +65,27 @@ function UserManager() {
   const handleAddOpen = () => { setEditingUser(null); setDialogOpen(true); };
   const handleEditOpen = (user: any) => { setEditingUser(user); setDialogOpen(true); };
 
-  const handleDelete = async (userId: any) => {
-    const userToDelete = users.find(u => u.userId === userId);
-    const msg = userToDelete ? `Delete user: ${userToDelete.username}?` : `Delete user ID ${userId}?`;
-    if (window.confirm(msg)) {
-      try {
-        await api.deleteUser(userId);
-        showSnackbar(`User deleted successfully.`, 'success');
-        fetchUsers();
-      } catch (err: any) {
-        logger.error(`Error deleting user ${userId}:`, err);
-        showSnackbar(`Failed to delete user: ${err.message}`, 'error');
-      }
+  const handleDeactivate = async (user: any) => {
+    const label = `${user.firstName || ''} ${user.lastName || ''}`.trim() || user.username;
+    const ok = await confirm({
+      title: 'Deactivate user?',
+      message: `${label} (${user.username}) will no longer be able to log in. Their records are kept and the account can be reactivated later.`,
+      confirmLabel: 'Deactivate',
+      danger: true,
+    });
+    if (!ok) return;
+    try {
+      await api.api.put(`/sysadmin/users/${user.userId}`, { status: 'inactive' });
+      showSnackbar(`${label} deactivated.`, 'success');
+      fetchUsers();
+    } catch (err: any) {
+      logger.error(`Error deactivating user ${user.userId}:`, err);
+      showSnackbar(`Failed to deactivate user: ${err?.response?.data?.error?.message || err.message}`, 'error');
     }
   };
 
   const handleDialogClose = () => { setDialogOpen(false); setEditingUser(null); };
-  const handleDialogSave = () => { fetchUsers(); };
+  const handleDialogSave = () => { showSnackbar(editingUser ? 'User updated.' : 'User added.', 'success'); fetchUsers(); };
 
   if (loading) {
     return (
@@ -119,9 +126,9 @@ function UserManager() {
               <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>{user.organizationName || '—'}</Typography>
               <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>{user.locationName || '—'}</Typography>
               <Box sx={{ display: 'flex', gap: 0.5, justifyContent: 'flex-end' }}>
-                <Box onClick={() => handleEditOpen(user)} sx={{ fontSize: 12, fontWeight: 600, color: '#CC1F1F', cursor: 'pointer', '&:hover': { textDecoration: 'underline' } }}>Edit</Box>
+                <LinkButton onClick={() => handleEditOpen(user)} aria-label={`Edit ${user.username}`}>Edit</LinkButton>
                 <Typography sx={{ fontSize: 12, color: (theme) => theme.palette.divider }}>|</Typography>
-                <Box onClick={() => handleDelete(user.userId)} sx={{ fontSize: 12, fontWeight: 600, color: (theme) => theme.palette.text.secondary, cursor: 'pointer', '&:hover': { textDecoration: 'underline', color: '#CC1F1F' } }}>Delete</Box>
+                <LinkButton tone="neutral" onClick={() => handleDeactivate(user)} aria-label={`Deactivate ${user.username}`}>Deactivate</LinkButton>
               </Box>
             </DataTableRow>
           ))}
@@ -133,6 +140,7 @@ function UserManager() {
       </Snackbar>
 
       <UserDialog open={dialogOpen} onClose={handleDialogClose} onSave={handleDialogSave} user={editingUser} existingUsers={users} />
+      {confirmDialog}
     </Box>
   );
 }

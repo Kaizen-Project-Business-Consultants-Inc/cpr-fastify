@@ -16,6 +16,7 @@ import {
   InputLabel,
   Select,
   Grid,
+  CircularProgress,
 } from '@mui/material';
 import { api } from '../../../services/api';
 import InstructorDashboard from './InstructorDashboard';
@@ -27,6 +28,9 @@ import DataTable, { DataTableRow } from '../../gtacpr/DataTable';
 import StatusChip from '../../gtacpr/StatusChip';
 import { PrimaryButton, GhostButton } from '../../gtacpr/Buttons';
 import UserAvatar from '../../gtacpr/UserAvatar';
+import LinkButton from '../../gtacpr/LinkButton';
+import { useConfirm } from '../../gtacpr/ConfirmDialog';
+import { useSnackbar } from '../../../contexts/SnackbarContext';
 
 
 interface Instructor {
@@ -34,6 +38,9 @@ interface Instructor {
   instructorName: string;
   username: string;
   email: string;
+  firstName?: string;
+  lastName?: string;
+  phone?: string;
   availabilityDate?: string;
   availabilityStatus?: string;
   assignmentStatus?: string;
@@ -61,7 +68,42 @@ interface FormData {
   username: string;
   email: string;
   password: string;
+  firstName: string;
+  lastName: string;
+  phone: string;
 }
+
+type FormErrors = Partial<Record<keyof FormData, string>>;
+
+const EMPTY_FORM: FormData = { username: '', email: '', password: '', firstName: '', lastName: '', phone: '' };
+
+const validateInstructorForm = (data: FormData, isEdit: boolean): FormErrors => {
+  const errors: FormErrors = {};
+  const username = data.username.trim();
+  if (!username) errors.username = 'Username is required';
+  else if (username.length < 3) errors.username = 'Username must be at least 3 characters';
+  else if (!/^[a-zA-Z0-9_.@-]+$/.test(username)) errors.username = 'Letters, numbers, . _ @ - only';
+  const email = data.email.trim();
+  if (!email) errors.email = 'Email is required';
+  else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) errors.email = 'Enter a valid email address';
+  if (!isEdit && !data.password) errors.password = 'Password is required';
+  else if (data.password && data.password.length < 8) errors.password = 'Password must be at least 8 characters';
+  if (!data.firstName.trim()) errors.firstName = 'First name is required';
+  if (!data.lastName.trim()) errors.lastName = 'Last name is required';
+  return errors;
+};
+
+const TableLoading: React.FC = () => (
+  <Box sx={{ py: 4, display: 'flex', justifyContent: 'center' }} role="status" aria-label="Loading">
+    <CircularProgress size={28} />
+  </Box>
+);
+
+const TableEmpty: React.FC<{ message: string }> = ({ message }) => (
+  <Box sx={{ py: 3, textAlign: 'center' }}>
+    <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>{message}</Typography>
+  </Box>
+);
 
 interface AvailabilityFormData {
   day: string;
@@ -179,11 +221,9 @@ const getAssignmentStatusKind = (
 const InstructorManagement: React.FC = () => {
   const queryClient = useQueryClient();
   const { isConnected, lastUpdate } = useRealtime();
-  const [instructors, setInstructors] = useState<Instructor[]>([]);
+  const { showSuccess, showError } = useSnackbar();
+  const { confirm, dialog: confirmDialog } = useConfirm();
   const [availableInstructors, setAvailableInstructors] = useState<AvailableInstructor[]>([]);
-  const [pendingCourses, setPendingCourses] = useState<Course[]>([]);
-  const [confirmedCourses, setConfirmedCourses] = useState<Course[]>([]);
-  const [completedCourses, setCompletedCourses] = useState<Course[]>([]);
   const [open, setOpen] = useState(false);
   const [availabilityOpen, setAvailabilityOpen] = useState(false);
   const [scheduleOpen, setScheduleOpen] = useState(false);
@@ -196,11 +236,13 @@ const InstructorManagement: React.FC = () => {
   const [availabilityData, setAvailabilityData] = useState<AvailabilityFormData[]>([]);
   const [instructorSchedule, setInstructorSchedule] = useState<ScheduleItem[]>([]);
   const [instructorAvailability, setInstructorAvailability] = useState<Record<string, unknown>[]>([]);
-  const [formData, setFormData] = useState<FormData>({
-    username: '',
-    email: '',
-    password: '',
-  });
+  const [formData, setFormData] = useState<FormData>(EMPTY_FORM);
+  const [formErrors, setFormErrors] = useState<FormErrors>({});
+  const [savingInstructor, setSavingInstructor] = useState(false);
+  const [savingAvailability, setSavingAvailability] = useState(false);
+  const [assigning, setAssigning] = useState(false);
+  const [savingSchedule, setSavingSchedule] = useState(false);
+  const [billingCourseId, setBillingCourseId] = useState<number | null>(null);
   const [assignmentData, setAssignmentData] = useState({
     instructorId: '',
     scheduledDate: '',
@@ -228,14 +270,11 @@ const InstructorManagement: React.FC = () => {
 
   const [showCompleted, setShowCompleted] = useState(false);
 
-  const [editDialogOpen, setEditDialogOpen] = useState(false);
-  const [newScheduledDate, setNewScheduledDate] = useState('');
-
   const [instructorFilter, setInstructorFilter] = useState('');
   const [organizationFilter, setOrganizationFilter] = useState('');
   const [dateFilter, setDateFilter] = useState<Date | null>(null);
 
-  const { data: instructorsData = [] } = useQuery({
+  const { data: instructorsData = [], isLoading: instructorsLoading } = useQuery({
     queryKey: ['instructors'],
     queryFn: async () => {
       const response = await api.get('/instructors');
@@ -244,7 +283,7 @@ const InstructorManagement: React.FC = () => {
     refetchInterval: 60000,
   });
 
-  const { data: pendingCoursesData = [] } = useQuery({
+  const { data: pendingCoursesData = [], isLoading: pendingLoading } = useQuery({
     queryKey: ['pendingCourses'],
     queryFn: async () => {
       const response = await api.get('/courses/pending');
@@ -253,7 +292,7 @@ const InstructorManagement: React.FC = () => {
     refetchInterval: 60000,
   });
 
-  const { data: confirmedCoursesData = [] } = useQuery({
+  const { data: confirmedCoursesData = [], isLoading: confirmedLoading } = useQuery({
     queryKey: ['confirmedCourses'],
     queryFn: async () => {
       const response = await api.get('/courses/confirmed');
@@ -262,7 +301,7 @@ const InstructorManagement: React.FC = () => {
     refetchInterval: 60000,
   });
 
-  const { data: completedCoursesData = [] } = useQuery({
+  const { data: completedCoursesData = [], isLoading: completedLoading } = useQuery({
     queryKey: ['completedCourses'],
     queryFn: async () => {
       const response = await api.get('/courses/completed');
@@ -271,12 +310,10 @@ const InstructorManagement: React.FC = () => {
     refetchInterval: 60000,
   });
 
-  useEffect(() => {
-    setInstructors(instructorsData);
-    setPendingCourses(pendingCoursesData);
-    setConfirmedCourses(confirmedCoursesData);
-    setCompletedCourses(completedCoursesData);
-  }, [instructorsData, pendingCoursesData, confirmedCoursesData, completedCoursesData]);
+  const instructors: Instructor[] = instructorsData;
+  const pendingCourses: Course[] = pendingCoursesData;
+  const confirmedCourses: Course[] = confirmedCoursesData;
+  const completedCourses: Course[] = completedCoursesData;
 
   const uniqueInstructors = useMemo(() => {
     const names = confirmedCourses
@@ -316,11 +353,20 @@ const InstructorManagement: React.FC = () => {
   const handleOpen = (instructor?: Instructor) => {
     if (instructor) {
       setEditingInstructor(instructor);
-      setFormData({ username: instructor.username, email: instructor.email, password: '' });
+      const nameParts = (instructor.instructorName || '').trim().split(/\s+/);
+      setFormData({
+        username: instructor.username,
+        email: instructor.email,
+        password: '',
+        firstName: instructor.firstName ?? nameParts[0] ?? '',
+        lastName: instructor.lastName ?? nameParts.slice(1).join(' '),
+        phone: instructor.phone ?? '',
+      });
     } else {
       setEditingInstructor(null);
-      setFormData({ username: '', email: '', password: '' });
+      setFormData(EMPTY_FORM);
     }
+    setFormErrors({});
     setOpen(true);
   };
 
@@ -534,22 +580,46 @@ const InstructorManagement: React.FC = () => {
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
     setFormData(prev => ({ ...prev, [name]: value }));
+    setFormErrors(prev => (prev[name as keyof FormData] ? { ...prev, [name]: undefined } : prev));
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    const errors = validateInstructorForm(formData, !!editingInstructor);
+    setFormErrors(errors);
+    if (Object.keys(errors).length > 0) return;
+
+    const payload: Record<string, string> = {
+      username: formData.username.trim(),
+      email: formData.email.trim(),
+      firstName: formData.firstName.trim(),
+      lastName: formData.lastName.trim(),
+    };
+    if (formData.phone.trim()) payload.phone = formData.phone.trim();
+    if (formData.password) payload.password = formData.password;
+
+    setSavingInstructor(true);
     try {
       if (editingInstructor) {
-        await api.put(`/instructors/${editingInstructor.id}`, formData);
-        setSuccess('Instructor updated successfully');
+        await api.put(`/instructors/${editingInstructor.id}`, payload);
+        showSuccess('Instructor updated');
       } else {
-        await api.post('/instructors', formData);
-        setSuccess('Instructor created successfully');
+        await api.post('/instructors', payload);
+        showSuccess(`Instructor ${payload.firstName} ${payload.lastName} added`);
       }
-      queryClient.invalidateQueries({ queryKey: ['instructors'] });
+      await queryClient.invalidateQueries({ queryKey: ['instructors'] });
       handleClose();
-    } catch (err: any) {
-      setError('Failed to save instructor');
+    } catch (err: unknown) {
+      const axiosErr = err as { response?: { status?: number; data?: { error?: { message?: string } | string; message?: string } } };
+      const data = axiosErr.response?.data;
+      const serverMessage =
+        (typeof data?.error === 'object' ? data.error?.message : data?.error) || data?.message;
+      if (axiosErr.response?.status === 409) {
+        setFormErrors({ username: 'Username or email already in use', email: 'Username or email already in use' });
+      }
+      showError(serverMessage || 'Failed to save instructor');
+    } finally {
+      setSavingInstructor(false);
     }
   };
 
@@ -557,41 +627,51 @@ const InstructorManagement: React.FC = () => {
     e.preventDefault();
     if (!editingInstructor) return;
 
+    setSavingAvailability(true);
     try {
       await api.put(`/instructors/${editingInstructor.id}/availability`, {
         availability: availabilityData,
       });
-      setSuccess('Availability updated successfully');
+      showSuccess('Availability updated');
       queryClient.invalidateQueries({ queryKey: ['instructors'] });
       handleAvailabilityClose();
-    } catch (err: any) {
-      setError('Failed to update availability');
+    } catch {
+      showError('Failed to update availability');
+    } finally {
+      setSavingAvailability(false);
     }
   };
 
-  const handleDelete = async (id: number) => {
-    if (!window.confirm('Are you sure you want to delete this instructor?')) return;
+  const handleDeactivate = async (instructor: Instructor) => {
+    const ok = await confirm({
+      title: 'Deactivate instructor?',
+      message: `${instructor.instructorName} will no longer be able to log in or be assigned to courses. Existing course history is kept.`,
+      confirmLabel: 'Deactivate',
+      danger: true,
+    });
+    if (!ok) return;
 
     try {
-      await api.delete(`/instructors/${id}`);
-      setSuccess('Instructor deleted successfully');
+      await api.delete(`/instructors/${instructor.id}`);
+      showSuccess(`${instructor.instructorName} deactivated`);
       queryClient.invalidateQueries({ queryKey: ['instructors'] });
-    } catch (err: any) {
-      setError('Failed to delete instructor');
+    } catch {
+      showError('Failed to deactivate instructor');
     }
   };
 
   const handleDeleteAvailability = async (instructorId: number, date: string) => {
-    if (
-      !window.confirm(
-        `Are you sure you want to remove this availability record for ${formatDisplayDate(date)}? This will also remove any unconfirmed classes for this date.`
-      )
-    )
-      return;
+    const ok = await confirm({
+      title: 'Remove availability?',
+      message: `Remove availability for ${formatDisplayDate(date)}? Any unconfirmed classes on this date will also be removed.`,
+      confirmLabel: 'Remove',
+      danger: true,
+    });
+    if (!ok) return;
 
     try {
       await api.delete(`/instructors/${instructorId}/availability/${date}`);
-      setSuccess('Availability removed successfully');
+      showSuccess('Availability removed');
       queryClient.invalidateQueries({ queryKey: ['instructors'] });
     } catch (err: unknown) {
       const axiosErr = err as { response?: { data?: { error?: { message?: string } } } };
@@ -625,6 +705,7 @@ const InstructorManagement: React.FC = () => {
     e.preventDefault();
     if (!selectedCourse || !assignmentData.instructorId) return;
 
+    setAssigning(true);
     try {
       const response = await api.put(`/courses/${selectedCourse.id}/assign-instructor`, {
         instructorId: assignmentData.instructorId,
@@ -669,6 +750,8 @@ The course status has been updated to "Confirmed" and moved to the confirmed cou
       console.error('Error assigning instructor:', err);
       const axiosErr = err as { response?: { data?: { error?: { message?: string } } } };
       setError(axiosErr.response?.data?.error?.message || 'Failed to assign instructor');
+    } finally {
+      setAssigning(false);
     }
   };
 
@@ -704,6 +787,7 @@ The course status has been updated to "Confirmed" and moved to the confirmed cou
     e.preventDefault();
     if (!courseToEdit) return;
 
+    setSavingSchedule(true);
     try {
       await api.put(`/courses/${courseToEdit.id}/schedule`, {
         scheduledDate: editScheduleData.scheduledDate,
@@ -719,40 +803,11 @@ The course status has been updated to "Confirmed" and moved to the confirmed cou
       queryClient.invalidateQueries({ queryKey: ['instructors'] });
 
       handleEditScheduleClose();
-    } catch (err: any) {
+    } catch {
       setError('Failed to update course schedule');
+    } finally {
+      setSavingSchedule(false);
     }
-  };
-
-  const isCourseWithinSevenDays = (course: Course) => {
-    const scheduledDate = new Date(course.scheduledDate ?? '');
-    const today = new Date();
-    const diffTime = scheduledDate.getTime() - today.getTime();
-    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-    return diffDays <= 7 && diffDays > 0 && !course.instructorId && !isCoursePastScheduledDate(course);
-  };
-
-  const isCoursePastScheduledDate = (course: Course) => {
-    const scheduledDate = new Date(course.scheduledDate ?? '');
-    const today = new Date();
-    scheduledDate.setHours(0, 0, 0, 0);
-    today.setHours(0, 0, 0, 0);
-    return today > scheduledDate;
-  };
-
-  const getStatusColor = (status: string) => {
-    switch (status?.toLowerCase()) {
-      case 'past_due': return 'error';
-      case 'cancelled': return 'error';
-      case 'confirmed': return 'success';
-      case 'completed': return 'success';
-      default: return 'warning';
-    }
-  };
-
-  const getStatusLabel = (course: Course) => {
-    if (isCoursePastScheduledDate(course)) return 'Past Due';
-    return (course.status ?? '').charAt(0).toUpperCase() + (course.status ?? '').slice(1);
   };
 
   const handleViewStudentsOpen = (course: Course) => {
@@ -765,17 +820,16 @@ The course status has been updated to "Confirmed" and moved to the confirmed cou
     setSelectedCourseForStudents(null);
   };
 
-  const getBillingButtonState = async (courseId: number) => {
-    try {
-      const validationResponse = await api.get(`/courses/${courseId}/validate-billing`);
-      return validationResponse.data.data;
-    } catch (err: any) {
-      console.error('Error checking billing readiness:', err);
-      return { isValid: false, validationErrors: ['Unable to validate billing readiness'] };
-    }
-  };
+  const handleReadyForBilling = async (course: Course) => {
+    const courseId = course.id;
+    const ok = await confirm({
+      title: 'Send course to billing?',
+      message: `${course.courseTypeName || course.courseType || 'Course'} for ${course.organizationName || 'this organization'} will be marked ready for billing so Accounting can invoice it. This cannot be undone from this screen.`,
+      confirmLabel: 'Send to Billing',
+    });
+    if (!ok) return;
 
-  const handleReadyForBilling = async (courseId: number) => {
+    setBillingCourseId(courseId);
     try {
 
       const validationResponse = await api.get(`/courses/${courseId}/validate-billing`);
@@ -789,8 +843,8 @@ The course status has been updated to "Confirmed" and moved to the confirmed cou
         return;
       }
 
-      const response = await api.put(`/courses/${courseId}/ready-for-billing`);
-      setSuccess('Course sent to billing successfully');
+      await api.put(`/courses/${courseId}/ready-for-billing`);
+      showSuccess('Course sent to billing');
       queryClient.invalidateQueries({ queryKey: ['completedCourses'] });
     } catch (err: unknown) {
       console.error('❌ [BILLING] Error:', err);
@@ -807,46 +861,8 @@ The course status has been updated to "Confirmed" and moved to the confirmed cou
       } else {
         setError('Failed to send course to billing. Please try again.');
       }
-    }
-  };
-
-  const handleReminderAcknowledged = async (courseId: number) => {
-    try {
-      await api.post(`/courses/${courseId}/update-reminder`);
-      queryClient.invalidateQueries({ queryKey: ['pendingCourses'] });
-    } catch (error: any) {
-      console.error('Error acknowledging reminder:', error);
-      setError('Failed to acknowledge reminder');
-    }
-  };
-
-  const handleEditClick = (course: Course) => {
-    setSelectedCourse(course);
-    setNewScheduledDate(course.scheduledDate ?? '');
-    setEditDialogOpen(true);
-  };
-
-  const handleEditClose = () => {
-    setEditDialogOpen(false);
-    setSelectedCourse(null);
-    setNewScheduledDate('');
-  };
-
-  const handleEditSave = async () => {
-    try {
-      await api.put(`/courses/${selectedCourse!.id}/schedule`, {
-        scheduled_date: newScheduledDate,
-      });
-
-      queryClient.invalidateQueries({ queryKey: ['pendingCourses'] });
-      queryClient.invalidateQueries({ queryKey: ['confirmedCourses'] });
-      queryClient.invalidateQueries({ queryKey: ['organizationCourses'] });
-
-      setSuccess('Course schedule updated successfully');
-      handleEditClose();
-    } catch (error: any) {
-      console.error('Error updating course schedule:', error);
-      setError('Failed to update course schedule');
+    } finally {
+      setBillingCourseId(null);
     }
   };
 
@@ -947,7 +963,12 @@ The course status has been updated to "Confirmed" and moved to the confirmed cou
           shownCount={pendingCourses.length}
           totalCount={pendingCourses.length}
         >
-          {pendingCourses.map(course => (
+          {pendingLoading ? (
+            <TableLoading />
+          ) : pendingCourses.length === 0 ? (
+            <TableEmpty message="No pending course requests" />
+          ) : (
+          pendingCourses.map(course => (
             <DataTableRow key={course.id} columns={pendingColumns}>
               <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>
                 {course.requestSubmittedDate ? formatDisplayDate(course.requestSubmittedDate) : '-'}
@@ -971,7 +992,8 @@ The course status has been updated to "Confirmed" and moved to the confirmed cou
                 </GhostButton>
               </Box>
             </DataTableRow>
-          ))}
+          ))
+          )}
         </DataTable>
       </Box>
 
@@ -994,6 +1016,7 @@ The course status has been updated to "Confirmed" and moved to the confirmed cou
           <GhostButton onClick={() => queryClient.invalidateQueries({ queryKey: ['instructors'] })}>
             Refresh Data
           </GhostButton>
+          <PrimaryButton onClick={() => handleOpen()}>Add Instructor</PrimaryButton>
         </Box>
       </Box>
 
@@ -1003,7 +1026,12 @@ The course status has been updated to "Confirmed" and moved to the confirmed cou
           shownCount={filteredInstructors.length}
           totalCount={filteredInstructors.length}
         >
-          {filteredInstructors.map((instructor, index) => (
+          {instructorsLoading ? (
+            <TableLoading />
+          ) : filteredInstructors.length === 0 ? (
+            <TableEmpty message="No instructor availability to show" />
+          ) : (
+          filteredInstructors.map((instructor, index) => (
             <DataTableRow
               key={`${instructor.id}-${instructor.availabilityDate}-${index}`}
               columns={instructorAvailabilityColumns}
@@ -1064,63 +1092,19 @@ The course status has been updated to "Confirmed" and moved to the confirmed cou
                 label={instructor.assignmentStatus || ''}
               />
               <Box sx={{ display: 'flex', gap: 1.5, flexWrap: 'wrap' }}>
-                <Box
-                  onClick={() => handleOpen(instructor)}
-                  sx={{
-                    fontSize: 12,
-                    fontWeight: 600,
-                    color: '#CC1F1F',
-                    cursor: 'pointer',
-                    '&:hover': { textDecoration: 'underline' },
-                  }}
-                >
-                  Edit
-                </Box>
-                <Box
-                  onClick={() => handleAvailabilityOpen(instructor)}
-                  sx={{
-                    fontSize: 12,
-                    fontWeight: 600,
-                    color: '#CC1F1F',
-                    cursor: 'pointer',
-                    '&:hover': { textDecoration: 'underline' },
-                  }}
-                >
-                  Availability
-                </Box>
-                <Box
-                  onClick={() => handleScheduleOpen(instructor)}
-                  sx={{
-                    fontSize: 12,
-                    fontWeight: 600,
-                    color: '#CC1F1F',
-                    cursor: 'pointer',
-                    '&:hover': { textDecoration: 'underline' },
-                  }}
-                >
-                  Schedule
-                </Box>
+                <LinkButton onClick={() => handleOpen(instructor)}>Edit</LinkButton>
+                <LinkButton onClick={() => handleAvailabilityOpen(instructor)}>Availability</LinkButton>
+                <LinkButton onClick={() => handleScheduleOpen(instructor)}>Schedule</LinkButton>
                 {instructor.availabilityDate &&
                   instructor.availabilityDate !== 'No availability set' &&
                   instructor.assignmentStatus !== 'Completed' && (
-                    <Box
-                      onClick={() =>
-                        handleDeleteAvailability(instructor.id, instructor.availabilityDate!)
-                      }
-                      sx={{
-                        fontSize: 12,
-                        fontWeight: 600,
-                        color: '#CC1F1F',
-                        cursor: 'pointer',
-                        '&:hover': { textDecoration: 'underline' },
-                      }}
-                    >
-                      Remove Date
-                    </Box>
+                    <LinkButton onClick={() => handleDeleteAvailability(instructor.id, instructor.availabilityDate!)}>Remove Date</LinkButton>
                   )}
+                <LinkButton tone="danger" onClick={() => handleDeactivate(instructor)}>Deactivate</LinkButton>
               </Box>
             </DataTableRow>
-          ))}
+          ))
+          )}
         </DataTable>
       </Box>
 
@@ -1244,10 +1228,10 @@ The course status has been updated to "Confirmed" and moved to the confirmed cou
           shownCount={filteredConfirmedCourses.length}
           totalCount={confirmedCourses.length}
         >
-          {filteredConfirmedCourses.length === 0 ? (
-            <Box sx={{ py: 3, textAlign: 'center' }}>
-              <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>No confirmed courses yet</Typography>
-            </Box>
+          {confirmedLoading ? (
+            <TableLoading />
+          ) : filteredConfirmedCourses.length === 0 ? (
+            <TableEmpty message={hasActiveFilters ? 'No confirmed courses match the filters' : 'No confirmed courses yet'} />
           ) : (
             filteredConfirmedCourses.map(course => (
               <DataTableRow key={course.id} columns={confirmedColumns}>
@@ -1289,30 +1273,8 @@ The course status has been updated to "Confirmed" and moved to the confirmed cou
                 </Typography>
                 <StatusChip kind="active" label={course.status || ''} />
                 <Box sx={{ display: 'flex', gap: 1.5 }}>
-                  <Box
-                    onClick={() => handleViewStudentsOpen(course)}
-                    sx={{
-                      fontSize: 12,
-                      fontWeight: 600,
-                      color: '#CC1F1F',
-                      cursor: 'pointer',
-                      '&:hover': { textDecoration: 'underline' },
-                    }}
-                  >
-                    View
-                  </Box>
-                  <Box
-                    onClick={() => handleEditScheduleOpen(course)}
-                    sx={{
-                      fontSize: 12,
-                      fontWeight: 600,
-                      color: '#CC1F1F',
-                      cursor: 'pointer',
-                      '&:hover': { textDecoration: 'underline' },
-                    }}
-                  >
-                    Edit
-                  </Box>
+                  <LinkButton onClick={() => handleViewStudentsOpen(course)}>View</LinkButton>
+                  <LinkButton onClick={() => handleEditScheduleOpen(course)}>Edit</LinkButton>
                 </Box>
               </DataTableRow>
             ))
@@ -1355,10 +1317,10 @@ The course status has been updated to "Confirmed" and moved to the confirmed cou
           shownCount={completedCourses.length}
           totalCount={completedCourses.length}
         >
-          {completedCourses.length === 0 ? (
-            <Box sx={{ py: 3, textAlign: 'center' }}>
-              <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>No completed courses yet</Typography>
-            </Box>
+          {completedLoading ? (
+            <TableLoading />
+          ) : completedCourses.length === 0 ? (
+            <TableEmpty message="No completed courses yet" />
           ) : (
             completedCourses.map(course => (
               <DataTableRow key={course.id} columns={completedColumns}>
@@ -1400,18 +1362,7 @@ The course status has been updated to "Confirmed" and moved to the confirmed cou
                   label={course.status === 'invoiced' ? 'Invoiced' : 'Completed'}
                 />
                 <Box sx={{ display: 'flex', gap: 1.5, flexWrap: 'wrap', alignItems: 'center' }}>
-                  <Box
-                    onClick={() => handleViewStudentsOpen(course)}
-                    sx={{
-                      fontSize: 12,
-                      fontWeight: 600,
-                      color: '#CC1F1F',
-                      cursor: 'pointer',
-                      '&:hover': { textDecoration: 'underline' },
-                    }}
-                  >
-                    View Students
-                  </Box>
+                  <LinkButton onClick={() => handleViewStudentsOpen(course)}>View Students</LinkButton>
                   <Tooltip
                     title={
                       course.readyForBilling
@@ -1423,8 +1374,8 @@ The course status has been updated to "Confirmed" and moved to the confirmed cou
                     <span>
                       <PrimaryButton
                         size="small"
-                        onClick={() => handleReadyForBilling(course.id)}
-                        disabled={course.readyForBilling}
+                        onClick={() => handleReadyForBilling(course)}
+                        disabled={course.readyForBilling || billingCourseId === course.id}
                         sx={{ fontSize: 11 }}
                       >
                         {course.readyForBilling ? 'Sent to Billing' : 'Send to Billing'}
@@ -1439,44 +1390,103 @@ The course status has been updated to "Confirmed" and moved to the confirmed cou
       </Box>
 
       {/* Instructor Form Dialog */}
-      <Dialog open={open} onClose={handleClose}>
+      <Dialog open={open} onClose={savingInstructor ? undefined : handleClose} maxWidth="sm" fullWidth>
         <DialogTitle sx={{ fontSize: 18, fontWeight: 700, color: (theme) => theme.palette.text.primary }}>
           {editingInstructor ? 'Edit Instructor' : 'Add Instructor'}
         </DialogTitle>
         <DialogContent>
-          <TextField
-            autoFocus
-            margin="dense"
-            name="username"
-            label="Username"
-            type="text"
-            fullWidth
-            value={formData.username}
-            onChange={handleInputChange}
-          />
-          <TextField
-            margin="dense"
-            name="email"
-            label="Email"
-            type="email"
-            fullWidth
-            value={formData.email}
-            onChange={handleInputChange}
-          />
-          <TextField
-            margin="dense"
-            name="password"
-            label={editingInstructor ? 'New Password (optional)' : 'Password'}
-            type="password"
-            fullWidth
-            value={formData.password}
-            onChange={handleInputChange}
-          />
+          <Box component="form" id="instructor-form" onSubmit={handleSubmit} noValidate>
+            <Grid container spacing={2} sx={{ mt: 0 }}>
+              <Grid item xs={12} sm={6}>
+                <TextField
+                  autoFocus
+                  name="firstName"
+                  label="First name"
+                  fullWidth
+                  required
+                  value={formData.firstName}
+                  onChange={handleInputChange}
+                  error={!!formErrors.firstName}
+                  helperText={formErrors.firstName}
+                  disabled={savingInstructor}
+                />
+              </Grid>
+              <Grid item xs={12} sm={6}>
+                <TextField
+                  name="lastName"
+                  label="Last name"
+                  fullWidth
+                  required
+                  value={formData.lastName}
+                  onChange={handleInputChange}
+                  error={!!formErrors.lastName}
+                  helperText={formErrors.lastName}
+                  disabled={savingInstructor}
+                />
+              </Grid>
+              <Grid item xs={12} sm={6}>
+                <TextField
+                  name="username"
+                  label="Username"
+                  fullWidth
+                  required
+                  autoComplete="off"
+                  value={formData.username}
+                  onChange={handleInputChange}
+                  error={!!formErrors.username}
+                  helperText={formErrors.username}
+                  disabled={savingInstructor}
+                />
+              </Grid>
+              <Grid item xs={12} sm={6}>
+                <TextField
+                  name="email"
+                  label="Email"
+                  type="email"
+                  fullWidth
+                  required
+                  value={formData.email}
+                  onChange={handleInputChange}
+                  error={!!formErrors.email}
+                  helperText={formErrors.email}
+                  disabled={savingInstructor}
+                />
+              </Grid>
+              <Grid item xs={12} sm={6}>
+                <TextField
+                  name="phone"
+                  label="Phone"
+                  type="tel"
+                  fullWidth
+                  value={formData.phone}
+                  onChange={handleInputChange}
+                  error={!!formErrors.phone}
+                  helperText={formErrors.phone}
+                  disabled={savingInstructor}
+                />
+              </Grid>
+              <Grid item xs={12} sm={6}>
+                <TextField
+                  name="password"
+                  label={editingInstructor ? 'New password (optional)' : 'Password'}
+                  type="password"
+                  fullWidth
+                  required={!editingInstructor}
+                  autoComplete="new-password"
+                  value={formData.password}
+                  onChange={handleInputChange}
+                  error={!!formErrors.password}
+                  helperText={formErrors.password || 'At least 8 characters'}
+                  disabled={savingInstructor}
+                />
+              </Grid>
+            </Grid>
+          </Box>
         </DialogContent>
         <DialogActions>
-          <GhostButton onClick={handleClose}>Cancel</GhostButton>
-          <PrimaryButton onClick={handleSubmit}>
-            {editingInstructor ? 'Update' : 'Create'}
+          <GhostButton onClick={handleClose} disabled={savingInstructor}>Cancel</GhostButton>
+          <PrimaryButton type="submit" form="instructor-form" disabled={savingInstructor}>
+            {savingInstructor ? 'Saving…' : editingInstructor ? 'Save Changes' : 'Add Instructor'}
           </PrimaryButton>
         </DialogActions>
       </Dialog>
@@ -1539,7 +1549,9 @@ The course status has been updated to "Confirmed" and moved to the confirmed cou
         </DialogContent>
         <DialogActions>
           <GhostButton onClick={handleAvailabilityClose}>Cancel</GhostButton>
-          <PrimaryButton onClick={handleAvailabilitySubmit}>Save Availability</PrimaryButton>
+          <PrimaryButton onClick={handleAvailabilitySubmit} disabled={savingAvailability}>
+            {savingAvailability ? 'Saving…' : 'Save Availability'}
+          </PrimaryButton>
         </DialogActions>
       </Dialog>
 
@@ -1645,9 +1657,9 @@ The course status has been updated to "Confirmed" and moved to the confirmed cou
           <GhostButton onClick={handleAssignClose}>Cancel</GhostButton>
           <PrimaryButton
             onClick={handleAssignInstructor}
-            disabled={!assignmentData.instructorId || availableInstructors.length === 0}
+            disabled={assigning || !assignmentData.instructorId || availableInstructors.length === 0}
           >
-            Assign Instructor &amp; Confirm Course
+            {assigning ? 'Assigning…' : 'Assign Instructor & Confirm Course'}
           </PrimaryButton>
         </DialogActions>
       </Dialog>
@@ -1733,9 +1745,9 @@ The course status has been updated to "Confirmed" and moved to the confirmed cou
           <GhostButton onClick={handleEditScheduleClose}>Cancel</GhostButton>
           <PrimaryButton
             onClick={handleEditScheduleSubmit}
-            disabled={!editScheduleData.scheduledDate}
+            disabled={savingSchedule || !editScheduleData.scheduledDate}
           >
-            Update Schedule
+            {savingSchedule ? 'Saving…' : 'Update Schedule'}
           </PrimaryButton>
         </DialogActions>
       </Dialog>
@@ -1753,41 +1765,7 @@ The course status has been updated to "Confirmed" and moved to the confirmed cou
         }}
       />
 
-      {/* Edit Date Dialog */}
-      <Dialog open={editDialogOpen} onClose={handleEditClose} maxWidth="sm" fullWidth>
-        <DialogTitle sx={{ fontSize: 18, fontWeight: 700, color: (theme) => theme.palette.text.primary }}>
-          Edit Course Schedule
-        </DialogTitle>
-        <DialogContent>
-          <Box sx={{ mt: 2 }}>
-            <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary, mb: 1 }}>
-              Current Schedule:{' '}
-              {selectedCourse && selectedCourse.scheduledDate
-                ? formatDisplayDate(selectedCourse.scheduledDate)
-                : '-'}
-            </Typography>
-            <TextField
-              type="datetime-local"
-              label="New Date Scheduled"
-              value={newScheduledDate}
-              onChange={(e) => setNewScheduledDate(e.target.value)}
-              fullWidth
-              margin="normal"
-              InputLabelProps={{ shrink: true }}
-              inputProps={{ min: new Date().toISOString().slice(0, 16) }}
-            />
-          </Box>
-        </DialogContent>
-        <DialogActions>
-          <GhostButton onClick={handleEditClose}>Cancel</GhostButton>
-          <PrimaryButton
-            onClick={handleEditSave}
-            disabled={!newScheduledDate || newScheduledDate === selectedCourse?.scheduledDate}
-          >
-            Save Changes
-          </PrimaryButton>
-        </DialogActions>
-      </Dialog>
+      {confirmDialog}
     </Box>
   );
 };

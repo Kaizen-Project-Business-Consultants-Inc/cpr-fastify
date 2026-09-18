@@ -29,6 +29,7 @@ import StatusChip from '../../gtacpr/StatusChip';
 import DataTable, { DataTableRow } from '../../gtacpr/DataTable';
 import SearchBar from '../../gtacpr/SearchBar';
 import { PrimaryButton, GhostButton } from '../../gtacpr/Buttons';
+import { useConfirm } from '../../gtacpr/ConfirmDialog';
 
 interface EmailTemplate {
   id?: number;
@@ -125,6 +126,7 @@ const actionLinkSx = {
 };
 
 const EmailTemplateManager: React.FC = () => {
+  const { confirm, dialog: confirmDialog } = useConfirm();
   const [templates, setTemplates] = useState<EmailTemplate[]>([]);
   const [loading, setLoading] = useState(true);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
@@ -323,7 +325,14 @@ const EmailTemplateManager: React.FC = () => {
   };
 
   const handleDeleteTemplate = async (templateId: number) => {
-    if (window.confirm('Are you sure you want to delete this template?')) {
+    const target = templates.find((t) => t.id === templateId);
+    const ok = await confirm({
+      title: 'Delete email template?',
+      message: `${target?.name || 'This template'} will be deleted. Emails that use it will fall back to the default. This cannot be undone.`,
+      confirmLabel: 'Delete',
+      danger: true,
+    });
+    if (ok) {
       try {
         await emailTemplateApi.delete(templateId);
         fetchTemplates(categoryFilter, searchTerm);
@@ -1027,6 +1036,7 @@ const EmailTemplateManager: React.FC = () => {
           </PrimaryButton>
         </DialogActions>
       </Dialog>
+      {confirmDialog}
     </Box>
   );
 };

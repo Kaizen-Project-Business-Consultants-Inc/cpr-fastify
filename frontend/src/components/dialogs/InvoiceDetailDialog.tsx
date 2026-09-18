@@ -194,10 +194,6 @@ const InvoiceDetailDialog = ({
 
       if (response.data && response.data.success && Array.isArray(response.data.data)) {
         setPaymentHistory(response.data.data);
-      } else if (response.data && Array.isArray(response.data)) {
-        setPaymentHistory(response.data);
-      } else if (response.data && response.data.payments && Array.isArray(response.data.payments)) {
-        setPaymentHistory(response.data.payments);
       } else {
         console.warn('Unexpected payment history response format:', response.data);
         setPaymentHistory([]);

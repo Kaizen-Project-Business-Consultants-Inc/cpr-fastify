@@ -91,7 +91,7 @@ const StudentAttendanceDialog = ({ open, onClose, courseId, students, loadingStu
                     <TableRow key={student.id}>
                       <TableCell>
                         <Typography variant="body2" fontWeight="medium">
-                          {student.first_name} {student.last_name}
+                          {student.firstName ?? student.first_name} {student.lastName ?? student.last_name}
                         </Typography>
                       </TableCell>
                       <TableCell>
@@ -364,7 +364,7 @@ const AccountsReceivableTable = ({
                     hover
                     sx={{
                       '& > *': { borderBottom: 'unset' },
-                      backgroundColor: index % 2 !== 0 ? '#f9f9f9' : 'inherit',
+                      backgroundColor: (theme) => (index % 2 !== 0 ? theme.palette.action.hover : 'inherit'),
                     }}
                   >
                     <TableCell>
@@ -393,7 +393,7 @@ const AccountsReceivableTable = ({
                           {amounts.error}
                         </Typography>
                       ) : (
-                        `$${amounts.baseCost}`
+                        formatCurrency(amounts.baseCost)
                       )}
                     </TableCell>
                     <TableCell align='right'>
@@ -402,7 +402,7 @@ const AccountsReceivableTable = ({
                           {amounts.error}
                         </Typography>
                       ) : (
-                        `$${amounts.taxAmount}`
+                        formatCurrency(amounts.taxAmount)
                       )}
                     </TableCell>
                     <TableCell align='right'>
@@ -411,17 +411,17 @@ const AccountsReceivableTable = ({
                           {amounts.error}
                         </Typography>
                       ) : (
-                        `$${amounts.totalAmount}`
+                        formatCurrency(amounts.totalAmount)
                       )}
                     </TableCell>
-                    <TableCell align='right'>{`$${parseFloat(invoice.paidtodate || 0).toFixed(2)}`}</TableCell>
+                    <TableCell align='right'>{formatCurrency(invoice.paidtodate)}</TableCell>
                     <TableCell align='right'>
                       {amounts.error ? (
                         <Typography variant="body2" color="error.main" fontSize="small">
                           {amounts.error}
                         </Typography>
                       ) : (
-                        `$${amounts.balanceDue}`
+                        formatCurrency(amounts.balanceDue)
                       )}
                     </TableCell>
                     <TableCell align='center'>
@@ -449,6 +449,7 @@ const AccountsReceivableTable = ({
                           {/* Wrap IconButton in span for tooltip on disabled */}
                           <span>
                             <IconButton
+                              aria-label={`Record payment for invoice ${invoice.invoicenumber}`}
                               color='success'
                               size='small'
                               onClick={() => onRecordPaymentClick(invoice)}
@@ -463,6 +464,7 @@ const AccountsReceivableTable = ({
                         {/* View Students Button */}
                         <Tooltip title='View Student Attendance'>
                           <IconButton
+                            aria-label={`View student attendance for invoice ${invoice.invoicenumber}`}
                             color='info'
                             size='small'
                             onClick={() => handleViewStudents(invoice.coursenumber)}
@@ -473,6 +475,7 @@ const AccountsReceivableTable = ({
                         {/* Details Button */}
                         <Tooltip title='View Course/Invoice Details'>
                           <IconButton
+                            aria-label={`View details for invoice ${invoice.invoicenumber}`}
                             color='info'
                             size='small'
                             onClick={() => onViewDetailsClick(invoice.invoiceid)}
@@ -487,7 +490,7 @@ const AccountsReceivableTable = ({
                   <TableRow>
                     <TableCell
                       style={{ paddingBottom: 0, paddingTop: 0 }}
-                      colSpan={16}
+                      colSpan={14}
                     >
                       {/* Adjust colSpan based on total columns */}
                       <Collapse

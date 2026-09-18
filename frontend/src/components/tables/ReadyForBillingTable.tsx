@@ -21,8 +21,7 @@ import {
   Divider,
 } from '@mui/material';
 import { Receipt as InvoiceIcon, Visibility as ViewIcon, CheckCircle as PresentIcon, Cancel as AbsentIcon } from '@mui/icons-material';
-import { formatCurrency } from '../../utils/formatters';
-import { formatDisplayDate } from '../../utils/dateUtils';
+import { formatCurrency, formatDisplayDate, HST_RATE, HST_LABEL } from '../../utils/formatters';
 import api from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
 
@@ -246,7 +245,7 @@ const ReadyForBillingTable = ({
                   </TableCell>
                   <TableCell align='right'>
                     {course.ratePerStudent && course.studentsAttended ?
-                      formatCurrency((course.ratePerStudent * course.studentsAttended) * 0.13) :
+                      formatCurrency((course.ratePerStudent * course.studentsAttended) * HST_RATE) :
                       <Typography component="span" color="error.main">
                         N/A
                       </Typography>
@@ -255,7 +254,7 @@ const ReadyForBillingTable = ({
                   <TableCell align='right'>
                     <Typography variant='body2' fontWeight='bold' color='primary'>
                       {course.ratePerStudent && course.studentsAttended ?
-                        formatCurrency((course.ratePerStudent * course.studentsAttended) * 1.13) :
+                        formatCurrency((course.ratePerStudent * course.studentsAttended) * (1 + HST_RATE)) :
                         <Typography component="span" color="error.main">
                           N/A
                         </Typography>
@@ -362,10 +361,10 @@ const ReadyForBillingTable = ({
                     </Typography>
                   </Box>
                   <Box sx={{ mb: 2 }}>
-                    <Typography variant="body2" color="textSecondary">HST (13%)</Typography>
+                    <Typography variant="body2" color="textSecondary">{HST_LABEL}</Typography>
                     <Typography variant="body1" fontWeight="medium">
                       {selectedCourse.ratePerStudent ?
-                        formatCurrency(((selectedCourse.studentsAttended || 0) * selectedCourse.ratePerStudent) * 0.13) :
+                        formatCurrency(((selectedCourse.studentsAttended || 0) * selectedCourse.ratePerStudent) * HST_RATE) :
                         <Typography component="span" color="error.main">
                           N/A
                         </Typography>

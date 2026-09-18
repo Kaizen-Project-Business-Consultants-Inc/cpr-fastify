@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   Box,
   Typography,
@@ -12,14 +12,15 @@ import {
   DialogContent,
   DialogActions,
   Grid,
-  Alert,
-  Snackbar,
 } from '@mui/material';
-import { formatDisplayDate } from '../../../../utils/dateUtils';
+import { formatDisplayDate, formatCurrency, applyTax, HST_LABEL } from '../../../../utils/formatters';
 import { api } from '../../../../services/api';
+import { useSnackbar } from '../../../../contexts/SnackbarContext';
+import logger from '../../../../utils/logger';
 import StatCard from '../../../gtacpr/StatCard';
 import DataTable, { DataTableRow } from '../../../gtacpr/DataTable';
 import StatusChip from '../../../gtacpr/StatusChip';
+import LinkButton from '../../../gtacpr/LinkButton';
 import { PrimaryButton, GhostButton } from '../../../gtacpr/Buttons';
 
 interface Invoice {
@@ -69,52 +70,96 @@ const columns = [
   { key: 'actions', label: '', width: '0.5fr', align: 'right' as const },
 ];
 
+type PaymentDateFilter = '' | 'last_30' | 'last_90' | 'last_year';
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+const getStatusKind = (status: string): 'success' | 'danger' | 'warning' | 'active' | 'neutral' => {
+  switch (status?.toLowerCase()) {
+    case 'paid': return 'success';
+    case 'overdue': return 'danger';
+    case 'pending': return 'warning';
+    case 'payment_submitted': return 'active';
+    default: return 'neutral';
+  }
+};
+
 const OrganizationPaidInvoices: React.FC<OrganizationPaidInvoicesProps> = ({
   invoices,
   paidInvoicesSummary,
 }) => {
+  const { showError } = useSnackbar();
   const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
-  const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [courseTypeFilter, setCourseTypeFilter] = useState('');
+  const [paymentDateFilter, setPaymentDateFilter] = useState<PaymentDateFilter>('');
 
-  const safeInvoices = Array.isArray(invoices) ? invoices : [];
+  const safeInvoices = useMemo(() => (Array.isArray(invoices) ? invoices : []), [invoices]);
 
-  const getStatusKind = (status: string): 'success' | 'danger' | 'warning' | 'active' | 'neutral' => {
-    switch (status?.toLowerCase()) {
-      case 'paid': return 'success';
-      case 'overdue': return 'danger';
-      case 'pending': return 'warning';
-      case 'payment_submitted': return 'active';
-      default: return 'neutral';
-    }
-  };
+  // Course types come from the loaded data, never a hard-coded list
+  const courseTypes = useMemo(
+    () => Array.from(new Set(safeInvoices.map((i) => i.course_type_name).filter(Boolean))).sort(),
+    [safeInvoices]
+  );
+
+  const filteredInvoices = useMemo(() => {
+    const term = searchTerm.trim().toLowerCase();
+    const now = Date.now();
+    const windowDays: Record<Exclude<PaymentDateFilter, ''>, number> = { last_30: 30, last_90: 90, last_year: 365 };
+
+    return safeInvoices.filter((invoice) => {
+      const matchesSearch =
+        !term ||
+        [invoice.invoice_number, invoice.course_type_name, invoice.location]
+          .filter(Boolean)
+          .some((v) => String(v).toLowerCase().includes(term));
+
+      const matchesCourseType = !courseTypeFilter || invoice.course_type_name === courseTypeFilter;
+
+      let matchesPaymentDate = true;
+      if (paymentDateFilter) {
+        const paidAt = invoice.paid_date ? new Date(invoice.paid_date).getTime() : NaN;
+        matchesPaymentDate = !Number.isNaN(paidAt) && now - paidAt <= windowDays[paymentDateFilter] * DAY_MS;
+      }
+
+      return matchesSearch && matchesCourseType && matchesPaymentDate;
+    });
+  }, [safeInvoices, searchTerm, courseTypeFilter, paymentDateFilter]);
 
   const handleInvoiceClick = (invoice: Invoice) => { setSelectedInvoice(invoice); setDialogOpen(true); };
   const handleDialogClose = () => { setDialogOpen(false); setSelectedInvoice(null); };
 
-  const handleDownloadPDF = async (invoiceId: number) => {
+  const handleDownloadPDF = async (invoice: Invoice) => {
     try {
-      const response = await api.get(`/accounting/invoices/${invoiceId}/pdf`, { responseType: 'blob' });
+      const response = await api.get(`/invoices/${invoice.id}/pdf`, { responseType: 'blob' });
       const url = window.URL.createObjectURL(new Blob([response.data]));
       const link = document.createElement('a');
       link.href = url;
-      link.setAttribute('download', `Invoice-${selectedInvoice?.invoice_number}.pdf`);
+      link.setAttribute('download', `Invoice-${invoice.invoice_number || invoice.id}.pdf`);
       document.body.appendChild(link);
       link.click();
       link.remove();
       window.URL.revokeObjectURL(url);
-    } catch (error: any) {
-      console.error('Error downloading PDF:', error);
-      setMessage({ type: 'error', text: 'Failed to download invoice PDF' });
+    } catch (error: unknown) {
+      logger.error('Error downloading PDF:', error);
+      showError('Failed to download invoice PDF');
     }
+  };
+
+  const paymentBreakdown = (invoice: Invoice) => {
+    const base = invoice.base_cost ?? (invoice.rate_per_student ? invoice.rate_per_student * invoice.students_billed : null);
+    if (base == null) return { base: null, tax: null };
+    const tax = invoice.tax_amount ?? applyTax(base).tax;
+    return { base, tax };
   };
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
       <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'repeat(2, 1fr)', md: 'repeat(4, 1fr)' }, gap: 2 }}>
         <StatCard label="Total Paid Invoices" value={paidInvoicesSummary?.total_paid_invoices || 0} dotColor="#16A34A" />
-        <StatCard label="Total Amount Paid" value={`$${Number(paidInvoicesSummary?.total_paid_amount || 0).toLocaleString()}`} dotColor="#16A34A" />
-        <StatCard label="Average Invoice" value={`$${Number(paidInvoicesSummary?.average_paid_amount || 0).toFixed(2)}`} />
+        <StatCard label="Total Amount Paid" value={formatCurrency(paidInvoicesSummary?.total_paid_amount)} dotColor="#16A34A" />
+        <StatCard label="Average Invoice" value={formatCurrency(paidInvoicesSummary?.average_paid_amount)} />
         <StatCard label="Paid Last 30 Days" value={paidInvoicesSummary?.paid_last_30_days || 0} />
       </Box>
 
@@ -124,19 +169,34 @@ const OrganizationPaidInvoices: React.FC<OrganizationPaidInvoicesProps> = ({
           Filters ({safeInvoices.length} paid invoices)
         </Typography>
         <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, 1fr)', md: 'repeat(3, 1fr)' }, gap: 2 }}>
-          <TextField fullWidth label="Search paid invoices..." size="small" />
+          <TextField
+            fullWidth
+            label="Search paid invoices"
+            size="small"
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            inputProps={{ 'aria-label': 'Search paid invoices' }}
+          />
           <FormControl fullWidth size="small">
-            <InputLabel>Course Type</InputLabel>
-            <Select label="Course Type" defaultValue="">
+            <InputLabel id="paid-course-type-label">Course Type</InputLabel>
+            <Select
+              labelId="paid-course-type-label"
+              label="Course Type"
+              value={courseTypeFilter}
+              onChange={(e) => setCourseTypeFilter(e.target.value)}
+            >
               <MenuItem value="">All Types</MenuItem>
-              <MenuItem value="cpr">CPR</MenuItem>
-              <MenuItem value="first_aid">First Aid</MenuItem>
-              <MenuItem value="bls">BLS</MenuItem>
+              {courseTypes.map((type) => <MenuItem key={type} value={type}>{type}</MenuItem>)}
             </Select>
           </FormControl>
           <FormControl fullWidth size="small">
-            <InputLabel>Payment Date</InputLabel>
-            <Select label="Payment Date" defaultValue="">
+            <InputLabel id="paid-payment-date-label">Payment Date</InputLabel>
+            <Select
+              labelId="paid-payment-date-label"
+              label="Payment Date"
+              value={paymentDateFilter}
+              onChange={(e) => setPaymentDateFilter(e.target.value as PaymentDateFilter)}
+            >
               <MenuItem value="">All Dates</MenuItem>
               <MenuItem value="last_30">Last 30 Days</MenuItem>
               <MenuItem value="last_90">Last 90 Days</MenuItem>
@@ -147,27 +207,29 @@ const OrganizationPaidInvoices: React.FC<OrganizationPaidInvoicesProps> = ({
       </Box>
 
       {/* Table */}
-      {safeInvoices.length === 0 ? (
+      {filteredInvoices.length === 0 ? (
         <Box sx={{ bgcolor: (theme) => theme.palette.background.paper, border: (theme) => `1px solid ${theme.palette.divider}`, borderRadius: '10px', p: 6, textAlign: 'center' }}>
-          <Typography sx={{ fontSize: 14, fontWeight: 600, color: (theme) => theme.palette.text.secondary }}>No paid invoices found</Typography>
+          <Typography sx={{ fontSize: 14, fontWeight: 600, color: (theme) => theme.palette.text.secondary }}>
+            {safeInvoices.length === 0 ? 'No paid invoices found' : 'No paid invoices match your filters'}
+          </Typography>
         </Box>
       ) : (
-        <DataTable columns={columns} shownCount={safeInvoices.length} totalCount={safeInvoices.length}>
-          {safeInvoices.map((invoice) => (
+        <DataTable columns={columns} shownCount={filteredInvoices.length} totalCount={safeInvoices.length}>
+          {filteredInvoices.map((invoice) => (
             <DataTableRow key={invoice.id} columns={columns}>
-              <Box onClick={() => handleInvoiceClick(invoice)} sx={{ fontSize: 13, fontWeight: 600, color: '#CC1F1F', cursor: 'pointer', '&:hover': { textDecoration: 'underline' } }}>
+              <LinkButton onClick={() => handleInvoiceClick(invoice)} aria-label={`View invoice ${invoice.invoice_number}`} sx={{ fontSize: 13 }}>
                 {invoice.invoice_number}
-              </Box>
+              </LinkButton>
               <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>{invoice.course_type_name}</Typography>
               <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>{formatDisplayDate(invoice.course_date)}</Typography>
               <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>{invoice.location}</Typography>
               <Typography sx={{ fontSize: 13, fontWeight: 600, color: (theme) => theme.palette.text.primary, textAlign: 'right' }}>{invoice.students_billed}</Typography>
-              <Typography sx={{ fontSize: 13, fontWeight: 600, color: (theme) => theme.palette.text.primary, fontFamily: 'monospace', textAlign: 'right' }}>$40.68</Typography>
-              <Typography sx={{ fontSize: 13, fontWeight: 600, color: '#16A34A', fontFamily: 'monospace', textAlign: 'right' }}>${Number(invoice.amount_paid).toFixed(2)}</Typography>
-              <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>{invoice.paid_date ? formatDisplayDate(invoice.paid_date) : 'N/A'}</Typography>
+              <Typography sx={{ fontSize: 13, fontWeight: 600, color: (theme) => theme.palette.text.primary, fontFamily: 'monospace', textAlign: 'right' }}>{formatCurrency(invoice.amount)}</Typography>
+              <Typography sx={{ fontSize: 13, fontWeight: 600, color: '#16A34A', fontFamily: 'monospace', textAlign: 'right' }}>{formatCurrency(invoice.amount_paid)}</Typography>
+              <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>{formatDisplayDate(invoice.paid_date, 'N/A')}</Typography>
               <StatusChip kind={getStatusKind(invoice.payment_status || invoice.status)} label={invoice.payment_status || invoice.status} />
               <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>
-                <Box onClick={() => handleDownloadPDF(invoice.id)} sx={{ fontSize: 12, fontWeight: 600, color: '#CC1F1F', cursor: 'pointer', '&:hover': { textDecoration: 'underline' } }}>PDF</Box>
+                <LinkButton onClick={() => handleDownloadPDF(invoice)} aria-label={`Download PDF for invoice ${invoice.invoice_number}`}>PDF</LinkButton>
               </Box>
             </DataTableRow>
           ))}
@@ -175,73 +237,73 @@ const OrganizationPaidInvoices: React.FC<OrganizationPaidInvoicesProps> = ({
       )}
 
       {/* Invoice Detail Dialog */}
-      <Dialog open={dialogOpen} onClose={handleDialogClose} maxWidth="md" fullWidth>
-        <DialogTitle sx={{ fontSize: 18, fontWeight: 700, color: (theme) => theme.palette.text.primary }}>
+      <Dialog open={dialogOpen} onClose={handleDialogClose} maxWidth="md" fullWidth aria-labelledby="paid-invoice-dialog-title">
+        <DialogTitle id="paid-invoice-dialog-title" sx={{ fontSize: 18, fontWeight: 700, color: (theme) => theme.palette.text.primary }}>
           Paid Invoice — {selectedInvoice?.invoice_number}
         </DialogTitle>
         <DialogContent>
-          {selectedInvoice && (
-            <Box sx={{ pt: 1 }}>
-              <Grid container spacing={3}>
-                <Grid item xs={12} md={6}>
-                  <Typography sx={{ fontSize: 13, fontWeight: 700, color: (theme) => theme.palette.text.secondary, textTransform: 'uppercase', letterSpacing: '0.07em', mb: 1 }}>Invoice Information</Typography>
-                  {[
-                    ['Invoice Number', selectedInvoice.invoice_number],
-                    ['Created Date', formatDisplayDate(selectedInvoice.created_at)],
-                    ['Due Date', formatDisplayDate(selectedInvoice.due_date)],
-                    ['Paid Date', selectedInvoice.paid_date ? formatDisplayDate(selectedInvoice.paid_date) : 'N/A'],
-                  ].map(([l, v]) => (
-                    <Box key={String(l)} sx={{ mb: 1.5 }}>
-                      <Typography sx={{ fontSize: 12, color: (theme) => theme.palette.text.secondary }}>{l}</Typography>
-                      <Typography sx={{ fontSize: 13, fontWeight: 600, color: (theme) => theme.palette.text.primary }}>{v}</Typography>
+          {selectedInvoice && (() => {
+            const { base, tax } = paymentBreakdown(selectedInvoice);
+            return (
+              <Box sx={{ pt: 1 }}>
+                <Grid container spacing={3}>
+                  <Grid item xs={12} md={6}>
+                    <Typography sx={{ fontSize: 13, fontWeight: 700, color: (theme) => theme.palette.text.secondary, textTransform: 'uppercase', letterSpacing: '0.07em', mb: 1 }}>Invoice Information</Typography>
+                    {[
+                      ['Invoice Number', selectedInvoice.invoice_number],
+                      ['Created Date', formatDisplayDate(selectedInvoice.created_at)],
+                      ['Due Date', formatDisplayDate(selectedInvoice.due_date)],
+                      ['Paid Date', formatDisplayDate(selectedInvoice.paid_date, 'N/A')],
+                    ].map(([l, v]) => (
+                      <Box key={String(l)} sx={{ mb: 1.5 }}>
+                        <Typography sx={{ fontSize: 12, color: (theme) => theme.palette.text.secondary }}>{l}</Typography>
+                        <Typography sx={{ fontSize: 13, fontWeight: 600, color: (theme) => theme.palette.text.primary }}>{v}</Typography>
+                      </Box>
+                    ))}
+                  </Grid>
+                  <Grid item xs={12} md={6}>
+                    <Typography sx={{ fontSize: 13, fontWeight: 700, color: (theme) => theme.palette.text.secondary, textTransform: 'uppercase', letterSpacing: '0.07em', mb: 1 }}>Course Information</Typography>
+                    {[
+                      ['Course Type', selectedInvoice.course_type_name],
+                      ['Course Date', formatDisplayDate(selectedInvoice.course_date)],
+                      ['Location', selectedInvoice.location],
+                      ['Students Billed', String(selectedInvoice.students_billed)],
+                    ].map(([l, v]) => (
+                      <Box key={String(l)} sx={{ mb: 1.5 }}>
+                        <Typography sx={{ fontSize: 12, color: (theme) => theme.palette.text.secondary }}>{l}</Typography>
+                        <Typography sx={{ fontSize: 13, fontWeight: 600, color: (theme) => theme.palette.text.primary }}>{v}</Typography>
+                      </Box>
+                    ))}
+                  </Grid>
+                  <Grid item xs={12}>
+                    <Box sx={{ borderTop: (theme) => `1px solid ${theme.palette.divider}`, pt: 2 }}>
+                      <Typography sx={{ fontSize: 13, fontWeight: 700, color: (theme) => theme.palette.text.secondary, textTransform: 'uppercase', letterSpacing: '0.07em', mb: 1 }}>Payment Details</Typography>
+                      <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'repeat(2, 1fr)', md: 'repeat(5, 1fr)' }, gap: 2 }}>
+                        {[
+                          ['Base Cost', base == null ? 'N/A' : formatCurrency(base)],
+                          [HST_LABEL, tax == null ? 'N/A' : formatCurrency(tax)],
+                          ['Total', formatCurrency(selectedInvoice.amount)],
+                          ['Amount Paid', formatCurrency(selectedInvoice.amount_paid)],
+                          ['Balance Due', formatCurrency(selectedInvoice.balance_due)],
+                        ].map(([l, v]) => (
+                          <Box key={String(l)}>
+                            <Typography sx={{ fontSize: 12, color: (theme) => theme.palette.text.secondary }}>{l}</Typography>
+                            <Typography sx={{ fontSize: 16, fontWeight: 700, color: (theme) => theme.palette.text.primary, fontFamily: 'monospace' }}>{v}</Typography>
+                          </Box>
+                        ))}
+                      </Box>
                     </Box>
-                  ))}
+                  </Grid>
                 </Grid>
-                <Grid item xs={12} md={6}>
-                  <Typography sx={{ fontSize: 13, fontWeight: 700, color: (theme) => theme.palette.text.secondary, textTransform: 'uppercase', letterSpacing: '0.07em', mb: 1 }}>Course Information</Typography>
-                  {[
-                    ['Course Type', selectedInvoice.course_type_name],
-                    ['Course Date', formatDisplayDate(selectedInvoice.course_date)],
-                    ['Location', selectedInvoice.location],
-                    ['Students Billed', String(selectedInvoice.students_billed)],
-                  ].map(([l, v]) => (
-                    <Box key={String(l)} sx={{ mb: 1.5 }}>
-                      <Typography sx={{ fontSize: 12, color: (theme) => theme.palette.text.secondary }}>{l}</Typography>
-                      <Typography sx={{ fontSize: 13, fontWeight: 600, color: (theme) => theme.palette.text.primary }}>{v}</Typography>
-                    </Box>
-                  ))}
-                </Grid>
-                <Grid item xs={12}>
-                  <Box sx={{ borderTop: (theme) => `1px solid ${theme.palette.divider}`, pt: 2 }}>
-                    <Typography sx={{ fontSize: 13, fontWeight: 700, color: (theme) => theme.palette.text.secondary, textTransform: 'uppercase', letterSpacing: '0.07em', mb: 1 }}>Payment Details</Typography>
-                    <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'repeat(2, 1fr)', md: 'repeat(4, 1fr)' }, gap: 2 }}>
-                      {[
-                        ['Base Cost', selectedInvoice.rate_per_student ? `$${(selectedInvoice.rate_per_student * selectedInvoice.students_billed).toFixed(2)}` : 'N/A'],
-                        ['Tax (HST)', selectedInvoice.rate_per_student ? `$${(selectedInvoice.rate_per_student * selectedInvoice.students_billed * 0.13).toFixed(2)}` : 'N/A'],
-                        ['Amount Paid', `$${Number(selectedInvoice.amount_paid).toFixed(2)}`],
-                        ['Balance Due', `$${Number(selectedInvoice.balance_due || 0).toFixed(2)}`],
-                      ].map(([l, v]) => (
-                        <Box key={String(l)}>
-                          <Typography sx={{ fontSize: 12, color: (theme) => theme.palette.text.secondary }}>{l}</Typography>
-                          <Typography sx={{ fontSize: 16, fontWeight: 700, color: (theme) => theme.palette.text.primary, fontFamily: 'monospace' }}>{v}</Typography>
-                        </Box>
-                      ))}
-                    </Box>
-                  </Box>
-                </Grid>
-              </Grid>
-            </Box>
-          )}
+              </Box>
+            );
+          })()}
         </DialogContent>
         <DialogActions sx={{ p: 2 }}>
           <GhostButton onClick={handleDialogClose}>Close</GhostButton>
-          <PrimaryButton onClick={() => selectedInvoice && handleDownloadPDF(selectedInvoice.id)}>Download PDF</PrimaryButton>
+          <PrimaryButton onClick={() => selectedInvoice && handleDownloadPDF(selectedInvoice)}>Download PDF</PrimaryButton>
         </DialogActions>
       </Dialog>
-
-      <Snackbar open={!!message} autoHideDuration={6000} onClose={() => setMessage(null)}>
-        <Alert onClose={() => setMessage(null)} severity={message?.type} sx={{ width: '100%' }}>{message?.text}</Alert>
-      </Snackbar>
     </Box>
   );
 };

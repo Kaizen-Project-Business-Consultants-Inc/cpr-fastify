@@ -1,19 +1,17 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Box,
   Grid,
   Typography,
   Alert,
   CircularProgress,
-  FormControl,
-  Select,
-  MenuItem,
-  SelectChangeEvent,
 } from '@mui/material';
 import { fetchAccountingDashboardData, api } from '../../../services/api';
 import { useNavigate } from 'react-router-dom';
 import StatCard from '../../gtacpr/StatCard';
 import { PrimaryButton, GhostButton } from '../../gtacpr/Buttons';
+import LinkButton from '../../gtacpr/LinkButton';
+import { formatCurrency } from '../../../utils/formatters';
 
 interface DashboardData {
   totalBilled: number;
@@ -73,89 +71,22 @@ const PendingActionsSidebar: React.FC = () => {
   const [pendingActions, setPendingActions] = useState<PendingAction[]>([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    const fetchPendingActions = async () => {
-      try {
-        setLoading(true);
-
-        const [paymentsResponse, invoicesResponse] = await Promise.all([
-          api.get('/accounting/payment-verifications'),
-          api.get('/accounting/invoices'),
-        ]);
-
-        const paymentsData = paymentsResponse.data;
-        const invoicesData = invoicesResponse.data;
-
-
-        const pendingPaymentsCount =
-          paymentsData.data?.payments?.filter(
-            (p: { status?: string; verifiedByAccountingAt?: string }) =>
-              p.status === 'pending_verification' || !p.verifiedByAccountingAt
-          ).length || 0;
-
-        const pendingInvoicesCount =
-          invoicesData.data?.invoices?.filter((i: { approvalStatus?: string }) =>
-            ['pending_approval', 'pending', 'draft'].includes(
-              i.approvalStatus?.toLowerCase() || ''
-            )
-          ).length || 0;
-
-
-        const realData: PendingAction[] = [
-          {
-            id: '1',
-            type: 'payment_verification',
-            title: 'Payments Pending Verification',
-            description: 'Organization payments waiting for review',
-            count: pendingPaymentsCount,
-            color: 'error',
-            icon: null,
-            route: '/accounting/verification',
-          },
-          {
-            id: '2',
-            type: 'invoice_approval',
-            title: 'Invoices Pending Approval',
-            description: 'Invoices waiting for approval',
-            count: pendingInvoicesCount,
-            color: 'warning',
-            icon: null,
-            route: '/accounting/receivables',
-          },
-        ];
-
-        setPendingActions(realData);
-      } catch (error: any) {
-        console.error('🔍 [PENDING ACTIONS] Error fetching pending actions:', error);
-        setPendingActions([]);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchPendingActions();
-
-    const interval = setInterval(fetchPendingActions, 120000);
-
-    return () => clearInterval(interval);
-  }, []);
-
-  const handleActionClick = (route: string) => {
-    navigate(route);
-  };
-
-  const handleRefresh = async () => {
+  /**
+   * Counts only. Invoices pending approval come from the paginated endpoint with
+   * limit=1 so we read `pagination.total` instead of downloading the whole list.
+   * Refreshes on mount and on demand (no background polling).
+   */
+  const loadPendingActions = useCallback(async () => {
     try {
       setLoading(true);
 
-      const [paymentsResponse, invoicesResponse] = await Promise.all([
+      const [paymentsResponse, pendingInvoicesResponse] = await Promise.all([
         api.get('/accounting/payment-verifications'),
-        api.get('/accounting/invoices'),
+        api.get('/accounting/invoices/pending-approval', { params: { page: 1, limit: 1 } }),
       ]);
 
       const paymentsData = paymentsResponse.data;
-      const invoicesData = invoicesResponse.data;
-
+      const pendingInvoicesData = pendingInvoicesResponse.data;
 
       const pendingPaymentsCount =
         paymentsData.data?.payments?.filter(
@@ -163,15 +94,11 @@ const PendingActionsSidebar: React.FC = () => {
             p.status === 'pending_verification' || !p.verifiedByAccountingAt
         ).length || 0;
 
-      const pendingInvoicesCount =
-        invoicesData.data?.invoices?.filter((i: { approvalStatus?: string }) =>
-          ['pending_approval', 'pending', 'draft'].includes(
-            i.approvalStatus?.toLowerCase() || ''
-          )
-        ).length || 0;
+      const pendingInvoicesCount: number =
+        pendingInvoicesData?.pagination?.total ??
+        (Array.isArray(pendingInvoicesData?.data) ? pendingInvoicesData.data.length : 0);
 
-
-      const realData: PendingAction[] = [
+      setPendingActions([
         {
           id: '1',
           type: 'payment_verification',
@@ -192,15 +119,24 @@ const PendingActionsSidebar: React.FC = () => {
           icon: null,
           route: '/accounting/receivables',
         },
-      ];
-
-      setPendingActions(realData);
-    } catch (error: any) {
-      console.error('🔍 [PENDING ACTIONS] Error refreshing pending actions:', error);
+      ]);
+    } catch (error: unknown) {
+      console.error('[PENDING ACTIONS] Error fetching pending actions:', error);
+      setPendingActions([]);
     } finally {
       setLoading(false);
     }
+  }, []);
+
+  useEffect(() => {
+    loadPendingActions();
+  }, [loadPendingActions]);
+
+  const handleActionClick = (route: string) => {
+    navigate(route);
   };
+
+  const handleRefresh = () => loadPendingActions();
 
   const actionDotColor: Record<string, string> = {
     error: '#CC1F1F',
@@ -216,12 +152,7 @@ const PendingActionsSidebar: React.FC = () => {
           <Typography sx={{ fontSize: 13, fontWeight: 700, color: (theme) => theme.palette.text.secondary, textTransform: 'uppercase', letterSpacing: '0.07em' }}>
             Pending Actions
           </Typography>
-          <Box
-            onClick={handleRefresh}
-            sx={{ fontSize: 12, fontWeight: 600, color: '#CC1F1F', cursor: 'pointer', '&:hover': { textDecoration: 'underline' } }}
-          >
-            Refresh
-          </Box>
+          <LinkButton onClick={handleRefresh} aria-label="Refresh pending actions">Refresh</LinkButton>
         </Box>
         <Box sx={{ display: 'flex', justifyContent: 'center', p: 3 }}>
           <CircularProgress size={24} />
@@ -236,12 +167,7 @@ const PendingActionsSidebar: React.FC = () => {
         <Typography sx={{ fontSize: 13, fontWeight: 700, color: (theme) => theme.palette.text.secondary, textTransform: 'uppercase', letterSpacing: '0.07em' }}>
           Pending Actions
         </Typography>
-        <Box
-          onClick={handleRefresh}
-          sx={{ fontSize: 12, fontWeight: 600, color: '#CC1F1F', cursor: 'pointer', '&:hover': { textDecoration: 'underline' } }}
-        >
-          Refresh
-        </Box>
+        <LinkButton onClick={handleRefresh} aria-label="Refresh pending actions">Refresh</LinkButton>
       </Box>
 
       {pendingActions.length === 0 ? (
@@ -307,49 +233,9 @@ const PendingActionsSidebar: React.FC = () => {
 };
 
 const AccountingDashboard: React.FC = () => {
-
-  try {
     const [dashboardData, setDashboardData] = useState<DashboardData | null>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
-    const [selectedPeriod, setSelectedPeriod] = useState<string>('current_month');
-
-    const getPeriodOptions = () => {
-      const currentDate = new Date();
-      const currentYear = currentDate.getFullYear();
-      const currentMonth = currentDate.getMonth();
-
-      const options = [
-        {
-          value: 'current_month',
-          label: `${currentDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })} (Current Month)`,
-        },
-        {
-          value: 'previous_month',
-          label: `${new Date(currentYear, currentMonth - 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })} (Previous Month)`,
-        },
-        {
-          value: 'current_quarter',
-          label: `Q${Math.floor(currentMonth / 3) + 1} ${currentYear} (Current Quarter)`,
-        },
-        {
-          value: 'previous_quarter',
-          label: `Q${Math.floor((currentMonth - 3) / 3) + 1} ${currentYear} (Previous Quarter)`,
-        },
-        { value: 'current_year', label: `${currentYear} (Current Year)` },
-        { value: 'previous_year', label: `${currentYear - 1} (Previous Year)` },
-        { value: 'last_30_days', label: 'Last 30 Days' },
-        { value: 'last_90_days', label: 'Last 90 Days' },
-        { value: 'last_12_months', label: 'Last 12 Months' },
-      ];
-
-      return options;
-    };
-
-    const handlePeriodChange = (event: SelectChangeEvent) => {
-      setSelectedPeriod(event.target.value);
-    };
-
     const fetchDashboardData = async () => {
       try {
         setLoading(true);
@@ -366,20 +252,8 @@ const AccountingDashboard: React.FC = () => {
 
     useEffect(() => {
       fetchDashboardData();
-    }, [selectedPeriod]);
-
-    const formatCurrency = (amount: number) => {
-      return new Intl.NumberFormat('en-US', {
-        style: 'currency',
-        currency: 'USD',
-      }).format(amount);
-    };
-
-    const getCurrentPeriodLabel = () => {
-      const options = getPeriodOptions();
-      const selectedOption = options.find((option) => option.value === selectedPeriod);
-      return selectedOption ? selectedOption.label.split(' (')[0] : 'Current Month';
-    };
+       
+    }, []);
 
     if (loading) {
       return (
@@ -413,29 +287,9 @@ const AccountingDashboard: React.FC = () => {
             <Typography sx={{ fontSize: 18, fontWeight: 700, color: (theme) => theme.palette.text.primary, mb: 1 }}>
               Financial Overview
             </Typography>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-              <FormControl size="small" sx={{ minWidth: 250 }}>
-                <Select
-                  value={selectedPeriod}
-                  onChange={handlePeriodChange}
-                  displayEmpty
-                  sx={{
-                    fontSize: 13,
-                    '& .MuiSelect-select': {
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 1,
-                    },
-                  }}
-                >
-                  {getPeriodOptions().map((option) => (
-                    <MenuItem key={option.value} value={option.value} sx={{ fontSize: 13 }}>
-                      {option.label}
-                    </MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
-            </Box>
+            <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>
+              Billed, paid and outstanding totals are all-time; "this month" figures are for the current calendar month.
+            </Typography>
           </Box>
 
           {/* Stat Cards */}
@@ -485,7 +339,7 @@ const AccountingDashboard: React.FC = () => {
                       Billing Status:{' '}
                     </Box>
                     {dashboardData.totalBilled > 0
-                      ? `$${dashboardData.totalBilled.toLocaleString()} total invoiced`
+                      ? `${formatCurrency(dashboardData.totalBilled)} total invoiced`
                       : 'No invoices generated'}
                   </Typography>
                 </Box>
@@ -536,20 +390,6 @@ const AccountingDashboard: React.FC = () => {
         </Box>
       </Box>
     );
-  } catch (error: any) {
-    console.error('[AccountingDashboard] Error during render:', error);
-    return (
-      <Box sx={{ p: 3 }}>
-        <Typography sx={{ fontSize: 18, fontWeight: 700, color: '#CC1F1F', mb: 1 }}>
-          Error Loading Dashboard
-        </Typography>
-        <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>An error occurred while loading the dashboard.</Typography>
-        <Typography sx={{ fontSize: 12, color: (theme) => theme.palette.text.secondary, mt: 0.5 }}>
-          Error: {error instanceof Error ? error.message : 'Unknown error'}
-        </Typography>
-      </Box>
-    );
-  }
 };
 
 export default AccountingDashboard;

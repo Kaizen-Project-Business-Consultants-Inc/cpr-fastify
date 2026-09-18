@@ -18,7 +18,8 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import api from '../../services/api';
 import ServiceDetailsTable from '../common/ServiceDetailsTable';
 import PaymentHistoryTable from '../common/PaymentHistoryTable';
-import { formatDisplayDate } from '../../utils/dateUtils';
+import { formatCurrency, formatCurrencyOrDash, formatDisplayDate } from '../../utils/formatters';
+import LinkButton from '../gtacpr/LinkButton';
 import DataTable, { DataTableRow } from '../gtacpr/DataTable';
 import StatusChip from '../gtacpr/StatusChip';
 import { PrimaryButton, GhostButton } from '../gtacpr/Buttons';
@@ -83,6 +84,8 @@ const PaymentVerificationView = () => {
   const [verificationNotes, setVerificationNotes] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
+  // Which payment the successMessage refers to, so only that row shows the new status
+  const [verifiedPaymentId, setVerifiedPaymentId] = useState<string | null>(null);
 
   // State for attendance data
   const [attendanceData, setAttendanceData] = useState<Array<{
@@ -183,7 +186,8 @@ const PaymentVerificationView = () => {
       );
       return response.data;
     },
-    onSuccess: (data) => {
+    onSuccess: (_data, variables) => {
+      setVerifiedPaymentId(variables.paymentId);
       queryClient.invalidateQueries({ queryKey: ['pending-payment-verifications'] });
       queryClient.invalidateQueries({ queryKey: ['accounting-invoices'] });
       setVerificationNotes('');
@@ -255,6 +259,7 @@ const PaymentVerificationView = () => {
     setDialogMode('view');
     setAttendanceData([]); // Clear attendance data when dialog closes
     setPaymentHistory([]); // Clear payment history when dialog closes
+    setVerifiedPaymentId(null);
   };
 
   // Handle viewing invoice
@@ -282,29 +287,19 @@ const PaymentVerificationView = () => {
 
     // For now, create a single service detail from the payment
     // In the future, this could be expanded to show multiple courses
-    const amount = payment.amount || 0;
+    // Only build a service line when the backend actually supplied the pricing breakdown.
+    // We never estimate rate/tax from the payment amount.
+    if (payment.ratePerStudent == null || payment.baseCost == null || payment.taxAmount == null) return [];
     return [{
       date: payment.paymentDate || payment.submittedByOrgAt || '',
       location: payment.location || 'N/A',
       course: payment.courseTypeName || payment.courseType || 'N/A',
       students: payment.studentsAttended || payment.registeredStudents || 0,
-      ratePerStudent: payment.ratePerStudent || 9.00, // Default rate
-      baseCost: payment.baseCost || (amount * 0.885), // Estimate if not available
-      tax: payment.taxAmount || (amount * 0.115), // Estimate if not available
-      total: amount,
+      ratePerStudent: Number(payment.ratePerStudent),
+      baseCost: Number(payment.baseCost),
+      tax: Number(payment.taxAmount),
+      total: Number(payment.amount ?? 0),
     }];
-  };
-
-  const formatCurrency = (amount: any) => {
-    return new Intl.NumberFormat('en-CA', {
-      style: 'currency',
-      currency: 'CAD',
-    }).format(amount || 0);
-  };
-
-  const formatDate = (dateString: any) => {
-    if (!dateString) return '-';
-    return new Date(dateString).toLocaleDateString();
   };
 
   // Check if payment can be verified (not already processed)
@@ -322,8 +317,9 @@ const PaymentVerificationView = () => {
       return { kind: 'neutral', label: 'UNKNOWN' };
     }
 
-    // If we have a success message, show the updated status
-    if (successMessage) {
+    // If this payment was just verified in this session, show the updated status
+    const thisId = String(payment.paymentId ?? payment.id ?? '');
+    if (successMessage && verifiedPaymentId != null && thisId === verifiedPaymentId) {
       if (verificationAction === 'approve') {
         return { kind: 'success', label: 'VERIFIED' };
       } else if (verificationAction === 'reject') {
@@ -424,7 +420,7 @@ const PaymentVerificationView = () => {
 
                   {/* Submitted Date */}
                   <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>
-                    {formatDate(payment.submittedByOrgAt)}
+                    {formatDisplayDate(payment.submittedByOrgAt)}
                   </Typography>
 
                   {/* Status */}
@@ -433,18 +429,7 @@ const PaymentVerificationView = () => {
                   {/* Actions */}
                   <Box sx={{ display: 'flex', justifyContent: 'center' }}>
                     <Tooltip title="View Payment Details">
-                      <Box
-                        onClick={() => handleViewPayment(payment)}
-                        sx={{
-                          fontSize: 12,
-                          fontWeight: 600,
-                          color: '#CC1F1F',
-                          cursor: 'pointer',
-                          '&:hover': { textDecoration: 'underline' },
-                        }}
-                      >
-                        View
-                      </Box>
+                      <LinkButton onClick={() => handleViewPayment(payment)} aria-label="View payment details">View</LinkButton>
                     </Tooltip>
                   </Box>
                 </DataTableRow>
@@ -470,10 +455,38 @@ const PaymentVerificationView = () => {
           {selectedPayment && (
             <Box sx={{ pt: 2 }}>
               {/* Service Details Table */}
-              <ServiceDetailsTable
-                services={getServiceDetails(selectedPayment)}
-                showTotals={false}
-              />
+              {getServiceDetails(selectedPayment).length > 0 ? (
+                <ServiceDetailsTable
+                  services={getServiceDetails(selectedPayment)}
+                  showTotals={false}
+                />
+              ) : (
+                <Box sx={{ border: (theme) => `1px solid ${theme.palette.divider}`, borderRadius: '8px', p: 2 }}>
+                  <Typography sx={{ fontSize: 13, fontWeight: 700, color: (theme) => theme.palette.text.primary, mb: 1 }}>
+                    Service Details
+                  </Typography>
+                  <Grid container spacing={1}>
+                    {[
+                      ['Date', selectedPayment.paymentDate || selectedPayment.submittedByOrgAt ? formatDisplayDate(selectedPayment.paymentDate || selectedPayment.submittedByOrgAt) : '—'],
+                      ['Course', selectedPayment.courseTypeName || selectedPayment.courseType || '—'],
+                      ['Location', selectedPayment.location || '—'],
+                      ['Students', selectedPayment.studentsAttended ?? selectedPayment.registeredStudents ?? '—'],
+                      ['Rate / Student', formatCurrencyOrDash(selectedPayment.ratePerStudent)],
+                      ['Subtotal', formatCurrencyOrDash(selectedPayment.baseCost)],
+                      ['Tax', formatCurrencyOrDash(selectedPayment.taxAmount)],
+                      ['Total', formatCurrencyOrDash(selectedPayment.amount)],
+                    ].map(([label, value]) => (
+                      <Grid item xs={6} sm={3} key={String(label)}>
+                        <Typography sx={{ fontSize: 11, color: (theme) => theme.palette.text.secondary, textTransform: 'uppercase', letterSpacing: '0.05em' }}>{label}</Typography>
+                        <Typography sx={{ fontSize: 13, fontWeight: 600, color: (theme) => theme.palette.text.primary, fontFamily: 'monospace' }}>{value}</Typography>
+                      </Grid>
+                    ))}
+                  </Grid>
+                  <Typography sx={{ fontSize: 11, color: (theme) => theme.palette.text.secondary, mt: 1 }}>
+                    Pricing breakdown is not available for this payment; only the amount submitted is shown.
+                  </Typography>
+                </Box>
+              )}
 
               {/* Student Attendance Section */}
               <Divider sx={{ my: 2 }} />
@@ -560,13 +573,13 @@ const PaymentVerificationView = () => {
                 <Grid item xs={12} sm={6}>
                   <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>Payment Date</Typography>
                   <Typography sx={{ fontSize: 13.5, fontWeight: 600, color: (theme) => theme.palette.text.primary }}>
-                    {formatDate(selectedPayment.paymentDate)}
+                    {formatDisplayDate(selectedPayment.paymentDate)}
                   </Typography>
                 </Grid>
                 <Grid item xs={12} sm={6}>
                   <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>Submitted Date</Typography>
                   <Typography sx={{ fontSize: 13.5, fontWeight: 600, color: (theme) => theme.palette.text.primary }}>
-                    {formatDate(selectedPayment.submittedByOrgAt)}
+                    {formatDisplayDate(selectedPayment.submittedByOrgAt)}
                   </Typography>
                 </Grid>
                 <Grid item xs={12} sm={6}>
@@ -580,7 +593,7 @@ const PaymentVerificationView = () => {
                   <Grid item xs={12} sm={6}>
                     <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>Verified By Accounting</Typography>
                     <Typography sx={{ fontSize: 13.5, fontWeight: 600, color: (theme) => theme.palette.text.primary }}>
-                      {formatDate(selectedPayment.verifiedByAccountingAt)}
+                      {formatDisplayDate(selectedPayment.verifiedByAccountingAt)}
                     </Typography>
                   </Grid>
                 )}

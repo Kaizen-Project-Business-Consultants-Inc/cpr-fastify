@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { Box, Typography, CircularProgress, Alert } from '@mui/material';
 import { getOrganizationPricingForOrg } from '../../../../services/api';
-import { parseISO, format } from 'date-fns';
+import { formatCurrency, formatDisplayDate } from '../../../../utils/formatters';
+import logger from '../../../../utils/logger';
 import DataTable, { DataTableRow } from '../../../gtacpr/DataTable';
 import StatusChip from '../../../gtacpr/StatusChip';
 
@@ -20,17 +21,25 @@ interface OrganizationPricingProps {
   organizationId: number;
 }
 
+// The pricing API exposes one rate (price per student); there is no separate base price.
 const columns = [
-  { key: 'courseType', label: 'COURSE TYPE', width: '1.2fr' },
-  { key: 'basePrice', label: 'BASE PRICE', width: '0.8fr', align: 'right' as const },
-  { key: 'studentPrice', label: 'STUDENT PRICE', width: '0.8fr', align: 'right' as const },
+  { key: 'courseType', label: 'COURSE TYPE', width: '1.4fr' },
+  { key: 'studentPrice', label: 'PRICE PER STUDENT', width: '0.9fr', align: 'right' as const },
   { key: 'status', label: 'STATUS', width: '0.6fr' },
   { key: 'updated', label: 'LAST UPDATED', width: '0.8fr' },
 ];
 
+const infoBoxSx = {
+  p: 2,
+  bgcolor: (theme: { palette: { mode: string } }) => theme.palette.mode === 'dark' ? 'rgba(37, 99, 235, 0.1)' : '#EFF6FF',
+  borderRadius: '8px',
+  border: (theme: { palette: { mode: string } }) => `1px solid ${theme.palette.mode === 'dark' ? 'rgba(37, 99, 235, 0.3)' : '#BFDBFE'}`,
+};
+const infoTextColor = (theme: { palette: { mode: string } }) => theme.palette.mode === 'dark' ? '#60A5FA' : '#1E40AF';
+
 const OrganizationPricing: React.FC<OrganizationPricingProps> = ({ organizationId }) => {
   const [pricingData, setPricingData] = useState<OrganizationPricingData[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(Boolean(organizationId));
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -39,9 +48,9 @@ const OrganizationPricing: React.FC<OrganizationPricingProps> = ({ organizationI
         setLoading(true);
         setError(null);
         const response = await getOrganizationPricingForOrg(organizationId);
-        setPricingData(response.data || []);
-      } catch (err: any) {
-        console.error('Error fetching organization pricing:', err);
+        setPricingData(Array.isArray(response?.data) ? response.data : []);
+      } catch (err: unknown) {
+        logger.error('Error fetching organization pricing:', err);
         setError('Failed to load pricing information. Please try again later.');
       } finally {
         setLoading(false);
@@ -50,68 +59,43 @@ const OrganizationPricing: React.FC<OrganizationPricingProps> = ({ organizationI
     if (organizationId) fetchPricingData();
   }, [organizationId]);
 
-  const formatCurrency = (amount: number) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(amount);
-  const formatDate = (dateString: string) => {
-    if (!dateString) return '';
-    try { return format(parseISO(dateString), 'MMM d, yyyy'); } catch { return dateString; }
-  };
-
-  if (loading) return <Box sx={{ display: 'flex', justifyContent: 'center', p: 4 }}><CircularProgress size={24} /></Box>;
+  if (loading) return <Box sx={{ display: 'flex', justifyContent: 'center', p: 4 }}><CircularProgress size={24} aria-label="Loading pricing" /></Box>;
   if (error) return <Alert severity="error">{error}</Alert>;
-
-  const displayData = pricingData.length > 0 ? pricingData : null;
-  const placeholderData = [
-    { id: 1, name: 'CPR Basic' },
-    { id: 2, name: 'CPR Advanced' },
-    { id: 3, name: 'First Aid' },
-  ];
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-      <Box sx={{ p: 2, bgcolor: (theme) => theme.palette.mode === 'dark' ? 'rgba(37, 99, 235, 0.1)' : '#EFF6FF', borderRadius: '8px', border: (theme) => `1px solid ${theme.palette.mode === 'dark' ? 'rgba(37, 99, 235, 0.3)' : '#BFDBFE'}` }}>
-        <Typography sx={{ fontSize: 13, fontWeight: 600, color: (theme) => theme.palette.mode === 'dark' ? '#60A5FA' : '#1E40AF', mb: 0.5 }}>Pricing Information</Typography>
-        <Typography sx={{ fontSize: 12, color: (theme) => theme.palette.mode === 'dark' ? '#60A5FA' : '#1E40AF' }}>
+      <Box sx={infoBoxSx}>
+        <Typography sx={{ fontSize: 13, fontWeight: 600, color: infoTextColor, mb: 0.5 }}>Pricing Information</Typography>
+        <Typography sx={{ fontSize: 12, color: infoTextColor }}>
           These are your current pricing rates for each course type. Contact your system administrator to update pricing.
         </Typography>
       </Box>
 
-      <DataTable columns={columns} shownCount={displayData ? displayData.length : placeholderData.length} totalCount={displayData ? displayData.length : placeholderData.length}>
-        {displayData ? (
-          displayData.map((pricing) => (
+      {pricingData.length === 0 ? (
+        <Box sx={{ bgcolor: (theme) => theme.palette.background.paper, border: (theme) => `1px solid ${theme.palette.divider}`, borderRadius: '10px', p: 6, textAlign: 'center' }}>
+          <Typography sx={{ fontSize: 14, fontWeight: 600, color: (theme) => theme.palette.text.secondary }}>
+            No pricing has been configured for your organization yet.
+          </Typography>
+          <Typography sx={{ fontSize: 12, color: (theme) => theme.palette.text.secondary, mt: 1 }}>
+            Please contact your system administrator to set up pricing.
+          </Typography>
+        </Box>
+      ) : (
+        <DataTable columns={columns} shownCount={pricingData.length} totalCount={pricingData.length}>
+          {pricingData.map((pricing) => (
             <DataTableRow key={pricing.id} columns={columns}>
               <Box>
                 <Typography sx={{ fontSize: 13.5, fontWeight: 600, color: (theme) => theme.palette.text.primary }}>{pricing.classTypeName}</Typography>
                 <Typography sx={{ fontSize: 11, color: (theme) => theme.palette.text.secondary }}>ID: {pricing.classTypeId}</Typography>
               </Box>
-              <Typography sx={{ fontSize: 13, fontWeight: 600, color: (theme) => theme.palette.text.primary, fontFamily: 'monospace', textAlign: 'right' }}>{formatCurrency(pricing.pricePerStudent)}</Typography>
-              <Typography sx={{ fontSize: 13, fontWeight: 600, color: (theme) => theme.palette.text.secondary, fontFamily: 'monospace', textAlign: 'right' }}>{formatCurrency(pricing.pricePerStudent)}</Typography>
-              <StatusChip kind="active" label="Active" />
-              <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>{formatDate(pricing.updatedAt)}</Typography>
+              <Typography sx={{ fontSize: 13, fontWeight: 600, color: (theme) => theme.palette.text.primary, fontFamily: 'monospace', textAlign: 'right' }}>
+                {formatCurrency(pricing.pricePerStudent)}
+              </Typography>
+              <StatusChip kind={pricing.isActive === false ? 'inactive' : 'active'} label={pricing.isActive === false ? 'Inactive' : 'Active'} />
+              <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>{formatDisplayDate(pricing.updatedAt)}</Typography>
             </DataTableRow>
-          ))
-        ) : (
-          placeholderData.map((ct) => (
-            <DataTableRow key={ct.id} columns={columns}>
-              <Box>
-                <Typography sx={{ fontSize: 13.5, fontWeight: 600, color: (theme) => theme.palette.text.primary }}>{ct.name}</Typography>
-                <Typography sx={{ fontSize: 11, color: (theme) => theme.palette.text.secondary }}>ID: {ct.id}</Typography>
-              </Box>
-              <Typography sx={{ fontSize: 12, color: (theme) => theme.palette.text.secondary, fontStyle: 'italic', textAlign: 'right' }}>Not configured</Typography>
-              <Typography sx={{ fontSize: 12, color: (theme) => theme.palette.text.secondary, fontStyle: 'italic', textAlign: 'right' }}>Not configured</Typography>
-              <StatusChip kind="pending" label="Pending" />
-              <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>—</Typography>
-            </DataTableRow>
-          ))
-        )}
-      </DataTable>
-
-      {pricingData.length === 0 && (
-        <Box sx={{ p: 2, bgcolor: (theme) => theme.palette.mode === 'dark' ? 'rgba(37, 99, 235, 0.1)' : '#EFF6FF', borderRadius: '8px', border: (theme) => `1px solid ${theme.palette.mode === 'dark' ? 'rgba(37, 99, 235, 0.3)' : '#BFDBFE'}` }}>
-          <Typography sx={{ fontSize: 13, fontWeight: 600, color: (theme) => theme.palette.mode === 'dark' ? '#60A5FA' : '#1E40AF', mb: 0.5 }}>Pricing Setup Required</Typography>
-          <Typography sx={{ fontSize: 12, color: (theme) => theme.palette.mode === 'dark' ? '#60A5FA' : '#1E40AF' }}>
-            Your organization's pricing has not been configured yet. Please contact your system administrator to set up custom pricing.
-          </Typography>
-        </Box>
+          ))}
+        </DataTable>
       )}
     </Box>
   );
