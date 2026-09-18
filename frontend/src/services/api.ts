@@ -12,6 +12,7 @@ import type {
   StudentData,
   PricingData,
   PaymentData,
+  InvoicePaymentData,
   EmailTemplateData,
   NotificationPreferences,
 } from '../types/api';
@@ -754,6 +755,17 @@ export const createInvoice = async (courseId: number) => {
   return response.data;
 };
 
+/**
+ * GET /accounting/invoices — this endpoint ALWAYS paginates (default 25 rows per
+ * page, `limit` capped at 200 by the backend), unlike most of the API where
+ * paging is opt-in. Callers must pass `{ page, limit }` and read the returned
+ * `pagination` block ({ page, limit, total, pages }); a caller that needs every
+ * invoice has to walk the pages (see TransactionHistoryView / AccountingPortal).
+ *
+ * Calling it with no params returns only the FIRST PAGE's rows (25 invoices)
+ * as a bare array — kept for backwards compatibility, but never treat that
+ * array as the complete set.
+ */
 export const getInvoices = async (params?: { page?: number; limit?: number }) => {
   const response = await api.get('/accounting/invoices', { params });
   return params ? response.data : (response.data.data || []);
@@ -825,7 +837,7 @@ export const getInvoicePayments = async (invoiceId: number) => {
 
 export const recordInvoicePayment = async (
   invoiceId: number,
-  paymentData: PaymentData
+  paymentData: InvoicePaymentData
 ) => {
   const response = await api.post(
     `/accounting/invoices/${invoiceId}/payments`,

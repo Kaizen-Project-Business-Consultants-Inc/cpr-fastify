@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import * as api from '../../services/api';
+import { deletePricingRule, getPricingRules } from '../../services/api';
 import { Box, Typography, CircularProgress, Alert, Snackbar } from '@mui/material';
 import PricingRuleDialog from './PricingRuleDialog';
 import { formatCurrency } from '../../utils/formatters';
@@ -39,7 +39,7 @@ function PricingRuleManager() {
     setLoading(true);
     setError('');
     try {
-      const data = await api.getPricingRules();
+      const data = await getPricingRules();
       setPricingRules(data || []);
     } catch (err) {
       logger.error('Error fetching pricing rules:', err);
@@ -70,7 +70,7 @@ function PricingRuleManager() {
     if (!ok) return;
     try {
       setError('');
-      await api.deletePricingRule(id);
+      await deletePricingRule(id);
       showSnackbar('Pricing rule deleted.', 'success');
       fetchPricingRules();
     } catch (err) {

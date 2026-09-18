@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import * as api from '../../services/api';
+import { api, getOrganizations } from '../../services/api';
 import { Box, Typography, CircularProgress, Alert } from '@mui/material';
 import OrganizationDialog from './OrganizationDialog';
 import { formatPhoneNumber } from 'react-phone-number-input';
@@ -54,7 +54,7 @@ function OrganizationManager() {
     setLoading(true);
     setError('');
     try {
-      const data = await api.getOrganizations();
+      const data = await getOrganizations();
       setOrganizations(data || []);
     } catch (err) {
       setError(getErrorMessage(err, 'Failed to load organizations.'));
@@ -77,7 +77,7 @@ function OrganizationManager() {
     });
     if (!ok) return;
     try {
-      await api.api.delete(`/sysadmin/organizations/${org.id}`);
+      await api.delete(`/sysadmin/organizations/${org.id}`);
       showSuccess(`${name} deleted`);
       fetchOrganizations();
     } catch (err) {

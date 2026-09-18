@@ -13,7 +13,7 @@ import {
   Grid,
   Paper,
 } from '@mui/material';
-import * as api from '../../services/api';
+import { organizationApi } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
 import logger from '../../utils/logger';
 import { getTodayDate, toLocalDateString } from '../../utils/formatters';
@@ -97,7 +97,7 @@ const ScheduleCourseForm: React.FC<ScheduleCourseFormProps> = ({ onCourseSchedul
     const fetchTypes = async () => {
       setIsLoadingTypes(true);
       try {
-        const response = await api.organizationApi.getCourseTypes();
+        const response = await organizationApi.getCourseTypes();
         setCourseTypes(response as CourseType[]);
       } catch (err) {
         logger.error('Error fetching course types:', err);
@@ -140,7 +140,7 @@ const ScheduleCourseForm: React.FC<ScheduleCourseFormProps> = ({ onCourseSchedul
     try {
       // Local calendar date: toISOString() would shift evening Ontario dates to the next day (UTC)
       const formattedDate = toLocalDateString(formData.scheduledDate);
-      const response = await api.organizationApi.requestCourse({
+      const response = await organizationApi.requestCourse({
         scheduledDate: formattedDate,
         location: formData.location,
         courseTypeId: formData.courseTypeId,

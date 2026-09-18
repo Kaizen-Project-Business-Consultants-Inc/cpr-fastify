@@ -1,15 +1,17 @@
 import { getInvoicePayments as apiGetInvoicePayments, recordInvoicePayment } from './api';
-import type { PaymentData } from '../types/api';
+import type { InvoicePaymentData } from '../types/api';
 
 export const getInvoicePayments = async (invoiceId: number) => {
   return apiGetInvoicePayments(invoiceId);
 };
 
-// Callers (outside this package's ownership) pass payloads that don't match the
-// PaymentData shape 1:1 (e.g. amount_paid vs amount), so we accept a broader
-// record here rather than the strict PaymentData type used by api.ts internally.
-export const recordPayment = async (invoiceId: number, paymentData: Record<string, unknown>) => {
-  return recordInvoicePayment(invoiceId, paymentData as unknown as PaymentData);
+/**
+ * POST /accounting/invoices/:id/payments. The backend validates the body with a
+ * zod schema that accepts exactly `{ amount, paymentMethod, reference? }` and
+ * strips everything else, so the payload is typed to that shape.
+ */
+export const recordPayment = async (invoiceId: number, paymentData: InvoicePaymentData) => {
+  return recordInvoicePayment(invoiceId, paymentData);
 };
 
 export default {

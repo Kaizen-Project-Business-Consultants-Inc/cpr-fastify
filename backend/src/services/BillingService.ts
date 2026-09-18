@@ -311,7 +311,13 @@ export class BillingService {
     return this.invoiceRepo.getPayments(invoiceId);
   }
 
-  async recordPayment(invoiceId: number, amount: number, paymentMethod: string, reference?: string): Promise<{ id: number; amount: number; totalPaid: number }> {
+  async recordPayment(
+    invoiceId: number,
+    amount: number,
+    paymentMethod: string,
+    reference?: string,
+    extra?: { paymentDate?: string; notes?: string },
+  ): Promise<{ id: number; amount: number; totalPaid: number }> {
     if (!amount || amount <= 0) throw new BillingError('Valid payment amount is required');
 
     const pool = getPool();
@@ -355,8 +361,8 @@ export class BillingService {
 
       const [result] = await conn.query<ResultSetHeader>(
         `INSERT INTO payments (invoice_id, amount, payment_method, reference_number,
-         payment_date, status) VALUES (?, ?, ?, ?, CURRENT_DATE, 'verified')`,
-        [invoiceId, amount, paymentMethod, reference ?? null]
+         payment_date, notes, status) VALUES (?, ?, ?, ?, COALESCE(?, CURRENT_DATE), ?, 'verified')`,
+        [invoiceId, amount, paymentMethod, reference ?? null, extra?.paymentDate ?? null, extra?.notes ?? null]
       );
 
       const totalPaid = alreadyPaid + amount;

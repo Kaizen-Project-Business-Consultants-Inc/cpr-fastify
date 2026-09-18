@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import * as api from '../../services/api';
+import { addOrganization, createOrganizationLocation, deleteOrganizationLocation, getOrganizationLocations, updateOrganization } from '../../services/api';
 import {
   Dialog,
   DialogTitle,
@@ -122,7 +122,7 @@ function OrganizationDialog({ open, onClose, onSave, organization }: Organizatio
 
       setLocationsLoading(true);
       try {
-        const data = await api.getOrganizationLocations(orgId);
+        const data = await getOrganizationLocations(orgId);
         setLocations(data || []);
       } catch (err) {
         console.error('Failed to load locations:', err);
@@ -138,8 +138,8 @@ function OrganizationDialog({ open, onClose, onSave, organization }: Organizatio
     if (!orgId || !newLocationName.trim()) return;
 
     try {
-      await api.createOrganizationLocation(orgId, { locationName: newLocationName });
-      const data = await api.getOrganizationLocations(orgId);
+      await createOrganizationLocation(orgId, { locationName: newLocationName });
+      const data = await getOrganizationLocations(orgId);
       setLocations(data || []);
       setNewLocationName('');
       setShowAddLocation(false);
@@ -161,8 +161,8 @@ function OrganizationDialog({ open, onClose, onSave, organization }: Organizatio
     if (!ok) return;
 
     try {
-      await api.deleteOrganizationLocation(orgId, locationId);
-      const data = await api.getOrganizationLocations(orgId);
+      await deleteOrganizationLocation(orgId, locationId);
+      const data = await getOrganizationLocations(orgId);
       setLocations(data || []);
     } catch (err) {
       setError(getErrorMessage(err, 'Failed to delete location'));
@@ -215,9 +215,9 @@ function OrganizationDialog({ open, onClose, onSave, organization }: Organizatio
       if (isEditMode) {
         const orgId = organization?.id ?? organization?.organizationId;
         if (orgId === undefined) throw new Error('Missing organization id');
-        await api.updateOrganization(orgId, orgData);
+        await updateOrganization(orgId, orgData);
       } else {
-        await api.addOrganization(orgData);
+        await addOrganization(orgData);
       }
       onSave();
       onClose();

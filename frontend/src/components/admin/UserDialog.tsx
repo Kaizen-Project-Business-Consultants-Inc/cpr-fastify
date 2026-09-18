@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import * as api from '../../services/api';
+import { getOrganizationLocations, getOrganizations } from '../../services/api';
 import logger from '../../utils/logger';
 import {
   Dialog,
@@ -93,7 +93,7 @@ function UserDialog({ open, onClose, onSave, user, existingUsers = [] }: UserDia
     setLoadingOrgs(true);
     try {
       logger.info('Fetching organizations for user dialog');
-      const data = await api.getOrganizations(); // Use existing API function
+      const data = await getOrganizations(); // Use existing API function
       setOrganizations(data || []);
     } catch (fetchErr) {
       logger.error('Error fetching organizations for dialog:', fetchErr);
@@ -112,7 +112,7 @@ function UserDialog({ open, onClose, onSave, user, existingUsers = [] }: UserDia
     setLoadingLocations(true);
     try {
       logger.info('Fetching locations for organization:', orgId);
-      const data = await api.getOrganizationLocations(orgId);
+      const data = await getOrganizationLocations(orgId);
       // Filter to only active locations
       const activeLocations = (data || []).filter((loc: LocationOption) => loc.isActive !== false);
       setLocations(activeLocations);

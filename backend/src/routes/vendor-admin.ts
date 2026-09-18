@@ -43,6 +43,72 @@ function invoiceFilter(query: Record<string, string>): { where: string; params: 
   return { where: conds.length ? `WHERE ${conds.join(' AND ')}` : '', params };
 }
 
+/** Every status a vendor invoice can hold, so the summary always returns all keys. */
+const VENDOR_INVOICE_STATUSES = [
+  'pending_submission',
+  'submitted_to_admin',
+  'submitted_to_accounting',
+  'rejected_by_admin',
+  'rejected_by_accountant',
+  'paid',
+] as const;
+
+/**
+ * Counts and money totals for the vendor-invoice screens, honouring the same
+ * `status` / `search` filter as the list endpoints.
+ *
+ * This exists so a screen does not have to download every matching row just to add
+ * it up, and does not have to issue one `limit=1` probe per status to count. All
+ * figures describe the *filtered* set, so cards and table always agree.
+ */
+async function vendorInvoiceSummary(query: Record<string, string>) {
+  const { where, params } = invoiceFilter(query);
+  const paymentsJoin = `LEFT JOIN (
+      SELECT vendor_invoice_id, SUM(amount) AS total_paid, COUNT(*) AS payment_count,
+             MAX(payment_date) AS last_payment_at
+      FROM vendor_payments WHERE status = 'processed' GROUP BY vendor_invoice_id
+    ) p ON p.vendor_invoice_id = vi.id`;
+
+  const statusCounts = VENDOR_INVOICE_STATUSES
+    .map((s) => `SUM(vi.status = '${s}') AS count_${s}`)
+    .join(',\n           ');
+
+  const [rows] = await getPool().query<RowDataPacket[]>(
+    `SELECT COUNT(*) AS total,
+            ${statusCounts},
+            COALESCE(SUM(vi.total), 0) AS total_amount,
+            COALESCE(SUM(p.total_paid), 0) AS total_paid,
+            COALESCE(SUM(vi.total - COALESCE(p.total_paid, 0)), 0) AS outstanding,
+            -- Partly settled: money received, but less than the invoice total. Derived from
+            -- the payments themselves; vendor_invoices has no payment_status column (only
+            -- ORGANISATION invoices compute one), so any UI reading vi.payment_status was
+            -- always reading undefined.
+            SUM(COALESCE(p.total_paid, 0) > 0 AND COALESCE(p.total_paid, 0) < vi.total) AS partially_paid,
+            COALESCE(SUM(p.payment_count), 0) AS payments_processed,
+            MAX(p.last_payment_at) AS most_recent_payment_at
+     FROM vendor_invoices vi
+     LEFT JOIN vendors v ON vi.vendor_id = v.id
+     ${paymentsJoin}
+     ${where}`,
+    params
+  );
+
+  const r = rows[0] ?? {};
+  const byStatus: Record<string, number> = {};
+  for (const s of VENDOR_INVOICE_STATUSES) byStatus[s] = Number(r[`count_${s}`] ?? 0);
+
+  return {
+    total: Number(r.total ?? 0),
+    byStatus,
+    totalAmount: Number(r.total_amount ?? 0),
+    totalPaid: Number(r.total_paid ?? 0),
+    outstanding: Number(r.outstanding ?? 0),
+    partiallyPaid: Number(r.partially_paid ?? 0),
+    paymentsProcessed: Number(r.payments_processed ?? 0),
+    mostRecentPaymentAt: r.most_recent_payment_at ?? null,
+  };
+}
+
 export async function vendorAdminRoutes(app: FastifyInstance) {
   const pool = getPool();
   const adminRole = [requireRole('admin', 'sysadmin', 'courseadmin')];
@@ -66,6 +132,12 @@ export async function vendorAdminRoutes(app: FastifyInstance) {
     );
     return paginatedResponse(result);
   });
+
+  // Counts + money totals for the admin vendor-invoice screens (see vendorInvoiceSummary).
+  app.get('/admin/vendor-invoices/summary', { preHandler: adminRole }, async (request) => ({
+    success: true,
+    data: await vendorInvoiceSummary(request.query as Record<string, string>),
+  }));
 
   // ===== Admin: Ready for processing =====
   app.get('/admin/vendor-invoices/ready-for-processing', { preHandler: adminRole }, async (request) => {
@@ -149,6 +221,12 @@ export async function vendorAdminRoutes(app: FastifyInstance) {
     );
     return paginatedResponse(result);
   });
+
+  // Counts + money totals for the accounting vendor-invoice screens.
+  app.get('/accounting/vendor-invoices/summary', { preHandler: acctRole }, async (request) => ({
+    success: true,
+    data: await vendorInvoiceSummary(request.query as Record<string, string>),
+  }));
 
   // ===== Accounting: Invoice detail =====
   app.get('/accounting/vendor-invoices/:id', { preHandler: acctRole }, async (request, reply) => {

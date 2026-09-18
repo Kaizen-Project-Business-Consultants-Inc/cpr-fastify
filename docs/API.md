@@ -5,7 +5,7 @@ _Generated from the route table by `npm run docs:api` (backend/scripts/generate-
 Base URL: `/api/v1` (except the two root-level health/metrics endpoints).
 Auth: send the access token as `Authorization: Bearer <token>`. Role guards are enforced per route (`requireRole`); see the route file for the exact roles.
 
-**264 endpoints across 29 groups.**
+**266 endpoints across 29 groups.**
 
 ## Accounting
 
@@ -50,6 +50,7 @@ Billing — invoices, pricing, payments, reports
 | GET | `/accounting/vendor-invoices/{id}` | Bearer |  |
 | POST | `/accounting/vendor-invoices/{id}/payments` | Bearer |  |
 | POST | `/accounting/vendor-invoices/{id}/reject` | Bearer |  |
+| GET | `/accounting/vendor-invoices/summary` | Bearer |  |
 | GET | `/accounting/vendor-payments` | Bearer |  |
 | GET | `/accounting/verified-payments` | Bearer |  |
 
@@ -61,6 +62,7 @@ Billing — invoices, pricing, payments, reports
 | POST | `/admin/vendor-invoices/{id}/approve` | Bearer |  |
 | PUT | `/admin/vendor-invoices/{id}/notes` | Bearer |  |
 | GET | `/admin/vendor-invoices/ready-for-processing` | Bearer |  |
+| GET | `/admin/vendor-invoices/summary` | Bearer |  |
 
 ## Auth
 

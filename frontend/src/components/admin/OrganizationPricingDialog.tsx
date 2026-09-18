@@ -14,7 +14,7 @@ import {
   Alert,
   FormHelperText,
 } from '@mui/material';
-import * as api from '../../services/api';
+import { createCoursePricing, updateCoursePrice } from '../../services/api';
 import logger from '../../utils/logger';
 
 interface OrganizationPricing {
@@ -132,10 +132,10 @@ function OrganizationPricingDialog({
       };
 
       if (isEditing && pricing) {
-        await api.updateCoursePrice(pricing.id, submitData);
+        await updateCoursePrice(pricing.id, submitData);
         logger.info(`Course pricing ${pricing.id} updated successfully`);
       } else {
-        await api.createCoursePricing(submitData);
+        await createCoursePricing(submitData);
         logger.info('Course pricing created successfully');
       }
 

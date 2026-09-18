@@ -23,43 +23,59 @@ Legend: 🔴 before taking paying customers · 🟡 soon · 🟢 when convenient
 
 ## 🟡 Engineering debt (from the audit)
 
-Most of this section was cleared on 2026-09-18. What remains is listed first; the
-completed items are kept at the bottom of the section for traceability.
+The audit's engineering-debt list was cleared on 2026-09-18. What is left:
 
-- [ ] **Vendor-invoice summary endpoint (new, found 2026-09-18)**: the four vendor-invoice
-  screens are paginated, but three of them fetch the full matching list a second time just
-  to sum money, and the approvals screen issues six `limit=1` probes to count by status —
-  because no aggregate endpoint exists. Add `GET /admin/vendor-invoices/summary` and
-  `GET /accounting/vendor-invoices/summary` returning counts by status plus total/paid/
-  outstanding sums (honouring the same `search` filter), then point the stat cards at it.
-  Until then paging saves rendering, not bytes, on those screens.
-- [ ] **`GET /accounting/invoices` ignores the opt-in pagination rule**: it paginates even
-  with no `page`/`limit`, so any caller that sends no params silently gets the first 25.
-  `TransactionHistoryView` was doing exactly that and computing totals over a truncated
-  set (fixed by making it page explicitly). Either make the endpoint opt-in like the rest,
-  or sweep the remaining callers of `api.getInvoices()` that pass no params.
-- [ ] **Native dialogs in `hr/ReturnedPaymentRequests.tsx`**: two `window.confirm`/`alert`
-  calls remain; replace with `useConfirm` / `useSnackbar` like the rest of the app.
-- [ ] **Move remaining `import * as api` (13 files) to named imports** for tree-shaking —
-  `services/api.ts` is large and the namespace import pulls it into every portal chunk.
 - [ ] **E2E flakiness on the shared host**: a dashboard check occasionally needs a retry;
-  consider extra `retries` scoped to the "dashboard loads" tests only.
+  consider extra `retries` scoped to the "dashboard loads" tests only. Test timeouts were
+  raised to 20s in both packages after 5s proved too tight under load.
 - [ ] **Backend route tests**: guard coverage exists (`routes.guards.test.ts`); add
-  `app.inject` tests for the billing lifecycle, org-billing and vendor flows.
+  `app.inject` tests for the billing lifecycle, org-billing and vendor flows. The payment
+  bug below would have been caught by one.
 - [ ] **CI action Node runtime**: `SamKirkland/FTP-Deploy-Action@v4.3.5` and
   `actions/*-artifact@v5` still target Node 20 (GitHub forces 24); update when new
   releases target 22+.
+- [ ] **Frontend `set-state-in-effect` (29 warnings)**: mostly "reset form state when a
+  dialog opens" and fetch-on-mount. Clearing them means adopting the query layer or
+  remounting via `key` — both change behaviour, so each carries a scoped disable with a
+  reason. Revisit if the query layer is adopted more widely.
+- [ ] **Split context files so Fast Refresh works (8 warnings)**: seven contexts export a
+  `useX()` hook beside their Provider. Mechanical, but rewrites 20–40 import sites each.
 
 ### Cleared 2026-09-18
-Server-side pagination (20 screens, opt-in `?page`/`limit` contract so unpaginated callers
-are unchanged) · transactions around every multi-step write in `admin.ts` and
-`instructors.ts` · PIPEDA retention job (dry-run by default, `RETENTION_ENFORCE=true` to
-act) · tax rate served from `GET /config` and applied at app start · backend bundling
-(host packages 18 → 5, only `pdfkit` needed in production) · vendor PDFs mirrored to
-object storage at upload time · context providers memoised and `SessionWarning`'s
-per-second timer replaced · native dialogs and fabricated values removed from the
-accounting and vendor screens · portal tests for all 8 portals · backend `no-explicit-any`
-0 and promoted to `error`.
+Server-side pagination (20 screens, opt-in `?page`/`limit` so unpaginated callers are
+unchanged) · vendor-invoice summary endpoint (approvals screen 7 requests → 2; the paid
+screens no longer download the whole list to sum it) · transactions around every
+multi-step write in `admin.ts` and `instructors.ts` · PIPEDA retention job (dry run unless
+`RETENTION_ENFORCE=true`) · tax rate served from `GET /config` · backend bundling (host
+packages 18 → 5; only `pdfkit` needed in production) · vendor PDFs mirrored to object
+storage at upload · context providers memoised, `SessionWarning`'s per-second timer
+removed · every native `alert()`/`window.confirm()` gone from the app · namespace
+`import * as api` removed from 12 files · portal tests for all 8 portals · backend
+`no-explicit-any` 0 and an error; frontend warnings 714 → 46, six rules promoted to error.
+
+### Bugs this work uncovered and fixed
+- **Recording an invoice payment never worked.** `RecordPaymentDialog` sent
+  `amount_paid`/`payment_method`/`reference_number`; the server's zod schema requires
+  `amount`/`paymentMethod`/`reference`, so every submission threw before reaching the
+  database. Loose typing (`Record<string, unknown>`) hid it.
+- **Accounts Receivable showed only the newest 25 invoices.** `AccountingPortal` called
+  `getInvoices()` with no arguments; that endpoint always paginates. Older unpaid invoices
+  never appeared and nothing indicated the list was partial.
+- **Organization billing showed only 10 invoices** — `/organization/invoices` defaults to
+  `limit=10` and nothing asked for more. **Transaction history** totalled only 25 rows.
+- **"Paid to date" in the payment dialog always read $0.00** (summed `amount_paid` from
+  rows that carry `amount`, and read the envelope instead of `data`).
+- **"Partially Paid" on the accounting vendor screen always read 0** — it tested
+  `paymentStatus`, which only ORGANISATION invoices carry. Now derived from payments.
+- **Payment Date and Notes in the payment dialog were collected and discarded.** The
+  `payments` table already had both columns; the endpoint now accepts them.
+- **`AuthContext`'s memoised value was defeated** by six callbacks rebuilt each render, so
+  the 40+ consumers it was meant to protect re-rendered anyway.
+- **Two render loops** (`InstructorDashboard`, `InvoiceStatsDashboard`): effects deriving
+  state from a `= []` default whose identity changed every render.
+- **Instructor dashboard Refresh wiped the whole query cache, including auth.**
+- **20 latent temporal-dead-zone references** to functions declared below their use.
+- **`useErrorHandler` held a stale closure** across four callbacks.
 
 ## 🟢 Features (unchanged from before; not started)
 

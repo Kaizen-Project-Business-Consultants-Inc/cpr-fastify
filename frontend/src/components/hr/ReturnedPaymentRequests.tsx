@@ -23,6 +23,9 @@ import StatCard from '../gtacpr/StatCard';
 import StatusChip from '../gtacpr/StatusChip';
 import DataTable, { DataTableRow } from '../gtacpr/DataTable';
 import { PrimaryButton, GhostButton } from '../gtacpr/Buttons';
+import { useConfirm } from '../gtacpr/ConfirmDialog';
+import { useSnackbar } from '../../contexts/SnackbarContext';
+import { getErrorMessage } from '../../utils/errorMessage';
 
 interface ReturnedPaymentRequest {
   id: number;
@@ -63,21 +66,47 @@ const ReturnedPaymentRequestDetailDialog: React.FC<{
   const [action, setAction] = useState<'override_approve' | 'final_reject'>('override_approve');
   const [notes, setNotes] = useState('');
   const [processing, setProcessing] = useState(false);
+  const { showSuccess, showError } = useSnackbar();
+  const { confirm, dialog: confirmDialog } = useConfirm();
 
   const handleClose = () => { onClose(); setAction('override_approve'); setNotes(''); };
 
   const handleProcessRequest = async () => {
     if (!request || !notes.trim()) {
-      alert('Notes are required when processing returned payment request.');
+      showError('Notes are required when processing a returned payment request.');
       return;
     }
+
+    const amount = `$${Number(request.amount).toFixed(2)}`;
+    const week = new Date(request.weekStartDate).toLocaleDateString();
+    const ok = await confirm(
+      action === 'override_approve'
+        ? {
+            title: 'Override accounting and approve payment?',
+            message: `This overrides the accountant's decision and approves the ${amount} payment to ${request.instructorName} for the week starting ${week}. The payment will proceed.`,
+            confirmLabel: 'Override & Approve',
+          }
+        : {
+            title: 'Issue final rejection?',
+            message: `This permanently rejects the ${amount} payment request from ${request.instructorName} for the week starting ${week}. This is the final decision and cannot be undone.`,
+            confirmLabel: 'Final Rejection',
+            danger: true,
+          }
+    );
+    if (!ok) return;
+
     setProcessing(true);
     try {
       await hrService.processReturnedPaymentRequest(request.id, action, notes.trim());
+      showSuccess(
+        action === 'override_approve'
+          ? `Payment of ${amount} to ${request.instructorName} approved`
+          : `Payment request from ${request.instructorName} finally rejected`
+      );
       if (onActionSuccess) onActionSuccess();
       handleClose();
-    } catch {
-      alert('Failed to process payment request. Please try again.');
+    } catch (err: unknown) {
+      showError(getErrorMessage(err, 'Failed to process payment request. Please try again.'));
     } finally {
       setProcessing(false);
     }
@@ -87,6 +116,7 @@ const ReturnedPaymentRequestDetailDialog: React.FC<{
 
   return (
     <Dialog open={open} onClose={handleClose} maxWidth="lg" fullWidth>
+      {confirmDialog}
       <DialogTitle sx={{ fontSize: 18, fontWeight: 700, color: (theme) => theme.palette.text.primary, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         Review Returned Payment Request
         <StatusChip kind="warning" label="RETURNED TO HR" />

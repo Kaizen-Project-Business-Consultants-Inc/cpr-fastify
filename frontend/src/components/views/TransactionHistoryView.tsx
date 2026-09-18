@@ -11,7 +11,7 @@ import {
   FormControl,
   InputLabel,
 } from '@mui/material';
-import * as api from '../../services/api';
+import { getInvoices, getOrganizations } from '../../services/api';
 import InvoiceHistoryTable from '../tables/InvoiceHistoryTable';
 import InvoiceStatsDashboard from '../dashboard/InvoiceStatsDashboard';
 import StatCard from '../gtacpr/StatCard';
@@ -62,21 +62,21 @@ const TransactionHistoryView = () => {
   // Server-paginated rows for the table.
   const grid = useServerPagination<TransactionInvoice>({
     pageSize: PAGE_SIZE,
-    fetchFn: ({ page, limit }) => api.getInvoices({ page, limit }),
+    fetchFn: ({ page, limit }) => getInvoices({ page, limit }),
     onError: (err) => logger.error('Error loading invoice history:', err),
   });
 
   // Whole-set fetch that backs the summary figures (all pages, bounded).
   const fetchAllInvoices = useCallback(async () => {
     try {
-      const first = await api.getInvoices({ page: 1, limit: SUMMARY_PAGE_SIZE });
+      const first = await getInvoices({ page: 1, limit: SUMMARY_PAGE_SIZE });
       const rows: TransactionInvoice[] = [...(first?.data ?? [])];
       const pages = first?.pagination?.pages ?? 1;
       const maxPages = Math.min(pages, Math.ceil(SUMMARY_MAX_ROWS / SUMMARY_PAGE_SIZE));
       if (maxPages > 1) {
         const rest = await Promise.all(
           Array.from({ length: maxPages - 1 }, (_, i) =>
-            api.getInvoices({ page: i + 2, limit: SUMMARY_PAGE_SIZE })
+            getInvoices({ page: i + 2, limit: SUMMARY_PAGE_SIZE })
           )
         );
         rest.forEach((r) => rows.push(...(r?.data ?? [])));
@@ -90,7 +90,7 @@ const TransactionHistoryView = () => {
 
   const fetchOrganizations = useCallback(async () => {
     try {
-      const orgData = await api.getOrganizations();
+      const orgData = await getOrganizations();
       const orgs = orgData?.data || orgData || [];
       setOrganizations(Array.isArray(orgs) ? orgs : []);
     } catch (err) {

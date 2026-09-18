@@ -140,6 +140,21 @@ export interface PricingData {
   [key: string]: unknown;
 }
 
+/**
+ * Body accepted by POST /accounting/invoices/:id/payments.
+ * Mirrors the backend zod schema exactly (billing.ts `paymentSchema`).
+ * Any other key is stripped by the server, so do not invent fields here.
+ */
+export interface InvoicePaymentData {
+  amount: number;
+  paymentMethod: string;
+  reference?: string;
+  /** YYYY-MM-DD. Omitted means the server stamps CURRENT_DATE. */
+  paymentDate?: string;
+  notes?: string;
+}
+
+/** Body accepted by POST /accounting/vendor-invoices/:id/payments (snake_case). */
 export interface PaymentData {
   amount: number | string;
   paymentDate?: string;

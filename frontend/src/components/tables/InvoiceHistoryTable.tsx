@@ -22,7 +22,7 @@ import PreviewIcon from '@mui/icons-material/Preview';
 import { formatCurrency, formatDisplayDate, applyTax } from '../../utils/formatters';
 import { useSnackbar } from '../../contexts/SnackbarContext';
 import PaymentHistoryTable from '../common/PaymentHistoryTable';
-import * as api from '../../services/api';
+import { getInvoicePayments } from '../../services/api';
 import { API_URL } from '../../config';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import PendingIcon from '@mui/icons-material/Pending';
@@ -148,7 +148,7 @@ const PaymentDetails = ({
       setIsLoading(true);
       setError('');
       try {
-        const response = await api.getInvoicePayments(Number(invoiceId));
+        const response = await getInvoicePayments(Number(invoiceId));
 
         // Ensure we have an array of payments
         let paymentsData: HistoryPayment[] = [];

@@ -149,11 +149,6 @@ const formatDate = (date: string) => formatDisplayDate(date);
 const toStatusParam = (filter: string) =>
   filter === 'pending' ? 'unpaid' : filter === 'all' ? '' : filter;
 
-const toNumber = (value: number | string | null | undefined) => {
-  const n = typeof value === 'string' ? parseFloat(value) : value;
-  return n == null || Number.isNaN(n) ? 0 : n;
-};
-
 interface InvoiceSummary {
   nonPaidCount: number;
   totalOutstanding: number;
@@ -219,23 +214,25 @@ const VendorInvoiceManagement: React.FC = () => {
 
   /**
    * The four summary cards describe EVERY invoice, in every status — they are
-   * deliberately independent of the status picker and of the page on screen.
-   * Outstanding/paid are sums the API exposes no aggregate for, so this is the
-   * unfiltered list fetched with NO `page`/`limit` (which still returns every
-   * row) rather than a subtotal of the 25 rows currently visible.
+   * deliberately independent of the status picker and of the page on screen, so
+   * the summary is asked with no `status` and no `search`.
+   *
+   * All four come from that one aggregate. "Partially Paid" used to count rows
+   * whose `paymentStatus` was 'partially_paid', but vendor invoices never carry
+   * that field (only ORGANISATION invoices compute one), so the card always read
+   * zero. The summary now derives it from the payments themselves: some money
+   * received, but less than the invoice total.
    */
   const loadSummary = useCallback(async () => {
     try {
-      const response = await api.get('/accounting/vendor-invoices');
-      const rows: VendorInvoice[] = response.data?.data ?? [];
+      const summaryResponse = await api.get('/accounting/vendor-invoices/summary');
+      const data = summaryResponse.data?.data ?? {};
+      const paidCount = Number(data.byStatus?.paid ?? 0);
       setSummary({
-        nonPaidCount: rows.filter((inv) => inv.status !== 'paid').length,
-        totalOutstanding: rows.reduce(
-          (sum, inv) => sum + (toNumber(inv.total) - toNumber(inv.totalPaid)),
-          0
-        ),
-        totalPaid: rows.reduce((sum, inv) => sum + toNumber(inv.totalPaid), 0),
-        partiallyPaidCount: rows.filter((inv) => inv.paymentStatus === 'partially_paid').length,
+        nonPaidCount: Number(data.total ?? 0) - paidCount,
+        totalOutstanding: Number(data.outstanding ?? 0),
+        totalPaid: Number(data.totalPaid ?? 0),
+        partiallyPaidCount: Number(data.partiallyPaid ?? 0),
       });
     } catch (err: unknown) {
       console.error('Error loading vendor invoice totals:', err);
@@ -286,7 +283,7 @@ const VendorInvoiceManagement: React.FC = () => {
       } else {
         setPaymentHistory([]);
       }
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Error fetching payment history:', error);
       setPaymentHistory([]);
     }
@@ -317,7 +314,7 @@ const VendorInvoiceManagement: React.FC = () => {
         if (historyResponse.success && historyResponse.data.payments) {
           setPaymentHistory(historyResponse.data.payments);
         }
-      } catch (error: any) {
+      } catch (error: unknown) {
         console.error('Error refreshing payment history:', error);
       }
 

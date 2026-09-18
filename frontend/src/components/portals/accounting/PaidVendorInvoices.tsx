@@ -80,13 +80,20 @@ const toNumber = (v: number | string | null | undefined) => {
   return n == null || Number.isNaN(n) ? 0 : n;
 };
 
+/** The slice of `GET /accounting/vendor-invoices/summary` the cards on this screen use. */
 interface PaidSummary {
-  totalAmount: number;
+  total: number;
   totalPaid: number;
-  mostRecentPayment: string;
+  paymentsProcessed: number;
+  mostRecentPaymentAt: string;
 }
 
-const emptySummary: PaidSummary = { totalAmount: 0, totalPaid: 0, mostRecentPayment: '' };
+const emptySummary: PaidSummary = {
+  total: 0,
+  totalPaid: 0,
+  paymentsProcessed: 0,
+  mostRecentPaymentAt: '',
+};
 
 const PaidVendorInvoices: React.FC = () => {
   const [selectedInvoice, setSelectedInvoice] = useState<PaidVendorInvoice | null>(null);
@@ -117,24 +124,21 @@ const PaidVendorInvoices: React.FC = () => {
   });
 
   /**
-   * Money totals for the summary cards. The endpoint has no aggregate route, so
-   * this is the same `status=paid` (+ search) query with NO `page`/`limit` —
-   * which still returns every matching row — instead of summing the page.
+   * Counts and money totals for the summary cards, aggregated by the server over
+   * the same `status=paid` (+ search) set the table pages through — one small
+   * response instead of downloading every matching row to add it up.
    */
   const loadSummary = useCallback(async () => {
     try {
-      const response = await api.get('/accounting/vendor-invoices', {
+      const response = await api.get('/accounting/vendor-invoices/summary', {
         params: { status: 'paid', ...(searchParam ? { search: searchParam } : {}) },
       });
-      const rows: PaidVendorInvoice[] = response.data?.data ?? [];
+      const data = response.data?.data ?? {};
       setSummary({
-        totalAmount: rows.reduce((sum, inv) => sum + toNumber(inv.total), 0),
-        totalPaid: rows.reduce((sum, inv) => sum + toNumber(inv.totalPaid), 0),
-        mostRecentPayment: rows.reduce((latest: string, inv) => {
-          const candidate = inv.paidAt || inv.createdAt;
-          if (!candidate) return latest;
-          return !latest || new Date(candidate) > new Date(latest) ? candidate : latest;
-        }, ''),
+        total: Number(data.total ?? 0),
+        totalPaid: Number(data.totalPaid ?? 0),
+        paymentsProcessed: Number(data.paymentsProcessed ?? 0),
+        mostRecentPaymentAt: data.mostRecentPaymentAt ?? '',
       });
     } catch (error: unknown) {
       console.error('Error loading paid vendor invoice totals:', error);
@@ -172,7 +176,7 @@ const PaidVendorInvoices: React.FC = () => {
       } else {
         setPaymentHistory([]);
       }
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Error fetching payment history:', error);
       setPaymentHistory([]);
     }
@@ -201,10 +205,10 @@ const PaidVendorInvoices: React.FC = () => {
 
       {/* Summary Cards */}
       <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'repeat(2, 1fr)', md: 'repeat(4, 1fr)' }, gap: 2 }}>
-        <StatCard label="Total Paid Invoices" value={grid.totalCount} dotColor="#16A34A" />
-        <StatCard label="Total Amount Paid" value={formatCurrency(summary.totalAmount)} dotColor="#16A34A" />
-        <StatCard label="Total Payments Processed" value={formatCurrency(summary.totalPaid)} dotColor="#0891B2" />
-        <StatCard label="Most Recent Payment" value={summary.mostRecentPayment ? formatDate(summary.mostRecentPayment) : 'N/A'} dotColor="#2563EB" />
+        <StatCard label="Total Paid Invoices" value={summary.total} dotColor="#16A34A" />
+        <StatCard label="Total Amount Paid" value={formatCurrency(summary.totalPaid)} dotColor="#16A34A" />
+        <StatCard label="Total Payments Processed" value={summary.paymentsProcessed} dotColor="#0891B2" />
+        <StatCard label="Most Recent Payment" value={summary.mostRecentPaymentAt ? formatDate(summary.mostRecentPaymentAt) : 'N/A'} dotColor="#2563EB" />
       </Box>
 
       {/* Search — matched on the server against invoice number and vendor name */}

@@ -55,6 +55,31 @@ interface RejectedInvoice {
   rejectionReason?: string;
 }
 
+/**
+ * `/accounting/invoices` always paginates (25 rows by default, `limit` capped at
+ * 200 by the backend), so a caller that filters the whole set client-side has to
+ * walk the pages. Calling `getInvoices()` with no arguments silently yields only
+ * the first 25 invoices.
+ */
+const INVOICE_PAGE_SIZE = 200;
+const INVOICE_MAX_ROWS = 10000;
+
+const fetchAllInvoices = async (): Promise<ReceivableInvoice[]> => {
+  const first = await getInvoices({ page: 1, limit: INVOICE_PAGE_SIZE });
+  const rows: ReceivableInvoice[] = [...(first?.data ?? [])];
+  const pages = first?.pagination?.pages ?? 1;
+  const maxPages = Math.min(pages, Math.ceil(INVOICE_MAX_ROWS / INVOICE_PAGE_SIZE));
+  if (maxPages > 1) {
+    const rest = await Promise.all(
+      Array.from({ length: maxPages - 1 }, (_, i) =>
+        getInvoices({ page: i + 2, limit: INVOICE_PAGE_SIZE })
+      )
+    );
+    rest.forEach((r) => rows.push(...(r?.data ?? [])));
+  }
+  return rows;
+};
+
 // Billing Ready View Component
 const ReadyForBillingView: React.FC = () => {
   const [billingQueue, setBillingQueue] = useState<BillingCourse[]>([]);
@@ -119,8 +144,8 @@ const AccountsReceivableView: React.FC = () => {
     setIsLoading(true);
     setError('');
     try {
-      const data = await getInvoices();
-      const arInvoices = (data || []).filter((invoice: ReceivableInvoice) => {
+      const data = await fetchAllInvoices();
+      const arInvoices = data.filter((invoice: ReceivableInvoice) => {
         const balanceDue = parseFloat(String(invoice.balancedue || 0));
         const paymentStatus = invoice.paymentstatus?.toLowerCase();
         const approvalStatus = invoice.approval_status?.toLowerCase();

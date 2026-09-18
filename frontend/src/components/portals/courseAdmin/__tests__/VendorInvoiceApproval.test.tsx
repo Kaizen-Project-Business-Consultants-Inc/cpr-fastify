@@ -40,9 +40,8 @@ const invoice = (overrides: Record<string, unknown> = {}) => ({
   ...overrides,
 });
 
-/** A count probe asks for a single row of one status. */
-const isCountProbe = (args: unknown[]) =>
-  (args[1] as { params?: { limit?: number } } | undefined)?.params?.limit === 1;
+/** The cards come from the aggregate endpoint, never from the list endpoint. */
+const isSummaryCall = (args: unknown[]) => String(args[0]).endsWith('/summary');
 
 const listPage = (rows: unknown[], pagination?: Record<string, number>) => ({
   data: {
@@ -52,15 +51,38 @@ const listPage = (rows: unknown[], pagination?: Record<string, number>) => ({
   },
 });
 
-const countOf = (total: number) => ({
-  data: { success: true, data: [], pagination: { page: 1, limit: 1, total, pages: total } },
+/**
+ * A whole-set aggregate deliberately unlike any page: 42 invoices in total, of
+ * which 26 are paid, while a page on screen holds at most a handful of rows.
+ */
+const summaryOf = (byStatus: Record<string, number> = {}) => ({
+  data: {
+    success: true,
+    data: {
+      total: 42,
+      byStatus: {
+        pending_submission: 4,
+        submitted_to_admin: 5,
+        submitted_to_accounting: 4,
+        rejected_by_admin: 2,
+        rejected_by_accountant: 1,
+        paid: 26,
+        ...byStatus,
+      },
+      totalAmount: 50000,
+      totalPaid: 41000,
+      outstanding: 9000,
+      paymentsProcessed: 58,
+      mostRecentPaymentAt: '2026-09-17T14:02:00.000Z',
+    },
+  },
 });
 
 describe('VendorInvoiceApproval', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockGet.mockImplementation((...args: unknown[]) =>
-      Promise.resolve(isCountProbe(args) ? countOf(4) : listPage([invoice()]))
+      Promise.resolve(isSummaryCall(args) ? summaryOf() : listPage([invoice()]))
     );
   });
 
@@ -81,15 +103,49 @@ describe('VendorInvoiceApproval', () => {
     expect(screen.getAllByText('Rescue Supply Co').length).toBeGreaterThan(0);
   });
 
-  it('counts the stat cards from the whole set, not the page', async () => {
+  it('counts the stat cards from the summary, not from the rows on the page', async () => {
+    mockGet.mockImplementation((...args: unknown[]) =>
+      Promise.resolve(
+        isSummaryCall(args)
+          ? summaryOf()
+          : listPage([
+              invoice(),
+              invoice({ id: 4, invoiceNumber: 'VI-3002' }),
+              invoice({ id: 5, invoiceNumber: 'VI-3003' }),
+            ])
+      )
+    );
     render(<VendorInvoiceApproval />);
 
-    // Every status probe reports 4 matching rows; "Rejected" sums the two
-    // rejected statuses, so it shows 8 while a single page holds one row.
-    expect(await screen.findByText('8')).toBeInTheDocument();
+    // The page holds three rows, but Paid reads the whole-set 26, Submitted to
+    // Admin reads 5, and Rejected sums the two rejected statuses (2 + 1 = 3).
+    expect(await screen.findByText('26')).toBeInTheDocument();
+    expect(screen.getByText('5')).toBeInTheDocument();
+    expect(screen.getByText('3')).toBeInTheDocument();
+  });
+
+  it('asks the summary once, with no status and no search', async () => {
+    render(<VendorInvoiceApproval />);
+
     await waitFor(() =>
-      expect(mockGet).toHaveBeenCalledWith('/admin/vendor-invoices', {
-        params: { status: 'paid', page: 1, limit: 1 },
+      expect(mockGet).toHaveBeenCalledWith('/admin/vendor-invoices/summary', { params: {} })
+    );
+    const summaryCalls = mockGet.mock.calls.filter((args) => isSummaryCall(args));
+    expect(summaryCalls).toHaveLength(1);
+  });
+
+  it('narrows the summary with the same search text as the table', async () => {
+    render(<VendorInvoiceApproval />);
+    expect(await screen.findByText('VI-3001')).toBeInTheDocument();
+
+    fireEvent.change(
+      screen.getByPlaceholderText('Search vendor invoices by invoice # or vendor'),
+      { target: { value: 'rescue' } }
+    );
+
+    await waitFor(() =>
+      expect(mockGet).toHaveBeenCalledWith('/admin/vendor-invoices/summary', {
+        params: { search: 'rescue' },
       })
     );
   });
@@ -97,8 +153,8 @@ describe('VendorInvoiceApproval', () => {
   it('requests page 2 when Next is clicked', async () => {
     mockGet.mockImplementation((...args: unknown[]) =>
       Promise.resolve(
-        isCountProbe(args)
-          ? countOf(4)
+        isSummaryCall(args)
+          ? summaryOf()
           : listPage([invoice()], { page: 1, limit: 25, total: 40, pages: 2 })
       )
     );
@@ -107,8 +163,8 @@ describe('VendorInvoiceApproval', () => {
 
     mockGet.mockImplementation((...args: unknown[]) =>
       Promise.resolve(
-        isCountProbe(args)
-          ? countOf(4)
+        isSummaryCall(args)
+          ? summaryOf()
           : listPage([invoice({ id: 4, invoiceNumber: 'VI-3002' })], {
               page: 2,
               limit: 25,

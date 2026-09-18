@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import * as api from '../../services/api';
+import { addPricingRule, getCourseTypes, getOrganizations, updatePricingRule } from '../../services/api';
 import {
   Dialog,
   DialogTitle,
@@ -68,8 +68,8 @@ function PricingRuleDialog({ open, onClose, onSave, rule }: PricingRuleDialogPro
     setLoadingLists(true);
     try {
       const [orgData, typeData] = await Promise.all([
-        api.getOrganizations(),
-        api.getCourseTypes(),
+        getOrganizations(),
+        getCourseTypes(),
       ]);
       setOrganizations(orgData || []);
       setCourseTypes(typeData || []);
@@ -158,9 +158,9 @@ function PricingRuleDialog({ open, onClose, onSave, rule }: PricingRuleDialogPro
 
       if (isEditMode && rule) {
         // Update pricing rule with new data
-        await api.updatePricingRule(rule.pricingid, dataToSend);
+        await updatePricingRule(rule.pricingid, dataToSend);
       } else {
-        await api.addPricingRule(dataToSend);
+        await addPricingRule(dataToSend);
       }
       onSave();
       onClose();

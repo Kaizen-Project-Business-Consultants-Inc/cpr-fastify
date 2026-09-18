@@ -38,6 +38,11 @@ const paymentSchema = z.object({
   amount: z.number().positive(),
   paymentMethod: z.string().min(1),
   reference: z.string().optional(),
+  // Optional so existing callers are unaffected. The payments table already carries
+  // both columns (the organisation payment flow writes them); without these the
+  // accounting dialog's Payment Date and Notes inputs were collected and discarded.
+  paymentDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Use YYYY-MM-DD').optional(),
+  notes: z.string().max(1000).optional(),
 });
 
 function handleError(err: unknown, reply: FastifyReply) {
@@ -200,9 +205,9 @@ export async function billingRoutes(app: FastifyInstance) {
 
   app.post('/invoices/:id/payments', { preHandler: acctRole }, async (request, reply) => {
     const { id } = request.params as { id: string };
-    const { amount, paymentMethod, reference } = paymentSchema.parse(request.body);
+    const { amount, paymentMethod, reference, paymentDate, notes } = paymentSchema.parse(request.body);
     try {
-      const payment = await service.recordPayment(parseInt(id), amount, paymentMethod, reference);
+      const payment = await service.recordPayment(parseInt(id), amount, paymentMethod, reference, { paymentDate, notes });
       return { success: true, message: 'Payment recorded', data: payment };
     } catch (err) { return handleError(err, reply); }
   });

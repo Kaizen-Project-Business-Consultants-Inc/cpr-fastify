@@ -58,8 +58,13 @@ const invoice = (overrides: Record<string, unknown> = {}) => ({
   ...overrides,
 });
 
-/** The summary call passes no options at all, so it gets the full list back. */
-const isSummaryCall = (args: unknown[]) => args.length === 1;
+const isSummaryCall = (args: unknown[]) => String(args[0]).endsWith('/summary');
+
+/** The one remaining row fetch: non-paid invoices, read only for `paymentStatus`. */
+const isUnpaidRowsCall = (args: unknown[]) => {
+  const params = (args[1] as { params?: Record<string, unknown> } | undefined)?.params;
+  return !isSummaryCall(args) && params?.status === 'unpaid' && params?.page === undefined;
+};
 
 const listPage = (rows: unknown[], pagination?: Record<string, number>) => ({
   data: {
@@ -69,23 +74,53 @@ const listPage = (rows: unknown[], pagination?: Record<string, number>) => ({
   },
 });
 
-/** Three invoices exist overall; two of them are not yet paid. */
-const everyInvoice = {
+/**
+ * The whole-set aggregate: 42 invoices, 26 of them paid, so "Pending Invoices
+ * (Non-Paid)" must read 16 no matter what the table is filtered to.
+ */
+const summary = {
+  data: {
+    success: true,
+    data: {
+      total: 42,
+      partiallyPaid: 2,
+      byStatus: {
+        pending_submission: 3,
+        submitted_to_admin: 5,
+        submitted_to_accounting: 6,
+        rejected_by_admin: 1,
+        rejected_by_accountant: 1,
+        paid: 26,
+      },
+      totalAmount: 50000,
+      totalPaid: 41000,
+      outstanding: 9000,
+      paymentsProcessed: 58,
+      mostRecentPaymentAt: '2026-09-17T14:02:00.000Z',
+    },
+  },
+};
+
+/** Two of the non-paid invoices carry a partial payment. */
+const unpaidRows = {
   data: {
     success: true,
     data: [
-      invoice(),
-      invoice({ id: 12, invoiceNumber: 'VI-2002' }),
-      invoice({ id: 13, invoiceNumber: 'VI-2003', status: 'paid', totalPaid: 226, balanceDue: 0 }),
+      invoice({ paymentStatus: 'partially_paid', totalPaid: 100, balanceDue: 126 }),
+      invoice({ id: 12, invoiceNumber: 'VI-2002', paymentStatus: 'partially_paid' }),
+      invoice({ id: 13, invoiceNumber: 'VI-2003' }),
     ],
   },
 };
+
+const respond = (args: unknown[]) =>
+  isSummaryCall(args) ? summary : isUnpaidRowsCall(args) ? unpaidRows : null;
 
 describe('accounting VendorInvoiceManagement', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockGet.mockImplementation((...args: unknown[]) =>
-      Promise.resolve(isSummaryCall(args) ? everyInvoice : listPage([invoice()]))
+      Promise.resolve(respond(args) ?? listPage([invoice()]))
     );
   });
 
@@ -100,20 +135,64 @@ describe('accounting VendorInvoiceManagement', () => {
     expect(await screen.findByText('VI-2001')).toBeInTheDocument();
   });
 
-  it('shows the non-paid count on the Pending Invoices card, not every invoice', async () => {
+  it('takes the stat cards from the summary, not from the rows on the page', async () => {
+    mockGet.mockImplementation((...args: unknown[]) =>
+      Promise.resolve(
+        respond(args) ??
+          listPage(
+            [
+              invoice(),
+              invoice({ id: 21, invoiceNumber: 'VI-2021' }),
+              invoice({ id: 22, invoiceNumber: 'VI-2022' }),
+            ],
+            { page: 1, limit: 25, total: 16, pages: 1 }
+          )
+      )
+    );
     render(<VendorInvoiceManagement />);
 
-    // Three invoices exist, two are non-paid — the card must read 2.
-    await waitFor(() => expect(screen.getByText('2')).toBeInTheDocument());
-    expect(screen.queryByText('3')).not.toBeInTheDocument();
+    // Three rows on the page, but 42 invoices exist of which 26 are paid, so the
+    // Pending card reads 16 and the money cards read the whole-set aggregates.
+    expect(await screen.findByText('16')).toBeInTheDocument();
+    expect(screen.getByText('$9,000.00')).toBeInTheDocument();
+    expect(screen.getByText('$41,000.00')).toBeInTheDocument();
+    // Partially Paid now comes from the summary (vendor invoices carry no paymentStatus).
+    expect(screen.getByText('2')).toBeInTheDocument();
+  });
+
+  it('asks the summary for every invoice, with no status and no search', async () => {
+    render(<VendorInvoiceManagement />);
+
+    await waitFor(() =>
+      expect(mockGet).toHaveBeenCalledWith('/accounting/vendor-invoices/summary')
+    );
+    // Every card comes from that one aggregate now — no extra row fetch for the
+    // partial-payment count.
+    expect(mockGet).not.toHaveBeenCalledWith('/accounting/vendor-invoices', {
+      params: { status: 'unpaid' },
+    });
+  });
+
+  it('keeps the cards whole-set when the table is narrowed to one status', async () => {
+    render(<VendorInvoiceManagement />);
+    expect(await screen.findByText('VI-2001')).toBeInTheDocument();
+    expect(screen.getByText('16')).toBeInTheDocument();
+
+    fireEvent.mouseDown(screen.getByRole('combobox'));
+    fireEvent.click(screen.getByRole('option', { name: 'Invoices Paid' }));
+
+    await waitFor(() =>
+      expect(mockGet).toHaveBeenCalledWith('/accounting/vendor-invoices', {
+        params: { page: 1, limit: 25, status: 'paid' },
+      })
+    );
+    expect(screen.getByText('16')).toBeInTheDocument();
   });
 
   it('requests page 2 when Next is clicked', async () => {
     mockGet.mockImplementation((...args: unknown[]) =>
       Promise.resolve(
-        isSummaryCall(args)
-          ? everyInvoice
-          : listPage([invoice()], { page: 1, limit: 25, total: 30, pages: 2 })
+        respond(args) ?? listPage([invoice()], { page: 1, limit: 25, total: 30, pages: 2 })
       )
     );
     render(<VendorInvoiceManagement />);
@@ -121,14 +200,13 @@ describe('accounting VendorInvoiceManagement', () => {
 
     mockGet.mockImplementation((...args: unknown[]) =>
       Promise.resolve(
-        isSummaryCall(args)
-          ? everyInvoice
-          : listPage([invoice({ id: 14, invoiceNumber: 'VI-2099' })], {
-              page: 2,
-              limit: 25,
-              total: 30,
-              pages: 2,
-            })
+        respond(args) ??
+          listPage([invoice({ id: 14, invoiceNumber: 'VI-2099' })], {
+            page: 2,
+            limit: 25,
+            total: 30,
+            pages: 2,
+          })
       )
     );
     fireEvent.click(screen.getByRole('button', { name: 'Next' }));

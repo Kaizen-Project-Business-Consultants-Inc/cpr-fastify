@@ -18,16 +18,11 @@ import {
 } from '@mui/material';
 import Typography from '@mui/material/Typography';
 import type { SelectChangeEvent } from '@mui/material';
-import * as api from '../../services/api'; // Adjust path as needed
+import { getInvoicePayments } from '../../services/api';
 import logger from '../../utils/logger';
 import { recordPayment } from '../../services/paymentService';
+import { getTodayDate, formatCurrency } from '../../utils/formatters';
 import { getErrorMessage } from '../../utils/errorMessage';
-
-// Helper function to format currency
-const formatCurrency = (amount: number | string | null | undefined) => {
-  if (amount == null || isNaN(Number(amount))) return '$0.00'; // Default to 0 if null/NaN
-  return `$${parseFloat(String(amount)).toFixed(2)}`;
-};
 
 export interface PaymentDialogInvoice {
   invoiceid: number;
@@ -51,7 +46,7 @@ const RecordPaymentDialog = ({
   onError,
 }: RecordPaymentDialogProps) => {
   const [paymentData, setPaymentData] = useState({
-    paymentDate: new Date().toISOString().split('T')[0], // Default to today
+    paymentDate: getTodayDate(), // Default to today (local date, not UTC)
     amountPaid: '',
     paymentMethod: '', // e.g., Check, EFT, Credit Card
     referenceNumber: '', // e.g., Check #, Transaction ID
@@ -97,6 +92,12 @@ const RecordPaymentDialog = ({
       setIsSubmitting(false);
       return;
     }
+    // The server requires a payment method (zod: `paymentMethod: string().min(1)`).
+    if (!paymentData.paymentMethod) {
+      setError('Please select a payment method.');
+      setIsSubmitting(false);
+      return;
+    }
     if (!invoice?.invoiceid) {
       setError('No invoice selected.');
       setIsSubmitting(false);
@@ -106,16 +107,16 @@ const RecordPaymentDialog = ({
     try {
       logger.info(`Recording payment for invoice: ${invoice?.invoiceid}`);
       
-      const paymentPayload = {
-        amount_paid: amount,
-        payment_date: paymentData.paymentDate,
-        payment_method: paymentData.paymentMethod,
-        reference_number: paymentData.referenceNumber,
-        notes: paymentData.notes,
-      };
-      
-      
-      await recordPayment(invoice.invoiceid, paymentPayload);
+      // Field names mirror the server's zod schema (see InvoicePaymentData).
+      // Date and notes are recorded as entered; omitting the date would make the
+      // server stamp today instead.
+      await recordPayment(invoice.invoiceid, {
+        amount,
+        paymentMethod: paymentData.paymentMethod,
+        reference: paymentData.referenceNumber || undefined,
+        paymentDate: paymentData.paymentDate || undefined,
+        notes: paymentData.notes || undefined,
+      });
       
       logger.info(`Payment recorded successfully for invoice: ${invoice?.invoiceid}`);
       onSuccess(paymentData.notes || 'Payment recorded successfully.'); // Notify parent
@@ -135,7 +136,7 @@ const RecordPaymentDialog = ({
     if (open && invoice?.invoiceid) {
       // Reset form state
       setPaymentData({
-        paymentDate: new Date().toISOString().split('T')[0],
+        paymentDate: getTodayDate(),
         amountPaid: '',
         paymentMethod: '',
         referenceNumber: '',
@@ -148,9 +149,14 @@ const RecordPaymentDialog = ({
       const fetchPaymentSummary = async () => {
         setIsLoadingSummary(true);
         try {
-          const payments = await api.getInvoicePayments(invoice.invoiceid);
-          const totalPaid = payments.reduce(
-            (sum: number, p: { amount_paid?: number | string }) => sum + parseFloat(String(p.amount_paid || 0)),
+          // GET /accounting/invoices/:id/payments returns { success, data: rows }
+          // and the rows are raw `payments` columns, so the amount is `amount`.
+          const response = await getInvoicePayments(invoice.invoiceid);
+          const rows: Array<{ amount?: number | string }> = Array.isArray(response)
+            ? response
+            : (response?.data ?? []);
+          const totalPaid = rows.reduce(
+            (sum: number, p) => sum + parseFloat(String(p.amount || 0)),
             0
           );
           const originalAmount = parseFloat(String(invoice.amount || 0));

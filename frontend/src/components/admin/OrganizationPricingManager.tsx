@@ -11,7 +11,7 @@ import {
   Snackbar,
 } from '@mui/material';
 import OrganizationPricingDialog from './OrganizationPricingDialog';
-import * as api from '../../services/api';
+import { deleteCoursePricing, getClassTypes, getCoursePricing, getOrganizations } from '../../services/api';
 import logger from '../../utils/logger';
 import DataTable, { DataTableRow } from '../gtacpr/DataTable';
 import StatusChip from '../gtacpr/StatusChip';
@@ -67,7 +67,7 @@ function OrganizationPricingManager() {
     setError('');
     try {
       const [pricingResponse, orgsResponse, typesResponse] = await Promise.all([
-        api.getCoursePricing(), api.getOrganizations(), api.getClassTypes(),
+        getCoursePricing(), getOrganizations(), getClassTypes(),
       ]);
       setPricingData(Array.isArray(pricingResponse) ? pricingResponse : []);
       setOrganizations(Array.isArray(orgsResponse) ? orgsResponse : []);
@@ -98,7 +98,7 @@ function OrganizationPricingManager() {
     if (ok) {
       try {
         setError('');
-        await api.deleteCoursePricing(id);
+        await deleteCoursePricing(id);
         setPricingData(pricingData.filter(p => p.id !== id));
         showSnackbar('Pricing record deleted successfully.', 'success');
       } catch (err: unknown) {

@@ -74,9 +74,9 @@ interface PaymentHistory {
 
 /**
  * The five stat cards are counts over EVERY invoice in a status, not over the
- * page on screen. `GET /admin/vendor-invoices` applies `status` to its COUNT as
- * well as its data query, so asking for one row of each status and reading
- * `pagination.total` gives the whole-set count without pulling the rows.
+ * page on screen. `GET /admin/vendor-invoices/summary` answers all six counts in
+ * one request, honouring the same `search` filter as the list, so the cards and
+ * the table always describe the same set.
  */
 const COUNTED_STATUSES = [
   'pending_submission',
@@ -88,6 +88,12 @@ const COUNTED_STATUSES = [
 ] as const;
 
 type StatusCounts = Record<(typeof COUNTED_STATUSES)[number], number>;
+
+/** Shape of `GET /admin/vendor-invoices/summary` — only `byStatus` is used here. */
+interface VendorInvoiceSummary {
+  total: number;
+  byStatus: Partial<StatusCounts>;
+}
 
 const emptyCounts: StatusCounts = {
   pending_submission: 0,
@@ -145,20 +151,21 @@ const VendorInvoiceApproval: React.FC = () => {
     },
   });
 
+  /**
+   * One request for all five cards. No `status` is sent — the summary returns a
+   * count per status in `byStatus` — but the current `search` is, so narrowing
+   * the search narrows the cards exactly as it narrows the table.
+   */
   const loadCounts = useCallback(async () => {
     try {
-      const totals = await Promise.all(
-        COUNTED_STATUSES.map((status) =>
-          api
-            .get('/admin/vendor-invoices', {
-              params: { status, page: 1, limit: 1, ...(searchParam ? { search: searchParam } : {}) },
-            })
-            .then((r) => Number(r.data?.pagination?.total ?? r.data?.data?.length ?? 0))
-        )
-      );
+      const response = await api.get('/admin/vendor-invoices/summary', {
+        params: { ...(searchParam ? { search: searchParam } : {}) },
+      });
+      const byStatus: Partial<StatusCounts> =
+        (response.data?.data as VendorInvoiceSummary | undefined)?.byStatus ?? {};
       setCounts(
         COUNTED_STATUSES.reduce(
-          (acc, status, i) => ({ ...acc, [status]: totals[i] }),
+          (acc, status) => ({ ...acc, [status]: Number(byStatus[status] ?? 0) }),
           {} as StatusCounts
         )
       );
@@ -211,7 +218,7 @@ const VendorInvoiceApproval: React.FC = () => {
       } else {
         setPaymentHistory([]);
       }
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Error fetching payment history:', error);
       setPaymentHistory([]);
     }
@@ -243,7 +250,7 @@ const VendorInvoiceApproval: React.FC = () => {
       setSelectedInvoice(null);
       setNotes('');
       logger.info(`Vendor invoice ${action}d successfully`);
-    } catch (err: any) {
+    } catch (err: unknown) {
       logger.error(`Error ${action}ing vendor invoice:`, err);
       setError(`Failed to ${action} invoice`);
     } finally {
@@ -263,7 +270,7 @@ const VendorInvoiceApproval: React.FC = () => {
       link.click();
       document.body.removeChild(link);
       window.URL.revokeObjectURL(url);
-    } catch (err: any) {
+    } catch (err: unknown) {
       logger.error('Error downloading invoice:', err);
       setError('Failed to download invoice');
     }
@@ -281,7 +288,7 @@ const VendorInvoiceApproval: React.FC = () => {
       });
       reloadCurrentPage();
       logger.info('Notes saved successfully');
-    } catch (err: any) {
+    } catch (err: unknown) {
       logger.error('Error saving notes:', err);
       setError('Failed to save notes');
     } finally {

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import * as api from '../../services/api';
+import { api, getUsers } from '../../services/api';
 import { Box, Typography, CircularProgress, Alert, Snackbar } from '@mui/material';
 import UserDialog from './UserDialog';
 import { formatPhoneNumber } from 'react-phone-number-input';
@@ -59,7 +59,7 @@ function UserManager() {
     setLoading(true);
     setError('');
     try {
-      const data = await api.getUsers();
+      const data = await getUsers();
       setUsers(data || []);
     } catch (err) {
       logger.error('Error fetching users:', err);
@@ -88,7 +88,7 @@ function UserManager() {
     });
     if (!ok) return;
     try {
-      await api.api.put(`/sysadmin/users/${user.userId}`, { status: 'inactive' });
+      await api.put(`/sysadmin/users/${user.userId}`, { status: 'inactive' });
       showSnackbar(`${label} deactivated.`, 'success');
       fetchUsers();
     } catch (err) {
