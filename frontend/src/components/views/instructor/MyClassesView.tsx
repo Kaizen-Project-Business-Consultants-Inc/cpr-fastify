@@ -103,11 +103,13 @@ const MyClassesView: React.FC<MyClassesViewProps> = ({
 
   const handleDeleteCancel = () => { if (!removing) setDeleteDialog({ open: false, date: '' }); };
 
+  /** An instructor cannot cancel availability 5 days or less before the date
+   *  (enforced server-side too — see instructors.ts DELETE /availability/:date). */
   const isDateTooClose = (date: string) => {
     const today = new Date();
     const targetDate = new Date(date);
     const diffDays = Math.ceil((targetDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
-    return diffDays < 11;
+    return diffDays <= 5;
   };
 
   return (
@@ -148,7 +150,8 @@ const MyClassesView: React.FC<MyClassesViewProps> = ({
         <DialogContent>
           <DialogContentText sx={{ fontSize: 14, color: (theme) => theme.palette.text.secondary }}>
             Are you sure you want to remove your availability for {formatDisplayDate(deleteDialog.date)}?
-            {isDateTooClose(deleteDialog.date) && ' This date is less than 11 days away and cannot be modified.'}
+            {isDateTooClose(deleteDialog.date) &&
+              ' Availability cannot be cancelled 5 days or less before the date. Contact your administrator if you need to cancel.'}
           </DialogContentText>
         </DialogContent>
         <DialogActions sx={{ p: 2 }}>
