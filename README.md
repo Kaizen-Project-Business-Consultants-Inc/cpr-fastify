@@ -144,9 +144,9 @@ See `ROLLBACK.md` for reverting.
 
 - `docs/AUDIT_2026-09-17.md` — full audit (security, links, dead code, API contract, usability, performance, tests/CI)
 - `docs/ACTION_PLAN_2026-09-17.md` — the phased plan and its status
-- `docs/Incident_Response.md`, `docs/Customer_Onboarding.md`, `docs/Customer_Offboarding.md`, `docs/Production_Cutover.md`
+- `docs/Incident_Response.md`, `docs/Customer_Onboarding.md`, `docs/Customer_Offboarding.md`
 - `docs/Program Documentation/` — architecture, deployment, DR, security, PIPEDA SOP, MSA/DPA, user guide
-- `docs/archive/` — superseded June 2026 reviews and UAT tooling
+- `docs/archive/` — superseded June 2026 reviews, the Express→Fastify cutover record, and UAT tooling
 
 ## License
 
