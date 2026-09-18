@@ -4,7 +4,7 @@
 **App**: https://cpr.kpbc.ca (Production), https://stagecprapp.kpbc.ca (Staging)
 **Repo**: https://github.com/Kaizenpbc/cpr-fastify
 
-This guide covers **routine deployments** of the CPR Training Management System. For the one-time Express-to-Fastify migration, see `docs/Production_Cutover.md`.
+This guide covers **routine deployments** of the CPR Training Management System.
 
 ---
 
