@@ -4,6 +4,12 @@ import { getPool } from '../config/database.js';
 import { requireAuth, requireRole } from '../plugins/auth.js';
 import { logger } from '../config/logger.js';
 import { toCSV } from '../utils/csv.js';
+import { maybePaginate, rowsOf, metaOf } from '../utils/pagination.js';
+import type { RowDataPacket, ResultSetHeader } from 'mysql2/promise';
+import type { InvoicePDFData, PaymentPDFData } from '../services/PDFService.js';
+
+/** One row of the attendance list embedded in an invoice PDF. */
+type AttendanceRow = NonNullable<InvoicePDFData['attendance_list']>[number];
 
 const INVOICE_SORT_COLS = new Set(['created_at', 'due_date', 'amount', 'status', 'invoice_date', 'invoice_number']);
 const PAID_SORT_COLS = new Set(['paid_date', 'created_at', 'amount', 'invoice_number']);
@@ -36,7 +42,7 @@ export async function orgBillingRoutes(app: FastifyInstance) {
     // Exclude fully paid invoices from AR
     where += " AND (i.status != 'paid' AND (i.base_cost + i.tax_amount - COALESCE((SELECT SUM(amount) FROM payments WHERE invoice_id = i.id AND status = 'verified'), 0)) > 0)";
 
-    const [rows] = await pool.query<any[]>(
+    const [rows] = await pool.query<RowDataPacket[]>(
       `SELECT i.id, i.invoice_number, i.created_at as invoice_date, i.due_date, i.amount,
               i.status, i.students_billed, i.paid_date,
               cr.location, ct.name as course_type_name, cr.completed_at as course_date,
@@ -62,7 +68,7 @@ export async function orgBillingRoutes(app: FastifyInstance) {
       [...params, safeLimit, offset]
     );
 
-    const [countRows] = await pool.query<any[]>(
+    const [countRows] = await pool.query<RowDataPacket[]>(
       `SELECT COUNT(DISTINCT i.id) as total FROM invoice_with_breakdown i
        LEFT JOIN course_requests cr ON i.course_request_id = cr.id ${where}`,
       params
@@ -80,7 +86,7 @@ export async function orgBillingRoutes(app: FastifyInstance) {
 
   // ===== Organization: Export invoices CSV =====
   app.get('/organization/invoices/export/csv', { preHandler: orgRole }, async (request, reply) => {
-    const [rows] = await pool.query<any[]>(
+    const [rows] = await pool.query<RowDataPacket[]>(
       `SELECT i.invoice_number, i.created_at as invoice_date, i.due_date,
               ct.name as course_type, i.students_billed,
               i.base_cost, i.tax_amount,
@@ -118,7 +124,7 @@ export async function orgBillingRoutes(app: FastifyInstance) {
   app.get('/organization/invoices/:id', { preHandler: orgRole }, async (request, reply) => {
     const { id } = request.params as { id: string };
 
-    const [rows] = await pool.query<any[]>(
+    const [rows] = await pool.query<RowDataPacket[]>(
       `SELECT i.id, i.invoice_number, i.created_at as invoice_date, i.due_date, i.amount,
               i.status, i.students_billed, i.paid_date,
               o.name as organization_name, o.contact_email, o.contact_phone, o.address,
@@ -145,7 +151,7 @@ export async function orgBillingRoutes(app: FastifyInstance) {
     );
     if (rows.length === 0) return reply.status(404).send({ error: 'Invoice not found' });
 
-    const [paymentRows] = await pool.query<any[]>(
+    const [paymentRows] = await pool.query<RowDataPacket[]>(
       `SELECT id, invoice_id, amount as amount_paid, payment_date, payment_method,
               reference_number, notes, status, created_at,
               submitted_by_org_at, verified_by_accounting_at, reversed_at, reversed_by
@@ -161,10 +167,10 @@ export async function orgBillingRoutes(app: FastifyInstance) {
   app.get('/organization/invoices/:id/payments', { preHandler: orgRole }, async (request, reply) => {
     const { id } = request.params as { id: string };
 
-    const [check] = await pool.query<any[]>('SELECT id FROM invoices WHERE id = ? AND organization_id = ?', [id, request.userOrgId]);
+    const [check] = await pool.query<RowDataPacket[]>('SELECT id FROM invoices WHERE id = ? AND organization_id = ?', [id, request.userOrgId]);
     if (check.length === 0) return reply.status(404).send({ error: 'Invoice not found' });
 
-    const [rows] = await pool.query<any[]>(
+    const [rows] = await pool.query<RowDataPacket[]>(
       `SELECT id, invoice_id, amount as amount_paid, payment_date, payment_method,
               reference_number, notes, status, created_at,
               submitted_by_org_at, verified_by_accounting_at, reversed_at, reversed_by
@@ -179,7 +185,7 @@ export async function orgBillingRoutes(app: FastifyInstance) {
     const { id } = request.params as { id: string };
     const { payment_amount = '0' } = request.query as Record<string, string>;
 
-    const [rows] = await pool.query<any[]>(
+    const [rows] = await pool.query<RowDataPacket[]>(
       `SELECT i.id, i.invoice_number, i.amount, i.status, i.base_cost, i.tax_amount,
               COALESCE(SUM(CASE WHEN p.status = 'verified' THEN p.amount ELSE 0 END), 0) as verified_payments,
               COALESCE(SUM(CASE WHEN p.status = 'pending_verification' THEN p.amount ELSE 0 END), 0) as pending_payments
@@ -219,11 +225,11 @@ export async function orgBillingRoutes(app: FastifyInstance) {
   // ===== Calculate balance (any authenticated user) =====
   app.get('/invoices/:id/calculate-balance', { preHandler: [requireAuth] }, async (request, reply) => {
     const { id } = request.params as { id: string };
-    const rawAmount = parseFloat((request.query as any).amount);
+    const rawAmount = parseFloat(String((request.query as { amount?: string }).amount));
     if (isNaN(rawAmount) || rawAmount < 0 || rawAmount > 9999999) return reply.status(400).send({ error: 'Invalid payment amount' });
 
     const isOrgUser = request.userRole === 'organization';
-    const [rows] = await pool.query<any[]>(
+    const [rows] = await pool.query<RowDataPacket[]>(
       `SELECT i.id, i.amount, i.status, i.organization_id,
               COALESCE(SUM(CASE WHEN p.status = 'verified' THEN p.amount ELSE 0 END), 0) as verified_payments,
               COALESCE(SUM(CASE WHEN p.status = 'pending_verification' THEN p.amount ELSE 0 END), 0) as pending_payments
@@ -264,7 +270,7 @@ export async function orgBillingRoutes(app: FastifyInstance) {
     const data = paymentSubmissionSchema.parse(request.body);
 
     // Verify invoice belongs to org and get balance
-    const [invRows] = await pool.query<any[]>(
+    const [invRows] = await pool.query<RowDataPacket[]>(
       `SELECT i.id, i.amount, i.status, i.organization_id,
               COALESCE(SUM(CASE WHEN p.status = 'verified' THEN p.amount ELSE 0 END), 0) as verified_payments,
               COALESCE(SUM(CASE WHEN p.status = 'pending_verification' THEN p.amount ELSE 0 END), 0) as pending_payments
@@ -289,7 +295,7 @@ export async function orgBillingRoutes(app: FastifyInstance) {
     if (inv.status === 'paid') return reply.status(400).send({ error: 'Invoice is already marked as paid.' });
 
     // Idempotency: prevent duplicate within 60s
-    const [dups] = await pool.query<any[]>(
+    const [dups] = await pool.query<RowDataPacket[]>(
       `SELECT id FROM payments WHERE invoice_id = ? AND amount = ? AND status = 'pending_verification' AND created_at > NOW() - INTERVAL 60 SECOND LIMIT 1`,
       [id, data.amount]
     );
@@ -300,7 +306,7 @@ export async function orgBillingRoutes(app: FastifyInstance) {
       await conn.beginTransaction();
 
       // Lock the invoice row to prevent concurrent overpayment
-      const [lockedRows] = await conn.query<any[]>(
+      const [lockedRows] = await conn.query<RowDataPacket[]>(
         `SELECT i.id, i.amount, i.status,
                 COALESCE(SUM(CASE WHEN p.status IN ('verified', 'pending_verification') THEN p.amount ELSE 0 END), 0) as total_submitted
          FROM invoices i LEFT JOIN payments p ON i.id = p.invoice_id
@@ -318,7 +324,7 @@ export async function orgBillingRoutes(app: FastifyInstance) {
         return reply.status(400).send({ error: `Payment amount ($${data.amount.toFixed(2)}) exceeds outstanding balance ($${lockedOutstanding.toFixed(2)}).` });
       }
 
-      const [payResult] = await conn.query<any>(
+      const [payResult] = await conn.query<ResultSetHeader>(
         `INSERT INTO payments (invoice_id, amount, payment_date, payment_method, reference_number, notes, status, submitted_by_org_at)
          VALUES (?, ?, ?, ?, ?, ?, 'pending_verification', NOW())`,
         [id, data.amount, data.payment_date ?? new Date().toISOString().split('T')[0], data.payment_method, data.reference_number ?? null, data.notes ?? null]
@@ -350,7 +356,7 @@ export async function orgBillingRoutes(app: FastifyInstance) {
 
   // ===== Organization: Billing summary =====
   app.get('/organization/billing-summary', { preHandler: orgRole }, async (request) => {
-    const [summaryRows] = await pool.query<any[]>(
+    const [summaryRows] = await pool.query<RowDataPacket[]>(
       `SELECT
          COUNT(*) as total_invoices,
          COUNT(CASE WHEN CASE WHEN COALESCE(payments.total_paid, 0) >= (i.base_cost + i.tax_amount) THEN 'paid' WHEN CURRENT_DATE > i.due_date THEN 'overdue' ELSE 'pending' END = 'pending' THEN 1 END) as pending_invoices,
@@ -367,7 +373,7 @@ export async function orgBillingRoutes(app: FastifyInstance) {
       [request.userOrgId]
     );
 
-    const [recentRows] = await pool.query<any[]>(
+    const [recentRows] = await pool.query<RowDataPacket[]>(
       `SELECT i.id as invoice_id, i.invoice_number, i.created_at as invoice_date, i.due_date,
               i.base_cost + i.tax_amount as amount, i.status, ct.name as course_type_name, cr.location
        FROM invoice_with_breakdown i
@@ -390,7 +396,7 @@ export async function orgBillingRoutes(app: FastifyInstance) {
     const safeSortBy = PAID_SORT_COLS.has(sort_by) ? sort_by : 'paid_date';
     const safeSortOrder = sort_order?.toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
 
-    const [rows] = await pool.query<any[]>(
+    const [rows] = await pool.query<RowDataPacket[]>(
       `SELECT i.id as invoice_id, i.invoice_number, i.created_at as invoice_date, i.due_date,
               i.amount, i.status, i.students_billed, i.paid_date,
               cr.location, ct.name as course_type_name, cr.completed_at as course_date, cr.id as course_request_id,
@@ -409,7 +415,7 @@ export async function orgBillingRoutes(app: FastifyInstance) {
       [request.userOrgId, safeLimit, offset]
     );
 
-    const [countRows] = await pool.query<any[]>(
+    const [countRows] = await pool.query<RowDataPacket[]>(
       `SELECT COUNT(*) as total FROM invoice_with_breakdown i
        LEFT JOIN (SELECT invoice_id, SUM(amount) as total_paid FROM payments WHERE status = 'verified' GROUP BY invoice_id) payments ON payments.invoice_id = i.id
        WHERE i.organization_id = ? AND i.posted_to_org = TRUE AND COALESCE(payments.total_paid, 0) >= (i.base_cost + i.tax_amount)`,
@@ -428,7 +434,7 @@ export async function orgBillingRoutes(app: FastifyInstance) {
 
   // ===== Organization: Paid invoices summary =====
   app.get('/organization/paid-invoices-summary', { preHandler: orgRole }, async (request) => {
-    const [rows] = await pool.query<any[]>(
+    const [rows] = await pool.query<RowDataPacket[]>(
       `SELECT COUNT(*) as total_paid_invoices,
               COALESCE(SUM(i.amount), 0) as total_paid_amount,
               COALESCE(AVG(i.amount), 0) as average_paid_amount,
@@ -450,7 +456,7 @@ export async function orgBillingRoutes(app: FastifyInstance) {
     try {
       await conn.beginTransaction();
 
-      const [invRows] = await conn.query<any[]>(
+      const [invRows] = await conn.query<RowDataPacket[]>(
         `SELECT i.id, i.invoice_number, i.organization_id, i.base_cost, i.tax_amount,
                 COALESCE(SUM(CASE WHEN p.status = 'verified' THEN p.amount ELSE 0 END), 0) as amount_paid,
                 ((i.base_cost + i.tax_amount) - COALESCE(SUM(CASE WHEN p.status = 'verified' THEN p.amount ELSE 0 END), 0)) as balance_due
@@ -477,7 +483,7 @@ export async function orgBillingRoutes(app: FastifyInstance) {
   // ===== Organization: Payment summary =====
   app.get('/organization/payment-summary', { preHandler: orgRole }, async (request) => {
     const [[summaryRows], [recentRows]] = await Promise.all([
-      pool.query<any[]>(
+      pool.query<RowDataPacket[]>(
         `SELECT COUNT(*) as total_payments,
                 COALESCE(SUM(p.amount), 0) as total_amount_paid,
                 COUNT(CASE WHEN p.status = 'verified' THEN 1 END) as verified_payments,
@@ -486,7 +492,7 @@ export async function orgBillingRoutes(app: FastifyInstance) {
          WHERE i.organization_id = ?`,
         [request.userOrgId]
       ),
-      pool.query<any[]>(
+      pool.query<RowDataPacket[]>(
         `SELECT p.id, p.invoice_id, p.amount as amount_paid, p.payment_date, p.payment_method,
                 p.reference_number, p.status, i.invoice_number, ct.name as course_type_name
          FROM payments p JOIN invoices i ON p.invoice_id = i.id
@@ -501,18 +507,24 @@ export async function orgBillingRoutes(app: FastifyInstance) {
   });
 
   // ===== Accounting: Pending payment verifications =====
-  app.get('/accounting/payment-verifications', { preHandler: acctRole }, async () => {
-    const [rows] = await pool.query<any[]>(
+  app.get('/accounting/payment-verifications', { preHandler: acctRole }, async (request) => {
+    const fromClause = `FROM payments p JOIN invoices i ON p.invoice_id = i.id JOIN organizations o ON i.organization_id = o.id
+       WHERE p.status = 'pending_verification'`;
+    const result = await maybePaginate(
       `SELECT p.id as paymentId, p.amount, p.payment_date as paymentDate,
               p.payment_method as paymentMethod, p.reference_number as referenceNumber,
               p.notes, p.status, p.submitted_by_org_at as submittedByOrgAt,
               p.verified_by_accounting_at as verifiedByAccountingAt,
               i.id as invoiceId, i.invoice_number as invoiceNumber, i.course_request_id as courseRequestId,
               o.name as organizationName, o.contact_email as contactEmail
-       FROM payments p JOIN invoices i ON p.invoice_id = i.id JOIN organizations o ON i.organization_id = o.id
-       WHERE p.status = 'pending_verification' ORDER BY p.submitted_by_org_at DESC`
+       ${fromClause} ORDER BY p.submitted_by_org_at DESC`,
+      `SELECT COUNT(*) as count ${fromClause}`,
+      [],
+      request.query as Record<string, string>,
     );
-    return { success: true, data: { payments: rows } };
+    // Keep the historical `data.payments` envelope; pagination meta rides alongside.
+    const meta = metaOf(result);
+    return { success: true, data: { payments: rowsOf(result) }, ...(meta ? { pagination: meta } : {}) };
   });
 
   // ===== Accounting: Verified/reversed payments =====
@@ -522,14 +534,19 @@ export async function orgBillingRoutes(app: FastifyInstance) {
     if (status === 'reversed') statusFilter = "p.status = 'reversed'";
     else if (status !== 'verified') statusFilter = "p.status IN ('verified', 'reversed')";
 
-    const [rows] = await pool.query<any[]>(
+    const fromClause = `FROM payments p JOIN invoices i ON p.invoice_id = i.id JOIN organizations o ON i.organization_id = o.id
+       WHERE ${statusFilter}`;
+    const result = await maybePaginate(
       `SELECT p.id as payment_id, p.amount, p.payment_date, p.payment_method, p.reference_number,
               p.notes, p.status, p.verified_by_accounting_at, p.reversed_at, p.reversed_by,
               i.id as invoice_id, i.invoice_number, o.name as organization_name, o.contact_email
-       FROM payments p JOIN invoices i ON p.invoice_id = i.id JOIN organizations o ON i.organization_id = o.id
-       WHERE ${statusFilter} ORDER BY p.verified_by_accounting_at DESC`
+       ${fromClause} ORDER BY p.verified_by_accounting_at DESC`,
+      `SELECT COUNT(*) as count ${fromClause}`,
+      [],
+      request.query as Record<string, string>,
     );
-    return { success: true, data: { payments: rows } };
+    const meta = metaOf(result);
+    return { success: true, data: { payments: rowsOf(result) }, ...(meta ? { pagination: meta } : {}) };
   });
 
   // ===== Accounting: Verify payment (approve/reject) =====
@@ -543,7 +560,7 @@ export async function orgBillingRoutes(app: FastifyInstance) {
     try {
       await conn.beginTransaction();
 
-      const [payRows] = await conn.query<any[]>(
+      const [payRows] = await conn.query<RowDataPacket[]>(
         `SELECT p.*, i.organization_id, i.amount as invoice_amount FROM payments p JOIN invoices i ON p.invoice_id = i.id
          WHERE p.id = ? AND p.status = 'pending_verification'`,
         [id]
@@ -560,7 +577,7 @@ export async function orgBillingRoutes(app: FastifyInstance) {
           [`Verified by user ${request.userId}: ${notes || 'Payment approved'}`, id]
         );
 
-        const [totalRows] = await conn.query<any[]>(
+        const [totalRows] = await conn.query<RowDataPacket[]>(
           `SELECT COALESCE(SUM(amount), 0) as total_paid FROM payments WHERE invoice_id = ? AND status = 'verified'`,
           [payment.invoice_id]
         );
@@ -602,7 +619,7 @@ export async function orgBillingRoutes(app: FastifyInstance) {
     try {
       await conn.beginTransaction();
 
-      const [payRows] = await conn.query<any[]>(
+      const [payRows] = await conn.query<RowDataPacket[]>(
         `SELECT p.*, i.organization_id, i.amount as invoice_amount, i.invoice_number FROM payments p JOIN invoices i ON p.invoice_id = i.id
          WHERE p.id = ? AND p.status = 'verified'`,
         [id]
@@ -627,7 +644,7 @@ export async function orgBillingRoutes(app: FastifyInstance) {
       );
 
       // Recalculate invoice status
-      const [totalRows] = await conn.query<any[]>(
+      const [totalRows] = await conn.query<RowDataPacket[]>(
         `SELECT COALESCE(SUM(amount), 0) as total_paid FROM payments WHERE invoice_id = ? AND status = 'verified'`,
         [payment.invoice_id]
       );
@@ -656,7 +673,7 @@ export async function orgBillingRoutes(app: FastifyInstance) {
     const { id } = request.params as { id: string };
     const orgId = request.userOrgId;
 
-    const [rows] = await pool.query<any[]>(
+    const [rows] = await pool.query<(RowDataPacket & InvoicePDFData)[]>(
       `SELECT i.*, o.name as organization_name, o.contact_email,
               cr.location, cr.scheduled_date as date_completed, cr.registered_students as students_billed,
               ct.name as course_type_name,
@@ -674,7 +691,7 @@ export async function orgBillingRoutes(app: FastifyInstance) {
     const invoice = rows[0];
 
     // Get attendance list
-    const [students] = await pool.query<any[]>(
+    const [students] = await pool.query<(RowDataPacket & AttendanceRow)[]>(
       `SELECT first_name, last_name, email, attended FROM course_students WHERE course_request_id = ? ORDER BY last_name, first_name`,
       [invoice.course_request_id]
     );
@@ -697,7 +714,7 @@ export async function orgBillingRoutes(app: FastifyInstance) {
     const isOrgUser = request.userRole === 'organization';
     const orgId = request.userOrgId;
 
-    const [rows] = await pool.query<any[]>(
+    const [rows] = await pool.query<(RowDataPacket & PaymentPDFData)[]>(
       `SELECT p.id as payment_id, p.amount as payment_amount, p.payment_date, p.payment_method,
               p.reference_number, p.notes as payment_notes, p.status as payment_status, p.created_at as payment_created_at,
               i.id as invoice_id, i.invoice_number, i.amount as invoice_amount, i.invoice_date, i.due_date,
@@ -727,7 +744,7 @@ export async function orgBillingRoutes(app: FastifyInstance) {
     const { id } = request.params as { id: string };
     const orgId = request.userOrgId;
 
-    const [rows] = await pool.query<any[]>(
+    const [rows] = await pool.query<(RowDataPacket & InvoicePDFData)[]>(
       `SELECT i.*, o.name as organization_name, o.contact_email,
               cr.location, cr.scheduled_date as date_completed, cr.registered_students as students_billed,
               ct.name as course_type_name,
@@ -743,7 +760,7 @@ export async function orgBillingRoutes(app: FastifyInstance) {
     if (rows.length === 0) return reply.status(404).send({ error: 'Invoice not found' });
 
     const invoice = rows[0];
-    const [students] = await pool.query<any[]>(
+    const [students] = await pool.query<(RowDataPacket & AttendanceRow)[]>(
       `SELECT first_name, last_name, email, attended FROM course_students WHERE course_request_id = ? ORDER BY last_name, first_name`,
       [invoice.course_request_id]
     );

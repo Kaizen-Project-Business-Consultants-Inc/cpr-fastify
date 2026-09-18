@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import DOMPurify from 'dompurify';
 import {
   Box,
@@ -13,23 +13,21 @@ import {
   Select,
   MenuItem,
   Grid,
-  Alert,
   CircularProgress,
-  Tabs,
-  Tab,
   FormControlLabel,
   Switch,
   Autocomplete,
 } from '@mui/material';
+import type { Theme } from '@mui/material/styles';
 const Editor = React.lazy(() => import('@monaco-editor/react'));
 import { emailTemplateApi } from '../../../services/api';
 import { useToast } from '../../../contexts/ToastContext';
-import StatCard from '../../gtacpr/StatCard';
 import StatusChip from '../../gtacpr/StatusChip';
 import DataTable, { DataTableRow } from '../../gtacpr/DataTable';
 import SearchBar from '../../gtacpr/SearchBar';
 import { PrimaryButton, GhostButton } from '../../gtacpr/Buttons';
 import { useConfirm } from '../../gtacpr/ConfirmDialog';
+import { getErrorMessage } from '../../../utils/errorMessage';
 
 interface EmailTemplate {
   id?: number;
@@ -97,7 +95,7 @@ const categoryOptions: Record<string, string[]> = {
 const sectionHeaderSx = {
   fontSize: 13,
   fontWeight: 700,
-  color: (theme: any) => theme.palette.text.secondary,
+  color: (theme: Theme) => theme.palette.text.secondary,
   textTransform: 'uppercase' as const,
   letterSpacing: '0.07em',
 };
@@ -105,7 +103,7 @@ const sectionHeaderSx = {
 const dialogTitleSx = {
   fontSize: 18,
   fontWeight: 700,
-  color: (theme: any) => theme.palette.text.primary,
+  color: (theme: Theme) => theme.palette.text.primary,
 };
 
 const tableColumns = [
@@ -160,37 +158,7 @@ const EmailTemplateManager: React.FC = () => {
     isSystem: false,
   });
 
-  useEffect(() => {
-    fetchTemplates('all', '').catch(error => {
-      console.error('[EmailTemplateManager] Error loading templates:', error);
-      showToast({
-        type: 'error',
-        message: 'Failed to load email templates on initial load.',
-        priority: 'normal',
-      });
-    });
-    fetchMetadata().catch(error => {
-      console.error('[EmailTemplateManager] Error loading metadata:', error);
-      showToast({
-        type: 'error',
-        message: 'Failed to load template metadata.',
-        priority: 'normal',
-      });
-    });
-  }, []);
-
-  useEffect(() => {
-    fetchTemplates(categoryFilter, searchTerm).catch(error => {
-      console.error('[EmailTemplateManager] Error refetching templates:', error);
-      showToast({
-        type: 'error',
-        message: 'Failed to refetch templates after filter change.',
-        priority: 'normal',
-      });
-    });
-  }, [categoryFilter, searchTerm]);
-
-  const fetchTemplates = async (
+  const fetchTemplates = useCallback(async (
     currentCategoryFilter?: string,
     currentSearchTerm?: string
   ) => {
@@ -221,7 +189,7 @@ const EmailTemplateManager: React.FC = () => {
         }));
 
         setTemplates(mappedTemplates);
-      } catch (error: any) {
+      } catch (error: unknown) {
         console.error('[EmailTemplateManager] Error fetching templates:', error);
         showToast({ type: 'error', message: 'Failed to fetch templates', priority: 'normal' });
       }
@@ -230,9 +198,9 @@ const EmailTemplateManager: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [categoryFilter, searchTerm, showToast]);
 
-  const fetchMetadata = async () => {
+  const fetchMetadata = useCallback(async () => {
     try {
       const [triggersResponse, variablesResponse] = await Promise.all([
         emailTemplateApi.getEventTriggers(),
@@ -240,7 +208,7 @@ const EmailTemplateManager: React.FC = () => {
       ]);
       setEventTriggers(triggersResponse.data.data || triggersResponse.data);
       setCommonVariables(variablesResponse.data.data || variablesResponse.data);
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('[EmailTemplateManager] Error fetching metadata:', error);
       showToast({
         type: 'error',
@@ -248,7 +216,39 @@ const EmailTemplateManager: React.FC = () => {
         priority: 'normal',
       });
     }
-  };
+  }, [showToast]);
+
+  useEffect(() => {
+    fetchTemplates('all', '').catch(error => {
+      console.error('[EmailTemplateManager] Error loading templates:', error);
+      showToast({
+        type: 'error',
+        message: 'Failed to load email templates on initial load.',
+        priority: 'normal',
+      });
+    });
+    fetchMetadata().catch(error => {
+      console.error('[EmailTemplateManager] Error loading metadata:', error);
+      showToast({
+        type: 'error',
+        message: 'Failed to load template metadata.',
+        priority: 'normal',
+      });
+    });
+    // Intentionally run once on mount only; the filter-driven effect below handles refetching.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    fetchTemplates(categoryFilter, searchTerm).catch(error => {
+      console.error('[EmailTemplateManager] Error refetching templates:', error);
+      showToast({
+        type: 'error',
+        message: 'Failed to refetch templates after filter change.',
+        priority: 'normal',
+      });
+    });
+  }, [categoryFilter, searchTerm, fetchTemplates, showToast]);
 
   const handleCreateTemplate = () => {
     setSelectedTemplate(null);
@@ -282,19 +282,6 @@ const EmailTemplateManager: React.FC = () => {
 
   const handleSaveTemplate = async () => {
     try {
-      const templateKey =
-        formData.key || formData.name.toUpperCase().replace(/\s+/g, '_');
-
-      const requestData = {
-        name: formData.name,
-        key: templateKey,
-        category: formData.category,
-        subCategory: formData.subCategory || '',
-        subject: formData.subject,
-        body: formData.htmlContent,
-        isActive: formData.isActive !== undefined ? formData.isActive : true,
-      };
-
       if (selectedTemplate?.id) {
         await emailTemplateApi.update(selectedTemplate.id, formData);
         showToast({
@@ -312,13 +299,11 @@ const EmailTemplateManager: React.FC = () => {
       }
       setEditDialogOpen(false);
       fetchTemplates(categoryFilter, searchTerm);
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Error saving template:', error);
       showToast({
         type: 'error',
-        message:
-          (error as { response?: { data?: { error?: { message?: string } } } }).response?.data?.error?.message ||
-          'Failed to save template',
+        message: getErrorMessage(error, 'Failed to save template'),
         priority: 'normal',
       });
     }
@@ -341,13 +326,11 @@ const EmailTemplateManager: React.FC = () => {
           message: 'Template deleted successfully!',
           priority: 'normal',
         });
-      } catch (error: any) {
+      } catch (error: unknown) {
         console.error('Error deleting template:', error);
         showToast({
           type: 'error',
-          message:
-            (error as { response?: { data?: { error?: { message?: string } } } }).response?.data?.error?.message ||
-            'Failed to delete template',
+          message: getErrorMessage(error, 'Failed to delete template'),
           priority: 'normal',
         });
       }
@@ -363,13 +346,11 @@ const EmailTemplateManager: React.FC = () => {
         message: `Template cloned successfully as "${newName}"!`,
         priority: 'normal',
       });
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Error cloning template:', error);
       showToast({
         type: 'error',
-        message:
-          (error as { response?: { data?: { error?: { message?: string } } } }).response?.data?.error?.message ||
-          'Failed to clone template',
+        message: getErrorMessage(error, 'Failed to clone template'),
         priority: 'normal',
       });
     }
@@ -395,13 +376,11 @@ const EmailTemplateManager: React.FC = () => {
         priority: 'normal',
       });
       setTestDialogOpen(false);
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Error sending test email:', error);
       showToast({
         type: 'error',
-        message:
-          (error as { response?: { data?: { error?: { message?: string } } } }).response?.data?.error?.message ||
-          'Failed to send test email',
+        message: getErrorMessage(error, 'Failed to send test email'),
         priority: 'normal',
       });
     }
@@ -443,7 +422,7 @@ const EmailTemplateManager: React.FC = () => {
     <Box
       key={template.id}
       sx={{
-        border: (theme: any) => `1px solid ${theme.palette.divider}`,
+        border: (theme: Theme) => `1px solid ${theme.palette.divider}`,
         borderRadius: '8px',
         p: 2.5,
         height: '100%',

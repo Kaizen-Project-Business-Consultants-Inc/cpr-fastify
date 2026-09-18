@@ -18,7 +18,7 @@ import { vendorApi } from '../../../services/api';
 import { useNavigate } from 'react-router-dom';
 import { PrimaryButton, GhostButton } from '../../gtacpr/Buttons';
 import { useConfirm } from '../../gtacpr/ConfirmDialog';
-import { formatCurrency, getTodayDate, toLocalDateString, HST_LABEL } from '../../../utils/formatters';
+import { formatCurrency, getTodayDate, toLocalDateString, getHSTLabel } from '../../../utils/formatters';
 
 type MoneyField = 'rate' | 'subtotal' | 'hst' | 'total';
 const MONEY_FIELDS: MoneyField[] = ['rate', 'subtotal', 'hst', 'total'];
@@ -193,7 +193,7 @@ const InvoiceUpload: React.FC = () => {
           <span>Vendor</span><strong>{vendorName || '—'}</strong>
           <span>Invoice #</span><strong>{formData.invoiceNumber.trim()}</strong>
           <span>Subtotal</span><span>{subtotalNumber != null ? formatCurrency(subtotalNumber) : '—'}</span>
-          <span>{HST_LABEL}</span><span>{hstNumber != null ? formatCurrency(hstNumber) : '—'}</span>
+          <span>{getHSTLabel()}</span><span>{hstNumber != null ? formatCurrency(hstNumber) : '—'}</span>
           <span>Total</span><strong>{formatCurrency(totalNumber)}</strong>
           <span>File</span><span>{file.name}</span>
         </Box>
@@ -342,7 +342,7 @@ const InvoiceUpload: React.FC = () => {
               </Typography>
             </Grid>
             <Grid item xs={12} md={4}>{moneyField('subtotal', 'Subtotal')}</Grid>
-            <Grid item xs={12} md={4}>{moneyField('hst', HST_LABEL)}</Grid>
+            <Grid item xs={12} md={4}>{moneyField('hst', getHSTLabel())}</Grid>
             <Grid item xs={12} md={4}>{moneyField('total', 'Total', true)}</Grid>
 
             <Grid item xs={12}>

@@ -17,6 +17,7 @@ import { useConfirm } from '../gtacpr/ConfirmDialog';
 import { GhostButton } from '../gtacpr/Buttons';
 import { useSnackbar } from '../../contexts/SnackbarContext';
 import { formatDateTime } from '../../utils/formatters';
+import { getErrorMessage } from '../../utils/errorMessage';
 
 const getNotificationKind = (type: string) => {
   switch (type) {
@@ -33,11 +34,6 @@ const getNotificationKind = (type: string) => {
     default:
       return 'neutral' as const;
   }
-};
-
-const getErrorMessage = (err: unknown, fallback: string) => {
-  const e = err as { response?: { data?: { error?: { message?: string }; message?: string } }; message?: string };
-  return e?.response?.data?.error?.message || e?.response?.data?.message || e?.message || fallback;
 };
 
 // Notification Item Component
@@ -105,6 +101,10 @@ const NotificationsPanel: React.FC = () => {
     }
   }, [filters]);
 
+  // Fetches on mount and whenever `filters` changes; loadData sets loading/error/data
+  // state as part of the fetch itself, which is the standard data-fetch-on-mount
+  // pattern (a real sync with the notifications API), not state derived from render.
+  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { loadData(); }, [loadData]);
 
   const handleMarkAsRead = async (n: Notification) => {

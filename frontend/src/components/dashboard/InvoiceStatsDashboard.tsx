@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useMemo } from 'react';
 import { Box, CircularProgress, Tooltip, Typography } from '@mui/material';
 import { formatCurrency } from '../../utils/formatters';
 import StatCard from '../gtacpr/StatCard';
@@ -24,16 +24,15 @@ const InvoiceStatsDashboard: React.FC<InvoiceStatsDashboardProps> = ({
   invoices = [],
   loading = false,
 }) => {
-  const [stats, setStats] = useState({
-    pendingApprovals: 0,
-    approvedToday: 0,
-    postedToday: 0,
-    totalOutstanding: 0,
-    lastUpdated: new Date().toLocaleTimeString(),
-  });
-
-  useEffect(() => {
-    if (!invoices || invoices.length === 0) return;
+  const stats = useMemo(() => {
+    const empty = {
+      pendingApprovals: 0,
+      approvedToday: 0,
+      postedToday: 0,
+      totalOutstanding: 0,
+      lastUpdated: new Date().toLocaleTimeString(),
+    };
+    if (!invoices || invoices.length === 0) return empty;
 
     const today = new Date().toDateString();
 
@@ -64,13 +63,13 @@ const InvoiceStatsDashboard: React.FC<InvoiceStatsDashboardProps> = ({
         return sum + (amount - paid);
       }, 0);
 
-    setStats({
+    return {
       pendingApprovals,
       approvedToday,
       postedToday,
       totalOutstanding,
       lastUpdated: new Date().toLocaleTimeString(),
-    });
+    };
   }, [invoices]);
 
   if (loading) {

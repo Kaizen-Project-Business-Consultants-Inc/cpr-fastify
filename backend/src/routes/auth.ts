@@ -1,4 +1,4 @@
-import { FastifyInstance } from 'fastify';
+import { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { AuthService, AuthError } from '../services/AuthService.js';
 import { UserRepository } from '../repositories/UserRepository.js';
@@ -10,6 +10,7 @@ import { emailService } from '../services/EmailService.js';
 import { logger } from '../config/logger.js';
 import bcrypt from 'bcryptjs';
 import { createHash, randomBytes } from 'node:crypto';
+import type { RowDataPacket } from 'mysql2/promise';
 
 const forgotPasswordSchema = z.object({
   email: z.string().email().optional(),
@@ -41,13 +42,13 @@ async function enrichUser(safeUser: Record<string, unknown>) {
   try {
     const pool = getPool();
     if (safeUser.organization_id) {
-      const [orgRows] = await pool.query<any[]>(
+      const [orgRows] = await pool.query<RowDataPacket[]>(
         'SELECT name FROM organizations WHERE id = ?', [safeUser.organization_id]
       );
       if (orgRows.length) safeUser.organization_name = orgRows[0].name;
     }
     if (safeUser.location_id) {
-      const [locRows] = await pool.query<any[]>(
+      const [locRows] = await pool.query<RowDataPacket[]>(
         'SELECT location_name FROM organization_locations WHERE id = ?', [safeUser.location_id]
       );
       if (locRows.length) safeUser.location_name = locRows[0].location_name;
@@ -147,7 +148,7 @@ export async function authRoutes(app: FastifyInstance) {
 
     const organization = await section('organization', async () => {
       if (!safeUser.organization_id) return null;
-      const [rows] = await pool.query<any[]>(
+      const [rows] = await pool.query<RowDataPacket[]>(
         'SELECT id, name, address, contact_email, contact_phone, contact_person, status FROM organizations WHERE id = ?',
         [safeUser.organization_id]
       );
@@ -155,7 +156,7 @@ export async function authRoutes(app: FastifyInstance) {
     }, null as Record<string, unknown> | null);
 
     const enrolments = await section('course_students', async () => {
-      const [rows] = await pool.query<any[]>(
+      const [rows] = await pool.query<RowDataPacket[]>(
         `SELECT cs.id, cs.course_request_id, cs.first_name, cs.last_name, cs.email, cs.phone, cs.college,
                 cs.attended, cs.certificate_number, cs.certificate_issued_at, cs.certificate_expires_at,
                 cs.created_at, cr.scheduled_date, cr.confirmed_date, cr.status AS course_status,
@@ -169,11 +170,11 @@ export async function authRoutes(app: FastifyInstance) {
         [safeUser.email]
       );
       return rows;
-    }, [] as any[]);
+    }, [] as RowDataPacket[]);
 
     const taught = await section('course_requests', async () => {
       if (safeUser.role !== 'instructor') return [];
-      const [rows] = await pool.query<any[]>(
+      const [rows] = await pool.query<RowDataPacket[]>(
         `SELECT cr.id, cr.status, cr.scheduled_date, cr.confirmed_date, cr.confirmed_start_time,
                 cr.confirmed_end_time, cr.location, cr.registered_students, cr.completed_at,
                 ct.name AS course_type, o.name AS organization_name
@@ -185,25 +186,25 @@ export async function authRoutes(app: FastifyInstance) {
         [request.userId]
       );
       return rows;
-    }, [] as any[]);
+    }, [] as RowDataPacket[]);
 
     const availability = await section('instructor_availability', async () => {
       if (safeUser.role !== 'instructor') return [];
-      const [rows] = await pool.query<any[]>(
+      const [rows] = await pool.query<RowDataPacket[]>(
         'SELECT date, status, created_at FROM instructor_availability WHERE instructor_id = ? ORDER BY date DESC',
         [request.userId]
       );
       return rows;
-    }, [] as any[]);
+    }, [] as RowDataPacket[]);
 
     const audit = await section('audit_logs', async () => {
-      const [rows] = await pool.query<any[]>(
+      const [rows] = await pool.query<RowDataPacket[]>(
         `SELECT id, action, entity_type, entity_id, details, ip_address, created_at
          FROM audit_logs WHERE user_id = ? ORDER BY created_at DESC LIMIT 100`,
         [request.userId]
       );
       return rows;
-    }, [] as any[]);
+    }, [] as RowDataPacket[]);
 
     logAudit({ userId: request.userId, action: 'export_my_data', entityType: 'user', entityId: request.userId, ipAddress: request.ip });
     return {
@@ -233,11 +234,11 @@ export async function authRoutes(app: FastifyInstance) {
   // POST /api/v1/auth/forgot-password — request a reset link by email or username.
   // Always returns 200 with the same message so account existence is not revealed.
   const GENERIC_MESSAGE = 'If an account matches, a password reset link has been sent to the email on file.';
-  async function handleForgotPassword(request: any, reply: any) {
+  async function handleForgotPassword(request: FastifyRequest, reply: FastifyReply) {
     const body = forgotPasswordSchema.parse(request.body);
     const pool = getPool();
 
-    const [rows] = await pool.query<any[]>(
+    const [rows] = await pool.query<RowDataPacket[]>(
       `SELECT id, username, email, status FROM users
        WHERE ${body.email ? 'email = ?' : 'username = ?'} LIMIT 1`,
       [body.email ?? body.username]
@@ -276,7 +277,7 @@ export async function authRoutes(app: FastifyInstance) {
     const newPassword = (body.newPassword ?? body.password)!;
     const pool = getPool();
 
-    const [rows] = await pool.query<any[]>(
+    const [rows] = await pool.query<RowDataPacket[]>(
       `SELECT pr.id, pr.user_id, pr.expires_at, pr.used_at, u.username
        FROM password_resets pr JOIN users u ON u.id = pr.user_id
        WHERE pr.token_hash = ? LIMIT 1`,

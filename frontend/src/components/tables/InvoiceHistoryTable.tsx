@@ -17,7 +17,6 @@ import {
 } from '@mui/material';
 import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
 import KeyboardArrowUpIcon from '@mui/icons-material/KeyboardArrowUp';
-import VisibilityIcon from '@mui/icons-material/Visibility';
 import PictureAsPdfIcon from '@mui/icons-material/PictureAsPdf';
 import PreviewIcon from '@mui/icons-material/Preview';
 import { formatCurrency, formatDisplayDate, applyTax } from '../../utils/formatters';
@@ -30,10 +29,47 @@ import PendingIcon from '@mui/icons-material/Pending';
 import WarningIcon from '@mui/icons-material/Warning';
 import ErrorIcon from '@mui/icons-material/Error';
 import InfoIcon from '@mui/icons-material/Info';
-import PostAddIcon from '@mui/icons-material/PostAdd';
+import { getErrorMessage } from '../../utils/errorMessage';
+
+interface HistoryInvoice {
+  invoiceId: number | string;
+  invoiceNumber?: string;
+  invoiceDate?: string;
+  dueDate?: string;
+  organizationName?: string;
+  courseTypeName?: string;
+  location?: string;
+  dateCompleted?: string;
+  courseDate?: string;
+  studentsBilled?: number;
+  ratePerStudent?: number | string;
+  paidToDate?: number | string;
+  balanceDue?: number | string;
+  paymentStatus?: string;
+  status?: string;
+  approvalStatus?: string;
+  agingBucket?: string;
+  postedToOrg?: boolean;
+}
+
+// Mirrors the (unexported) Payment shape expected by PaymentHistoryTable
+interface HistoryPayment {
+  id: number;
+  invoiceId: number;
+  amount?: number;
+  amountPaid?: number;
+  paymentDate: string;
+  paymentMethod: string;
+  referenceNumber?: string;
+  notes?: string;
+  status: string;
+  createdAt: string;
+  submittedByOrgAt?: string;
+  verifiedByAccountingAt?: string;
+}
 
 // Helper functions (copied from AccountsReceivableTable - consider moving to utils)
-const getStatusChipColor = (status: any) => {
+const getStatusChipColor = (status: string | undefined) => {
   switch (status?.toLowerCase()) {
     case 'paid':
       return 'success';
@@ -46,7 +82,7 @@ const getStatusChipColor = (status: any) => {
   }
 };
 
-const getStatusIcon = (status: any) => {
+const getStatusIcon = (status: string | undefined) => {
   switch (status?.toLowerCase()) {
     case 'paid':
       return <CheckCircleIcon fontSize="small" />;
@@ -59,7 +95,7 @@ const getStatusIcon = (status: any) => {
   }
 };
 
-const getApprovalStatusChipColor = (status: any) => {
+const getApprovalStatusChipColor = (status: string | undefined) => {
   switch (status?.toLowerCase()) {
     case 'approved':
       return 'success';
@@ -77,7 +113,7 @@ const getApprovalStatusChipColor = (status: any) => {
   }
 };
 
-const getApprovalStatusIcon = (status: any) => {
+const getApprovalStatusIcon = (status: string | undefined) => {
   switch (status?.toLowerCase()) {
     case 'approved':
       return <CheckCircleIcon fontSize="small" />;
@@ -96,8 +132,14 @@ const getApprovalStatusIcon = (status: any) => {
 };
 
 // Component to display within the expanded row
-const PaymentDetails = ({ invoiceId, onViewInvoice }: { invoiceId: any; onViewInvoice: any }) => {
-  const [payments, setPayments] = useState([]);
+const PaymentDetails = ({
+  invoiceId,
+  onViewInvoice,
+}: {
+  invoiceId: number | string;
+  onViewInvoice: (invoiceId: number | string) => void;
+}) => {
+  const [payments, setPayments] = useState<HistoryPayment[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -106,13 +148,14 @@ const PaymentDetails = ({ invoiceId, onViewInvoice }: { invoiceId: any; onViewIn
       setIsLoading(true);
       setError('');
       try {
-        const response = await api.getInvoicePayments(invoiceId);
-        
+        const response = await api.getInvoicePayments(Number(invoiceId));
+
         // Ensure we have an array of payments
-        let paymentsData = [];
-        if (response && response.data) {
+        let paymentsData: HistoryPayment[] = [];
+        if (response && (response as { data?: HistoryPayment[] }).data) {
           // If response has data property, use that
-          paymentsData = Array.isArray(response.data) ? response.data : [];
+          const data = (response as { data?: HistoryPayment[] }).data;
+          paymentsData = Array.isArray(data) ? data : [];
         } else if (Array.isArray(response)) {
           // If response is directly an array
           paymentsData = response;
@@ -121,11 +164,11 @@ const PaymentDetails = ({ invoiceId, onViewInvoice }: { invoiceId: any; onViewIn
           console.warn('Unexpected payments response format:', response);
           paymentsData = [];
         }
-        
+
         setPayments(paymentsData);
-      } catch (err: any) {
+      } catch (err) {
         console.error('Error loading payments:', err);
-        setError(err.message || 'Could not load payment details.');
+        setError(getErrorMessage(err, 'Could not load payment details.'));
         setPayments([]);
       } finally {
         setIsLoading(false);
@@ -164,8 +207,14 @@ const PaymentDetails = ({ invoiceId, onViewInvoice }: { invoiceId: any; onViewIn
   );
 };
 
-const InvoiceHistoryTable = ({ invoices = [], onRefresh }: { invoices?: any[]; onRefresh?: any }) => {
-  const [expandedRowId, setExpandedRowId] = useState(null); // State to track expanded row
+const InvoiceHistoryTable = ({
+  invoices = [],
+  onRefresh,
+}: {
+  invoices?: HistoryInvoice[];
+  onRefresh?: () => void;
+}) => {
+  const [expandedRowId, setExpandedRowId] = useState<number | string | null>(null); // State to track expanded row
   const { showError } = useSnackbar();
 
   // Auto-refresh every 30 seconds
@@ -179,16 +228,16 @@ const InvoiceHistoryTable = ({ invoices = [], onRefresh }: { invoices?: any[]; o
     return () => clearInterval(interval);
   }, [onRefresh]);
 
-  const handleExpandClick = (invoiceId: any) => {
+  const handleExpandClick = (invoiceId: number | string) => {
     setExpandedRowId(expandedRowId === invoiceId ? null : invoiceId); // Toggle expansion
   };
 
-  const handlePreview = (invoiceId: any) => {
+  const handlePreview = (invoiceId: number | string) => {
     const previewUrl = `${API_URL}/accounting/invoices/${invoiceId}/preview`;
     window.open(previewUrl, '_blank', 'width=800,height=1000,scrollbars=yes');
   };
 
-  const handleDownloadPDF = async (invoiceId: any, invoiceNumber: any) => {
+  const handleDownloadPDF = async (invoiceId: number | string, invoiceNumber: string | undefined) => {
     try {
 
 
@@ -290,9 +339,9 @@ const InvoiceHistoryTable = ({ invoices = [], onRefresh }: { invoices?: any[]; o
         }
       }
 
-    } catch (error: any) {
+    } catch (error) {
       console.error('[PDF Download] Error:', error);
-      showError(`Failed to download PDF: ${error.message}`);
+      showError(`Failed to download PDF: ${getErrorMessage(error)}`);
     }
   };
 

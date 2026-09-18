@@ -69,7 +69,7 @@ class TokenService {
         devLog('[TRACE] Token service - Token restored from storage');
         return inMemoryToken;
       }
-    } catch (error: any) {
+    } catch (error) {
       devLog('[TRACE] Token service - Error restoring token from storage:', error);
     }
 
@@ -99,7 +99,7 @@ class TokenService {
     try {
       sessionStorage.setItem(ACCESS_TOKEN_KEY, rawToken);
       sessionStorage.setItem(TOKEN_EXPIRY_KEY, tokenExpiry.toString());
-    } catch (error: any) {
+    } catch (error) {
       devLog('[TRACE] Token service - Error storing token:', error);
     }
 
@@ -158,9 +158,6 @@ class TokenService {
     try {
       devLog('[TRACE] TokenService - Attempting silent token refresh');
 
-      // Import authService dynamically to avoid circular dependencies
-      const { authService } = await import('./authService');
-
       // Call the refresh endpoint using the absolute API URL
       const response = await fetch(`${API_URL}/auth/refresh`, {
         method: 'POST',
@@ -184,7 +181,7 @@ class TokenService {
       } else {
         devLog('[TRACE] Token service - Silent refresh failed, will retry on next request');
       }
-    } catch (error: any) {
+    } catch (error) {
       devLog('[TRACE] Token service - Silent refresh error:', error);
       // Don't clear tokens here, let the next API call handle it
     }
@@ -293,7 +290,7 @@ class TokenService {
         try {
           const data = JSON.parse(event.newValue || '{}');
           this.handleSessionSync(data);
-        } catch (error: any) {
+        } catch (error) {
           devLog('[TRACE] Token service - Session sync parse error:', error);
         }
       }

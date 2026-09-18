@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { Box, Grid, Typography, LinearProgress } from '@mui/material';
 import {
   PieChart,
@@ -95,7 +95,7 @@ const OrganizationDashboard: React.FC<OrganizationDashboardProps> = ({
   } | null>(null);
 
   useEffect(() => {
-    organizationApi.getDashboard().then((res: any) => {
+    organizationApi.getDashboard().then((res: { data?: Record<string, number> }) => {
       const d = res?.data;
       if (d) setYoyData({
         coursesThisYear: d.coursesThisYear ?? 0,
@@ -122,7 +122,7 @@ const OrganizationDashboard: React.FC<OrganizationDashboardProps> = ({
     setDateTo(to);
   };
 
-  const filterByDate = (items: Course[]) => {
+  const filterByDate = useCallback((items: Course[]) => {
     if (!dateFrom && !dateTo) return items;
     return items.filter((c) => {
       const d = c.scheduledDate || c.requestSubmittedDate;
@@ -132,10 +132,10 @@ const OrganizationDashboard: React.FC<OrganizationDashboardProps> = ({
       if (dateTo && dateStr > dateTo) return false;
       return true;
     });
-  };
+  }, [dateFrom, dateTo]);
 
-  const filteredCourses = useMemo(() => filterByDate(courses || []), [courses, dateFrom, dateTo]);
-  const filteredArchived = useMemo(() => filterByDate(archivedCourses || []), [archivedCourses, dateFrom, dateTo]);
+  const filteredCourses = useMemo(() => filterByDate(courses || []), [courses, filterByDate]);
+  const filteredArchived = useMemo(() => filterByDate(archivedCourses || []), [archivedCourses, filterByDate]);
 
   const allCourses = [...filteredCourses, ...filteredArchived];
   const totalStudents = allCourses.reduce((sum, course) => sum + Number(course?.registeredStudents || 0), 0);

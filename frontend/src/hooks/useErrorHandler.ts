@@ -2,7 +2,7 @@
 // React Error Handling Hook
 // ===============================================
 
-import React, { useCallback, useMemo } from 'react';
+import { useCallback } from 'react';
 import { ApiErrorHandler } from '../utils/ApiErrorHandler';
 import { ErrorLogger } from '../utils/ErrorLogger';
 import { StandardError, EnhancedError, ErrorContext } from '../types/errors';
@@ -39,8 +39,36 @@ export const useErrorHandler = (options: UseErrorHandlerOptions = {}): ErrorHand
   } = options;
 
   // Mock showSnackbar function - this should be replaced with actual implementation
-  const showSnackbar = useCallback((message: string, severity: 'error' | 'warning' | 'info' = 'error') => {
+  const showSnackbar = useCallback((message: string, _severity: 'error' | 'warning' | 'info' = 'error') => {
   }, []);
+
+  /**
+   * Show user-friendly error notification
+   */
+  const showErrorNotification = useCallback(
+    (error: StandardError | EnhancedError) => {
+      const isEnhanced = 'userMessage' in error;
+      const message = isEnhanced ? error.userMessage : error.message;
+      const suggestion = isEnhanced ? error.suggestion : '';
+
+      // Determine notification severity
+      let severity: 'error' | 'warning' | 'info' = 'error';
+      if (error.statusCode < 500) {
+        severity = error.statusCode >= 400 ? 'warning' : 'info';
+      }
+
+      // Show primary message
+      showSnackbar(message, severity);
+
+      // Show suggestion if available and different from message
+      if (suggestion && suggestion !== message) {
+        setTimeout(() => {
+          showSnackbar(suggestion, 'info');
+        }, 3000);
+      }
+    },
+    [showSnackbar]
+  );
 
   /**
    * Handle general errors
@@ -70,7 +98,7 @@ export const useErrorHandler = (options: UseErrorHandlerOptions = {}): ErrorHand
 
       return standardError;
     },
-    [enableLogging, enableNotifications, defaultContext, showSnackbar]
+    [enableLogging, enableNotifications, defaultContext, showErrorNotification]
   );
 
   /**
@@ -101,7 +129,7 @@ export const useErrorHandler = (options: UseErrorHandlerOptions = {}): ErrorHand
 
       return enhancedError;
     },
-    [enableLogging, enableNotifications, defaultContext, showSnackbar]
+    [enableLogging, enableNotifications, defaultContext, showErrorNotification]
   );
 
   /**
@@ -143,7 +171,7 @@ export const useErrorHandler = (options: UseErrorHandlerOptions = {}): ErrorHand
 
       return standardError;
     },
-    [enableLogging, enableNotifications, defaultContext, showSnackbar]
+    [enableLogging, enableNotifications, defaultContext, showErrorNotification]
   );
 
   /**
@@ -180,7 +208,7 @@ export const useErrorHandler = (options: UseErrorHandlerOptions = {}): ErrorHand
 
       return standardError;
     },
-    [enableLogging, enableNotifications, defaultContext, showSnackbar]
+    [enableLogging, enableNotifications, defaultContext, showErrorNotification]
   );
 
   /**
@@ -196,34 +224,6 @@ export const useErrorHandler = (options: UseErrorHandlerOptions = {}): ErrorHand
   const getRetryDelay = useCallback((attempt: number): number => {
     return ApiErrorHandler.getRetryDelay(attempt);
   }, []);
-
-  /**
-   * Show user-friendly error notification
-   */
-  const showErrorNotification = useCallback(
-    (error: StandardError | EnhancedError) => {
-      const isEnhanced = 'userMessage' in error;
-      const message = isEnhanced ? error.userMessage : error.message;
-      const suggestion = isEnhanced ? error.suggestion : '';
-      
-      // Determine notification severity
-      let severity: 'error' | 'warning' | 'info' = 'error';
-      if (error.statusCode < 500) {
-        severity = error.statusCode >= 400 ? 'warning' : 'info';
-      }
-
-      // Show primary message
-      showSnackbar(message, severity);
-
-      // Show suggestion if available and different from message
-      if (suggestion && suggestion !== message) {
-        setTimeout(() => {
-          showSnackbar(suggestion, 'info');
-        }, 3000);
-      }
-    },
-    [showSnackbar]
-  );
 
   return {
     handleError,
@@ -249,7 +249,7 @@ export const useAsyncErrorHandler = (options?: UseErrorHandlerOptions) => {
     ): Promise<T | null> => {
       try {
         return await asyncOperation();
-      } catch (error: any) {
+      } catch (error) {
         handleError(error, context);
         return null;
       }
@@ -263,13 +263,10 @@ export const useAsyncErrorHandler = (options?: UseErrorHandlerOptions) => {
       maxRetries: number = 3,
       context?: Partial<ErrorContext>
     ): Promise<T | null> => {
-      let lastError: unknown;
-      
       for (let attempt = 1; attempt <= maxRetries; attempt++) {
         try {
           return await asyncOperation();
-        } catch (error: any) {
-          lastError = error;
+        } catch (error) {
           const standardError = handleEnhancedError(error, {
             ...context,
             additionalData: { attempt, maxRetries },

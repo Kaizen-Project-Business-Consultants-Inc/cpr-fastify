@@ -1,6 +1,8 @@
 import { FastifyInstance } from 'fastify';
-import swagger from '@fastify/swagger';
-import swaggerUi from '@fastify/swagger-ui';
+
+// @fastify/swagger and swagger-ui are imported dynamically and kept out of the deploy
+// bundle: they are only registered when NODE_ENV !== 'production', so the production
+// bundle never loads them and the host copies can be absent or stale without effect.
 
 // Map route prefixes to OpenAPI tags
 const PREFIX_TAG_MAP: Record<string, string> = {
@@ -26,6 +28,9 @@ const PREFIX_TAG_MAP: Record<string, string> = {
 };
 
 export async function registerSwagger(app: FastifyInstance) {
+  const { default: swagger } = await import('@fastify/swagger');
+  const { default: swaggerUi } = await import('@fastify/swagger-ui');
+
   await app.register(swagger, {
     openapi: {
       info: {

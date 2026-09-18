@@ -9,9 +9,30 @@ import DataTable, { DataTableRow } from '../gtacpr/DataTable';
 import SegmentedToggle from '../gtacpr/SegmentedToggle';
 import { GhostButton } from '../gtacpr/Buttons';
 import { useServerPagination } from '../../hooks/useServerPagination';
+import type { Theme } from '@mui/material/styles';
 
 interface CertificationTrackingProps {
   onShowSnackbar: (message: string, severity: 'success' | 'error' | 'warning' | 'info') => void;
+}
+
+interface CertificationStats {
+  active_certs?: number;
+  expiring_30d?: number;
+  expiring_90d?: number;
+  expired?: number;
+}
+
+interface CertificationRow {
+  student_id: number | string;
+  certificate_issued_at?: string;
+  first_name?: string;
+  last_name?: string;
+  organization_name?: string;
+  course_type_name?: string;
+  certificate_number?: string;
+  certificate_expires_at?: string;
+  days_until_expiry?: number;
+  days_expired?: number;
 }
 
 const windowOptions = [
@@ -43,7 +64,7 @@ function getStatusChip(view: string, daysValue: number) {
 const CertificationTracking = ({ onShowSnackbar }: CertificationTrackingProps) => {
   const [view, setView] = useState('expiring');
   const [days, setDays] = useState('90');
-  const [stats, setStats] = useState<any>(null);
+  const [stats, setStats] = useState<CertificationStats | null>(null);
 
   const fetchCerts = useCallback(async ({ page, limit }: { page: number; limit: number }) => {
     try {
@@ -102,6 +123,9 @@ const CertificationTracking = ({ onShowSnackbar }: CertificationTrackingProps) =
     }
   };
 
+  // Mount-time fetch of summary stat cards (external API sync, not state
+  // derived from render data), so a direct setState inside is expected.
+  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { loadStats(); }, []);
   useEffect(() => { load(1); }, [view, days, load]);
 
@@ -140,9 +164,9 @@ const CertificationTracking = ({ onShowSnackbar }: CertificationTrackingProps) =
                     borderRadius: '20px',
                     fontSize: 12, fontWeight: 600, cursor: 'pointer',
                     border: '1px solid',
-                    borderColor: days === opt.value ? 'rgba(204,31,31,.3)' : (theme: any) => theme.palette.divider,
-                    bgcolor: days === opt.value ? '#FFF0F0' : (theme: any) => theme.palette.background.paper,
-                    color: days === opt.value ? '#CC1F1F' : (theme: any) => theme.palette.text.secondary,
+                    borderColor: days === opt.value ? 'rgba(204,31,31,.3)' : (theme: Theme) => theme.palette.divider,
+                    bgcolor: days === opt.value ? '#FFF0F0' : (theme: Theme) => theme.palette.background.paper,
+                    color: days === opt.value ? '#CC1F1F' : (theme: Theme) => theme.palette.text.secondary,
                   }}
                 >
                   {opt.label}
@@ -169,7 +193,7 @@ const CertificationTracking = ({ onShowSnackbar }: CertificationTrackingProps) =
         </Box>
       ) : (
         <DataTable columns={columns} shownCount={shownCount} totalCount={totalCount} page={certPage} onPrevPage={onCertPrev} onNextPage={onCertNext} hasNextPage={certHasNext}>
-          {certs.map((cert: any, i: number) => (
+          {certs.map((cert: CertificationRow, i: number) => (
             <DataTableRow key={`${cert.student_id}-${cert.certificate_issued_at}-${i}`} columns={columns}>
               {/* STUDENT */}
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
@@ -199,7 +223,7 @@ const CertificationTracking = ({ onShowSnackbar }: CertificationTrackingProps) =
               </Typography>
               {/* STATUS */}
               <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>
-                {getStatusChip(view, view === 'expiring' ? cert.days_until_expiry : -cert.days_expired)}
+                {getStatusChip(view, view === 'expiring' ? (cert.days_until_expiry ?? 0) : -(cert.days_expired ?? 0))}
               </Box>
             </DataTableRow>
           ))}

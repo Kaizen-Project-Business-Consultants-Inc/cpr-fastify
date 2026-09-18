@@ -1,4 +1,5 @@
 import { BaseRepository } from './BaseRepository.js';
+import { paginatedQuery, type PaginationParams, type PaginatedResult } from '../utils/pagination.js';
 
 export interface ProfileChange {
   id: number;
@@ -44,12 +45,24 @@ export class ProfileChangeRepository extends BaseRepository<ProfileChange> {
     return { rows, total };
   }
 
-  async findByUserId(userId: number): Promise<ProfileChange[]> {
-    return this.query<ProfileChange>(
-      `SELECT id, change_type, field_name, old_value, new_value, status, hr_comment, created_at, updated_at
-       FROM profile_changes WHERE user_id = ? ORDER BY created_at DESC`,
-      [userId]
-    );
+  async findByUserId(userId: number): Promise<ProfileChange[]>;
+  async findByUserId(userId: number, pagination: PaginationParams): Promise<PaginatedResult<ProfileChange>>;
+  async findByUserId(
+    userId: number,
+    pagination?: PaginationParams,
+  ): Promise<ProfileChange[] | PaginatedResult<ProfileChange>> {
+    const dataSQL = `SELECT id, change_type, field_name, old_value, new_value, status, hr_comment, created_at, updated_at
+       FROM profile_changes WHERE user_id = ? ORDER BY created_at DESC`;
+
+    if (pagination) {
+      return paginatedQuery<ProfileChange>(
+        dataSQL,
+        'SELECT COUNT(*) as count FROM profile_changes WHERE user_id = ?',
+        [userId],
+        pagination,
+      );
+    }
+    return this.query<ProfileChange>(dataSQL, [userId]);
   }
 
   async findPendingForField(userId: number, fieldName: string): Promise<ProfileChange | null> {
@@ -71,14 +84,29 @@ export class ProfileChangeRepository extends BaseRepository<ProfileChange> {
     );
   }
 
-  async findAllPendingWithUsers(): Promise<ProfileChangeWithUser[]> {
-    return this.query<ProfileChangeWithUser>(
-      `SELECT pc.*, u.username, u.email, u.role
+  async findAllPendingWithUsers(): Promise<ProfileChangeWithUser[]>;
+  async findAllPendingWithUsers(pagination: PaginationParams): Promise<PaginatedResult<ProfileChangeWithUser>>;
+  async findAllPendingWithUsers(
+    pagination?: PaginationParams,
+  ): Promise<ProfileChangeWithUser[] | PaginatedResult<ProfileChangeWithUser>> {
+    const dataSQL = `SELECT pc.*, u.username, u.email, u.role
        FROM profile_changes pc
        JOIN users u ON pc.user_id = u.id
        WHERE pc.status = 'pending'
-       ORDER BY pc.created_at ASC`
-    );
+       ORDER BY pc.created_at ASC`;
+
+    if (pagination) {
+      return paginatedQuery<ProfileChangeWithUser>(
+        dataSQL,
+        `SELECT COUNT(*) as count
+         FROM profile_changes pc
+         JOIN users u ON pc.user_id = u.id
+         WHERE pc.status = 'pending'`,
+        [],
+        pagination,
+      );
+    }
+    return this.query<ProfileChangeWithUser>(dataSQL);
   }
 
 }

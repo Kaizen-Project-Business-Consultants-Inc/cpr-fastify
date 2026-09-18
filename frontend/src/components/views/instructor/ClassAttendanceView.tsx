@@ -17,7 +17,6 @@ import {
   ButtonBase,
 } from '@mui/material';
 import { instructorApi, collegesApi } from '../../../services/api';
-import { useAuth } from '../../../contexts/AuthContext';
 import { handleError } from '../../../services/errorHandler';
 import DataTable, { DataTableRow } from '../../gtacpr/DataTable';
 import StatusChip from '../../gtacpr/StatusChip';
@@ -54,7 +53,6 @@ const studentColumns = [
 ];
 
 const ClassAttendanceView: React.FC = () => {
-  const { logout } = useAuth();
   const [todaysClasses, setTodaysClasses] = useState<ClassData[]>([]);
   const [selectedClass, setSelectedClass] = useState<ClassData | null>(null);
   const [students, setStudents] = useState<Student[]>([]);
@@ -77,25 +75,14 @@ const ClassAttendanceView: React.FC = () => {
   const [successMessage, setSuccessMessage] = useState('');
   const [colleges, setColleges] = useState<{ id: number; name: string }[]>([]);
 
-  useEffect(() => {
-    loadTodaysClasses();
-    loadColleges();
-  }, []);
-
   const loadColleges = async () => {
     try {
       const response = await collegesApi.getAll();
       setColleges(response.data?.data || response.data || []);
-    } catch (error: any) {
+    } catch {
       // silent fail for colleges dropdown
     }
   };
-
-  useEffect(() => {
-    if (selectedClass) {
-      loadStudents(selectedClass.courseId);
-    }
-  }, [selectedClass]);
 
   const loadTodaysClasses = async () => {
     try {
@@ -128,6 +115,21 @@ const ClassAttendanceView: React.FC = () => {
       setStudentsLoading(false);
     }
   };
+
+  // Fetch on mount only.
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    loadTodaysClasses();
+    loadColleges();
+  }, []);
+
+  // Fetch this class's roster whenever the selected class changes.
+  useEffect(() => {
+    if (selectedClass) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      loadStudents(selectedClass.courseId);
+    }
+  }, [selectedClass]);
 
   const handleClassChange = (event: { target: { value: unknown } }) => {
     const classId = event.target.value as number;

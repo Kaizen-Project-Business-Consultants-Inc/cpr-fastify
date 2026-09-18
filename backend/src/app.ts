@@ -92,7 +92,7 @@ export async function buildApp() {
       url: request.url,
       statusCode: reply.statusCode,
       duration: Math.round(duration),
-      userId: (request as any).userId || undefined,
+      userId: request.userId || undefined,
     };
     if (reply.statusCode >= 400) {
       logger.warn(logData, 'HTTP request');

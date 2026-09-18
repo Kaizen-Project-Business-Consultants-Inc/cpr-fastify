@@ -17,9 +17,35 @@ import {
   InputLabel,
   FormHelperText,
 } from '@mui/material';
+import type { SelectChangeEvent } from '@mui/material';
 import PhoneInput, { isValidPhoneNumber } from 'react-phone-number-input';
 import 'react-phone-number-input/style.css';
 import { createUser, updateUser } from '../../services/userService';
+import { getErrorMessage } from '../../utils/errorMessage';
+
+interface UserRecord {
+  userId: number;
+  username: string;
+  role?: string;
+  firstName?: string;
+  lastName?: string;
+  email?: string;
+  phone?: string;
+  organizationId?: number | string;
+  locationId?: number | string;
+}
+
+interface OrganizationOption {
+  organizationId?: number;
+  id?: number;
+  organizationName?: string;
+}
+
+interface LocationOption {
+  id: number;
+  locationName?: string;
+  isActive?: boolean;
+}
 
 // Initial empty state for a new user
 const initialUserState = {
@@ -43,10 +69,18 @@ const roles = [
   'Accounting',
 ];
 
-function UserDialog({ open, onClose, onSave, user, existingUsers = [] }: { open: any; onClose: any; onSave: any; user: any; existingUsers?: any[] }) {
+interface UserDialogProps {
+  open: boolean;
+  onClose: () => void;
+  onSave: () => void;
+  user: UserRecord | null;
+  existingUsers?: UserRecord[];
+}
+
+function UserDialog({ open, onClose, onSave, user, existingUsers = [] }: UserDialogProps) {
   const [userData, setUserData] = useState(initialUserState);
-  const [organizations, setOrganizations] = useState<any[]>([]);
-  const [locations, setLocations] = useState<any[]>([]);
+  const [organizations, setOrganizations] = useState<OrganizationOption[]>([]);
+  const [locations, setLocations] = useState<LocationOption[]>([]);
   const [loadingOrgs, setLoadingOrgs] = useState(false);
   const [loadingLocations, setLoadingLocations] = useState(false);
   const [error, setError] = useState('');
@@ -80,7 +114,7 @@ function UserDialog({ open, onClose, onSave, user, existingUsers = [] }: { open:
       logger.info('Fetching locations for organization:', orgId);
       const data = await api.getOrganizationLocations(orgId);
       // Filter to only active locations
-      const activeLocations = (data || []).filter((loc: any) => loc.isActive !== false);
+      const activeLocations = (data || []).filter((loc: LocationOption) => loc.isActive !== false);
       setLocations(activeLocations);
     } catch (fetchErr) {
       logger.error('Error fetching locations for dialog:', fetchErr);
@@ -108,7 +142,7 @@ function UserDialog({ open, onClose, onSave, user, existingUsers = [] }: { open:
         });
         // Fetch locations if user has an organization
         if (user.organizationId) {
-          fetchLocations(user.organizationId);
+          fetchLocations(Number(user.organizationId));
         }
       } else {
         setUserData(initialUserState);
@@ -120,7 +154,9 @@ function UserDialog({ open, onClose, onSave, user, existingUsers = [] }: { open:
   }, [user, isEditMode, open, fetchOrganizations, fetchLocations]);
 
   // Handler for standard MUI TextFields
-  const handleTextChange = (event: any) => {
+  const handleTextChange = (
+    event: SelectChangeEvent<string> | React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>
+  ) => {
     const { name, value } = event.target;
     setUserData(prevData => {
       const newData = {
@@ -153,7 +189,7 @@ function UserDialog({ open, onClose, onSave, user, existingUsers = [] }: { open:
   };
 
   // Handler specifically for react-phone-number-input
-  const handlePhoneChange = (name: string, value: any) => {
+  const handlePhoneChange = (name: string, value: string | undefined) => {
     setUserData(prevData => ({
       ...prevData,
       // Use the name passed ('phone') and the value directly
@@ -235,7 +271,17 @@ function UserDialog({ open, onClose, onSave, user, existingUsers = [] }: { open:
     setLoading(true);
     try {
       // Prepare data for API (convert orgId and locationId back to number if set)
-      const dataToSend: Record<string, any> = {
+      const dataToSend: {
+        username: string;
+        password?: string;
+        role: string;
+        firstName: string;
+        lastName: string;
+        email: string;
+        phone: string;
+        organizationId: number | null;
+        locationId: number | null;
+      } = {
         ...userData,
         organizationId: userData.organizationId
           ? parseInt(userData.organizationId, 10)
@@ -249,7 +295,7 @@ function UserDialog({ open, onClose, onSave, user, existingUsers = [] }: { open:
         delete dataToSend.password;
       }
 
-      if (isEditMode) {
+      if (isEditMode && user) {
         logger.info(
           '[UserDialog] Calling updateUser with ID:',
           user.userId,
@@ -264,9 +310,9 @@ function UserDialog({ open, onClose, onSave, user, existingUsers = [] }: { open:
       logger.info('[UserDialog] Save successful, calling onSave and onClose.');
       onSave();
       onClose();
-    } catch (err: any) {
+    } catch (err) {
       logger.error('Save user error:', err);
-      const message = err.message || 'Failed to save user.';
+      const message = getErrorMessage(err, 'Failed to save user.');
 
       // Try to parse backend error for specific fields
       const backendFieldErrors: Record<string, string> = {};

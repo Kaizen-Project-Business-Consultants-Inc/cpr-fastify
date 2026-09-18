@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Dialog,
   DialogTitle,
@@ -28,6 +28,7 @@ import {
 } from '@mui/icons-material';
 import { sysAdminApi } from '../../services/api';
 import { useConfirm } from '../gtacpr';
+import { getErrorMessage } from '../../utils/errorMessage';
 
 interface Location {
   id: number;
@@ -81,26 +82,30 @@ const LocationsDialog: React.FC<LocationsDialogProps> = ({
     contactPhone: '',
   });
 
-  useEffect(() => {
-    if (open && organization) {
-      loadLocations();
-    }
-  }, [open, organization]);
-
-  const loadLocations = async () => {
+  const loadLocations = useCallback(async () => {
     if (!organization) return;
     try {
       setLoading(true);
       setError('');
       const response = await sysAdminApi.getOrganizationLocations(organization.id);
       setLocations(response.data || []);
-    } catch (err: any) {
+    } catch (err) {
       setError('Failed to load locations');
       console.error(err);
     } finally {
       setLoading(false);
     }
-  };
+  }, [organization]);
+
+  // Fetches this organization's locations whenever the dialog opens for it
+  // (external API sync, not state derived from render data), so a direct
+  // setState inside is expected.
+  useEffect(() => {
+    if (open && organization) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      loadLocations();
+    }
+  }, [open, organization, loadLocations]);
 
   const handleOpenEdit = (location: Location | null = null) => {
     if (location) {
@@ -164,8 +169,8 @@ const LocationsDialog: React.FC<LocationsDialogProps> = ({
       }
       handleCloseEdit();
       loadLocations();
-    } catch (err: any) {
-      setError(err.response?.data?.message || 'Failed to save location');
+    } catch (err) {
+      setError(getErrorMessage(err, 'Failed to save location'));
       console.error(err);
     } finally {
       setSaving(false);
@@ -186,8 +191,8 @@ const LocationsDialog: React.FC<LocationsDialogProps> = ({
       await sysAdminApi.deleteOrganizationLocation(organization.id, loc.id);
       setSuccess('Location removed successfully');
       loadLocations();
-    } catch (err: any) {
-      setError(err.response?.data?.message || 'Failed to delete location');
+    } catch (err) {
+      setError(getErrorMessage(err, 'Failed to delete location'));
       console.error(err);
     }
   };

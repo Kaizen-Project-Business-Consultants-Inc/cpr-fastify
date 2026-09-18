@@ -4,6 +4,7 @@ import { getPool } from '../config/database.js';
 import { requireRole } from '../plugins/auth.js';
 import { emailService } from '../services/EmailService.js';
 import { env } from '../config/env.js';
+import type { RowDataPacket, ResultSetHeader } from 'mysql2/promise';
 
 const previewSchema = z.object({
   variables: z.record(z.string()).default({}),
@@ -49,11 +50,11 @@ export async function emailTemplateRoutes(app: FastifyInstance) {
     if (search) { conditions.push('(name LIKE ? OR subject LIKE ?)'); params.push(`%${search}%`, `%${search}%`); }
     if (conditions.length > 0) where = 'WHERE ' + conditions.join(' AND ');
 
-    const [rows] = await pool.query<any[]>(
+    const [rows] = await pool.query<RowDataPacket[]>(
       `SELECT * FROM email_templates ${where} ORDER BY category, name LIMIT ? OFFSET ?`,
       [...params, limitNum, offset]
     );
-    const [countRows] = await pool.query<any[]>(
+    const [countRows] = await pool.query<RowDataPacket[]>(
       `SELECT COUNT(*) as count FROM email_templates ${where}`, params
     );
     const total = Number(countRows[0]?.count ?? 0);
@@ -64,7 +65,7 @@ export async function emailTemplateRoutes(app: FastifyInstance) {
   // Get single template
   app.get('/:id', { preHandler: adminRole }, async (request, reply) => {
     const { id } = request.params as { id: string };
-    const [rows] = await pool.query<any[]>('SELECT * FROM email_templates WHERE id = ?', [parseInt(id)]);
+    const [rows] = await pool.query<RowDataPacket[]>('SELECT * FROM email_templates WHERE id = ?', [parseInt(id)]);
     if (rows.length === 0) return reply.status(404).send({ error: 'Template not found' });
     return { success: true, data: rows[0] };
   });
@@ -76,13 +77,13 @@ export async function emailTemplateRoutes(app: FastifyInstance) {
     const body = data.htmlContent || data.body || data.textContent || '';
     const key = data.key || data.name.toUpperCase().replace(/\s+/g, '_');
 
-    const [result] = await pool.query<any>(
+    const [result] = await pool.query<ResultSetHeader>(
       `INSERT INTO email_templates (name, \`key\`, category, sub_category, subject, body, is_active, is_system, created_by, last_modified_by)
        VALUES (?, ?, ?, ?, ?, ?, ?, false, ?, ?)`,
       [data.name, key, category, data.subCategory ?? null, data.subject, body,
        data.isActive ?? true, request.userId, request.userId]
     );
-    const [rows] = await pool.query<any[]>('SELECT * FROM email_templates WHERE id = ?', [result.insertId]);
+    const [rows] = await pool.query<RowDataPacket[]>('SELECT * FROM email_templates WHERE id = ?', [result.insertId]);
     return { success: true, data: rows[0] };
   });
 
@@ -93,7 +94,7 @@ export async function emailTemplateRoutes(app: FastifyInstance) {
     const category = data.category ? (Array.isArray(data.category) ? data.category[0] : data.category) : null;
     const body = data.htmlContent || data.body || data.textContent || null;
 
-    const [result] = await pool.query<any>(
+    const [result] = await pool.query<ResultSetHeader>(
       `UPDATE email_templates SET
        name = COALESCE(?, name), category = COALESCE(?, category),
        sub_category = COALESCE(?, sub_category), subject = COALESCE(?, subject),
@@ -103,14 +104,14 @@ export async function emailTemplateRoutes(app: FastifyInstance) {
        body, data.isActive ?? null, request.userId, parseInt(id)]
     );
     if (result.affectedRows === 0) return reply.status(404).send({ error: 'Template not found' });
-    const [rows] = await pool.query<any[]>('SELECT * FROM email_templates WHERE id = ?', [parseInt(id)]);
+    const [rows] = await pool.query<RowDataPacket[]>('SELECT * FROM email_templates WHERE id = ?', [parseInt(id)]);
     return { success: true, data: rows[0] };
   });
 
   // Delete template
   app.delete('/:id', { preHandler: adminRole }, async (request, reply) => {
     const { id } = request.params as { id: string };
-    const [result] = await pool.query<any>('DELETE FROM email_templates WHERE id = ?', [parseInt(id)]);
+    const [result] = await pool.query<ResultSetHeader>('DELETE FROM email_templates WHERE id = ?', [parseInt(id)]);
     if (result.affectedRows === 0) return reply.status(404).send({ error: 'Template not found' });
     return { success: true, message: 'Email template deleted successfully' };
   });
@@ -118,7 +119,7 @@ export async function emailTemplateRoutes(app: FastifyInstance) {
   // Preview template
   app.post('/:id/preview', { preHandler: adminRole }, async (request, reply) => {
     const { id } = request.params as { id: string };
-    const [rows] = await pool.query<any[]>('SELECT * FROM email_templates WHERE id = ?', [parseInt(id)]);
+    const [rows] = await pool.query<RowDataPacket[]>('SELECT * FROM email_templates WHERE id = ?', [parseInt(id)]);
     if (rows.length === 0) return reply.status(404).send({ error: 'Template not found' });
 
     const { variables } = previewSchema.parse(request.body);
@@ -132,19 +133,19 @@ export async function emailTemplateRoutes(app: FastifyInstance) {
   // Clone template
   app.post('/:id/clone', { preHandler: adminRole }, async (request, reply) => {
     const { id } = request.params as { id: string };
-    const [rows] = await pool.query<any[]>('SELECT * FROM email_templates WHERE id = ?', [parseInt(id)]);
+    const [rows] = await pool.query<RowDataPacket[]>('SELECT * FROM email_templates WHERE id = ?', [parseInt(id)]);
     if (rows.length === 0) return reply.status(404).send({ error: 'Template not found' });
 
     const { name } = cloneSchema.parse(request.body);
 
     const original = rows[0];
-    const [result] = await pool.query<any>(
+    const [result] = await pool.query<ResultSetHeader>(
       `INSERT INTO email_templates (name, \`key\`, category, sub_category, subject, body, is_active, is_system, created_by, last_modified_by)
        VALUES (?, ?, ?, ?, ?, ?, ?, false, ?, ?)`,
       [name, name.toLowerCase().replace(/\s+/g, '_'), original.category, original.sub_category,
        original.subject, original.body, original.is_active, request.userId, request.userId]
     );
-    const [newRows] = await pool.query<any[]>('SELECT * FROM email_templates WHERE id = ?', [result.insertId]);
+    const [newRows] = await pool.query<RowDataPacket[]>('SELECT * FROM email_templates WHERE id = ?', [result.insertId]);
     return { success: true, message: 'Email template cloned successfully', data: newRows[0] };
   });
 
@@ -153,7 +154,7 @@ export async function emailTemplateRoutes(app: FastifyInstance) {
     const { id } = request.params as { id: string };
     const { to } = testSendSchema.parse(request.body);
 
-    const [rows] = await pool.query<any[]>('SELECT * FROM email_templates WHERE id = ?', [parseInt(id)]);
+    const [rows] = await pool.query<RowDataPacket[]>('SELECT * FROM email_templates WHERE id = ?', [parseInt(id)]);
     if (rows.length === 0) return reply.status(404).send({ error: 'Template not found' });
 
     const template = rows[0];

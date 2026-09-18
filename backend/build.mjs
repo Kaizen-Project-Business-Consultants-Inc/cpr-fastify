@@ -15,28 +15,23 @@ import { readFileSync } from 'node:fs';
 
 const pkg = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8'));
 
-// Kept external: present on the host since the original install; either optional
-// (loaded with a guarded dynamic import), dev-only, or reliant on files next to the
-// package on disk (pdfkit font data, swagger-ui static assets).
+// Kept external — everything else is bundled, so the host's node_modules can be stale
+// or absent without breaking a deploy.
+//
+//   pdfkit       resolves its .afm font metrics relative to its own package directory
+//                at PDF-generation time, which happens in production. Bundling it would
+//                break invoice PDFs, and the boot smoke test would not catch that.
+//   pino-pretty  development-only log transport. pino loads transports by module name at
+//                runtime, which a bundler cannot follow; production sets transport:false.
+//   @sentry/node optional, loaded through a guarded dynamic import in index.ts.
 const EXTERNAL = new Set([
-  '@sentry/node',
-  'pino-pretty',
   'pdfkit',
+  'pino-pretty',
+  '@sentry/node',
+  // Loaded via dynamic import in plugins/swagger.ts and registered only when
+  // NODE_ENV !== 'production', so the production bundle never evaluates them.
   '@fastify/swagger',
   '@fastify/swagger-ui',
-  'mysql2',
-  'fastify',
-  'pino',
-  'bcryptjs',
-  'jsonwebtoken',
-  'zod',
-  '@fastify/cookie',
-  '@fastify/cors',
-  '@fastify/helmet',
-  '@fastify/multipart',
-  '@fastify/rate-limit',
-  '@fastify/sensible',
-  '@fastify/static',
 ]);
 
 const external = Object.keys(pkg.dependencies).filter((d) => EXTERNAL.has(d));

@@ -56,6 +56,9 @@ export const usePageTransition = () => {
   // Handle route changes
   useEffect(() => {
     if (location.pathname !== state.currentPage) {
+      // Drives a timed transition animation (sets a timer below to flip isTransitioning
+      // back off) — a real effect, not simple render-time derivation.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setState(prevState => ({
         isTransitioning: true,
         previousPage: prevState.currentPage,

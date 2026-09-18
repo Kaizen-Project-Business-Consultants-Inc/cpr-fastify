@@ -31,7 +31,7 @@ const navItems = [
 const InstructorLayout: React.FC<InstructorLayoutProps> = ({
   children,
   currentView,
-  onRefresh,
+  onRefresh: _onRefresh,
 }) => {
   const navigate = useNavigate();
   const config = viewConfig[currentView] || { eyebrow: 'Instructor', title: 'Instructor Portal' };

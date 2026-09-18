@@ -16,6 +16,7 @@ import StatCard from '../gtacpr/StatCard';
 import StatusChip from '../gtacpr/StatusChip';
 import DataTable, { DataTableRow } from '../gtacpr/DataTable';
 import { PrimaryButton, GhostButton } from '../gtacpr/Buttons';
+import { getErrorMessage } from '../../utils/errorMessage';
 
 interface HRDashboardProps {
   onViewChange?: (view: string) => void;
@@ -67,20 +68,20 @@ const HRDashboard: React.FC<HRDashboardProps> = ({ onViewChange }) => {
   const [approvalComment, setApprovalComment] = useState('');
   const [processingApproval, setProcessingApproval] = useState(false);
 
-  useEffect(() => { loadDashboardData(); }, []);
-
   const loadDashboardData = async () => {
     try {
       setLoading(true);
       setError(null);
       const dashboardStats = await hrDashboardService.getDashboardStats();
       setStats(dashboardStats);
-    } catch (err: any) {
-      setError(err instanceof Error ? err.message : 'Failed to load dashboard data');
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, 'Failed to load dashboard data'));
     } finally {
       setLoading(false);
     }
   };
+
+  useEffect(() => { loadDashboardData(); }, []);
 
   const handleApproveChange = async () => {
     if (!selectedChange) return;
@@ -91,8 +92,8 @@ const HRDashboard: React.FC<HRDashboardProps> = ({ onViewChange }) => {
       setApprovalDialog(false);
       setSelectedChange(null);
       setApprovalComment('');
-    } catch (err: any) {
-      setError(err instanceof Error ? err.message : 'Failed to process approval');
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, 'Failed to process approval'));
     } finally {
       setProcessingApproval(false);
     }

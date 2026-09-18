@@ -73,6 +73,24 @@ export interface InvoicePDFRow {
   invoice_id?: number;
 }
 
+/** Shape returned by the "ready for billing" queue query. */
+export interface BillingQueueRow {
+  course_id: number;
+  organization_id: number;
+  organization_name: string;
+  contact_email: string | null;
+  course_type_name: string;
+  location: string | null;
+  date_completed: string | Date | null;
+  registered_students: number;
+  students_attended: number;
+  rate_per_student: number;
+  total_amount: number;
+  instructor_name: string | null;
+  instructor_email: string | null;
+  ready_for_billing_at: string | Date | null;
+}
+
 /** Shape for a payment row from the payments table. */
 export interface PaymentRow {
   id: number;

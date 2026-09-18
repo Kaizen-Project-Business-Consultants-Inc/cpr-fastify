@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Box,
   Typography,
@@ -13,16 +13,43 @@ import {
   Switch,
 } from '@mui/material';
 import { sysAdminApi } from '../../services/api';
+import api from '../../services/api';
 import SearchBar from '../gtacpr/SearchBar';
 import DataTable, { DataTableRow } from '../gtacpr/DataTable';
 import UserAvatar from '../gtacpr/UserAvatar';
 import StatusChip from '../gtacpr/StatusChip';
 import { LinkButton } from '../gtacpr';
 import { useDebounce } from '../../hooks/useDebounce';
+import { useServerPagination } from '../../hooks/useServerPagination';
 import { formatDisplayDate } from '../../utils/formatters';
+import type { Theme } from '@mui/material/styles';
 
 interface StudentManagementProps {
   onShowSnackbar: (message: string, severity: 'success' | 'error' | 'warning' | 'info') => void;
+}
+
+interface Student {
+  id: number;
+  first_name?: string;
+  last_name?: string;
+  email?: string;
+  phone?: string;
+  organization_name?: string;
+  course_count?: number;
+  last_course_date?: string;
+  marketing_consent?: boolean;
+  notes?: string;
+  courses?: CourseHistoryEntry[];
+}
+
+interface CourseHistoryEntry {
+  id: number;
+  course_type_name?: string;
+  organization_name?: string;
+  instructor_name?: string;
+  location?: string;
+  completed_at?: string;
+  certificate_expires_at?: string;
 }
 
 const columns = [
@@ -41,16 +68,32 @@ function getInitials(first?: string, last?: string): string {
 }
 
 const StudentManagement = ({ onShowSnackbar }: StudentManagementProps) => {
-  const [students, setStudents] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const debouncedSearch = useDebounce(searchTerm, 300);
   const [saving, setSaving] = useState(false);
 
+  // Search is server-side: `/sysadmin/students` takes `q` (min 2 chars) and
+  // matches across the whole directory. On the search path the endpoint
+  // answers with every match and no `pagination` block — the hook treats that
+  // as a single page, which is the behaviour this screen already had.
+  const grid = useServerPagination<Student>({
+    pageSize: 25,
+    fetchFn: ({ page, limit }) => {
+      const q = debouncedSearch.trim();
+      return api
+        .get('/sysadmin/students', {
+          params: { page, limit, q: q.length >= 2 ? q : undefined },
+        })
+        .then(r => r.data);
+    },
+    onError: () => onShowSnackbar('Failed to load students', 'error'),
+  });
+  const students = grid.items;
+
   // Detail dialog
   const [detailOpen, setDetailOpen] = useState(false);
-  const [selectedStudent, setSelectedStudent] = useState<any>(null);
-  const [courseHistory, setCourseHistory] = useState<any[]>([]);
+  const [selectedStudent, setSelectedStudent] = useState<Student | null>(null);
+  const [courseHistory, setCourseHistory] = useState<CourseHistoryEntry[]>([]);
   const [detailLoading, setDetailLoading] = useState(false);
 
   // Edit dialog
@@ -58,24 +101,16 @@ const StudentManagement = ({ onShowSnackbar }: StudentManagementProps) => {
   const [editData, setEditData] = useState({ first_name: '', last_name: '', phone: '', notes: '' });
   const [editId, setEditId] = useState<number | null>(null);
 
-  const loadStudents = useCallback(async (query?: string) => {
-    setLoading(true);
-    try {
-      const params = query && query.length >= 2 ? { q: query } : undefined;
-      const response = await sysAdminApi.getStudents(params);
-      setStudents(response.data || []);
-    } catch {
-      onShowSnackbar('Failed to load students', 'error');
-    } finally {
-      setLoading(false);
-    }
-  }, [onShowSnackbar]);
+  const loadStudents = grid.load;
+  useEffect(() => { loadStudents(1); }, [loadStudents, debouncedSearch]);
 
-  useEffect(() => {
-    loadStudents(debouncedSearch);
-  }, [loadStudents, debouncedSearch]);
+  // Snapshot "now" once per mount (via the useState lazy initializer,
+  // which runs a single time) rather than calling Date.now() directly in
+  // render, which the purity rule flags as non-deterministic; the
+  // certificate countdown below only needs to be accurate to the day.
+  const [now] = useState(() => Date.now());
 
-  const handleViewStudent = async (student: any) => {
+  const handleViewStudent = async (student: Student) => {
     setDetailOpen(true);
     setDetailLoading(true);
     setSelectedStudent(student);
@@ -91,7 +126,7 @@ const StudentManagement = ({ onShowSnackbar }: StudentManagementProps) => {
     }
   };
 
-  const handleEditOpen = (student: any) => {
+  const handleEditOpen = (student: Student) => {
     setEditId(student.id);
     setEditData({
       first_name: student.first_name || '',
@@ -109,7 +144,7 @@ const StudentManagement = ({ onShowSnackbar }: StudentManagementProps) => {
       await sysAdminApi.updateStudent(editId, editData);
       onShowSnackbar('Student updated', 'success');
       setEditOpen(false);
-      loadStudents(searchTerm);
+      grid.reload();
     } catch {
       onShowSnackbar('Failed to update student', 'error');
     } finally {
@@ -117,24 +152,16 @@ const StudentManagement = ({ onShowSnackbar }: StudentManagementProps) => {
     }
   };
 
-  const handleConsentToggle = async (student: any) => {
+  const handleConsentToggle = async (student: Student) => {
     const newConsent = !student.marketing_consent;
     try {
       await sysAdminApi.updateStudentConsent(student.id, newConsent);
       onShowSnackbar(`Marketing consent ${newConsent ? 'granted' : 'revoked'}`, 'success');
-      loadStudents(searchTerm);
+      grid.reload();
     } catch {
       onShowSnackbar('Failed to update consent', 'error');
     }
   };
-
-  if (loading && students.length === 0) {
-    return (
-      <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: 400 }}>
-        <CircularProgress size={48} />
-      </Box>
-    );
-  }
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
@@ -148,20 +175,23 @@ const StudentManagement = ({ onShowSnackbar }: StudentManagementProps) => {
           />
         </Box>
         <Typography sx={{ fontSize: 12, color: (theme) => theme.palette.text.secondary }}>
-          {students.length} student{students.length !== 1 ? 's' : ''}
+          {grid.totalCount} student{grid.totalCount !== 1 ? 's' : ''}
         </Typography>
       </Box>
 
       {/* Table */}
-      {students.length === 0 ? (
-        <Box sx={{ bgcolor: (theme) => theme.palette.background.paper, border: (theme) => `1px solid ${theme.palette.divider}`, borderRadius: '10px', p: 6, textAlign: 'center' }}>
-          <Typography sx={{ color: (theme) => theme.palette.text.secondary, fontSize: 14 }}>
-            {searchTerm ? 'No students match your search.' : 'No students found.'}
-          </Typography>
-        </Box>
-      ) : (
-        <DataTable columns={columns} shownCount={students.length} totalCount={students.length}>
-          {students.map((student) => (
+      <DataTable
+        columns={columns}
+        shownCount={grid.shownCount}
+        totalCount={grid.totalCount}
+        page={grid.page}
+        onPrevPage={grid.onPrevPage}
+        onNextPage={grid.onNextPage}
+        hasNextPage={grid.hasNextPage}
+        loading={grid.loading}
+        emptyMessage={searchTerm ? 'No students match your search.' : 'No students found.'}
+      >
+        {students.map((student) => (
             <DataTableRow key={student.id} columns={columns}>
               {/* STUDENT */}
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
@@ -209,10 +239,9 @@ const StudentManagement = ({ onShowSnackbar }: StudentManagementProps) => {
                 <Typography sx={{ fontSize: 12, color: (theme) => theme.palette.divider }}>|</Typography>
                 <LinkButton onClick={() => handleEditOpen(student)}>Edit</LinkButton>
               </Box>
-            </DataTableRow>
-          ))}
-        </DataTable>
-      )}
+          </DataTableRow>
+        ))}
+      </DataTable>
 
       {/* Detail Dialog — Course History */}
       <Dialog open={detailOpen} onClose={() => setDetailOpen(false)} maxWidth="md" fullWidth>
@@ -230,11 +259,11 @@ const StudentManagement = ({ onShowSnackbar }: StudentManagementProps) => {
             </Typography>
           ) : (
             <Box sx={{ mt: 1, display: 'flex', flexDirection: 'column', gap: 1 }}>
-              {courseHistory.map((course: any) => {
+              {courseHistory.map((course: CourseHistoryEntry) => {
                 let chipKind: 'active' | 'warning' | 'danger' | 'neutral' = 'neutral';
                 let chipLabel = '—';
                 if (course.certificate_expires_at) {
-                  const daysLeft = Math.ceil((new Date(course.certificate_expires_at).getTime() - Date.now()) / 86400000);
+                  const daysLeft = Math.ceil((new Date(course.certificate_expires_at).getTime() - now) / 86400000);
                   if (daysLeft < 0) { chipKind = 'danger'; chipLabel = 'Expired'; }
                   else if (daysLeft <= 90) { chipKind = 'warning'; chipLabel = `${daysLeft}d left`; }
                   else { chipKind = 'active'; chipLabel = 'Active'; }
@@ -248,7 +277,7 @@ const StudentManagement = ({ onShowSnackbar }: StudentManagementProps) => {
                       alignItems: 'center',
                       p: '10px 14px',
                       borderRadius: '8px',
-                      border: (theme: any) => `1px solid ${theme.palette.divider}`,
+                      border: (theme: Theme) => `1px solid ${theme.palette.divider}`,
                       gap: 1,
                     }}
                   >

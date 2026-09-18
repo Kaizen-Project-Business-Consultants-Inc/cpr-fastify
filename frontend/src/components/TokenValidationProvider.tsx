@@ -68,7 +68,7 @@ const TokenValidationProvider: React.FC<TokenValidationProviderProps> = ({
           tokenService.clearSavedLocation();
           sessionStorage.removeItem('location_restoration_attempted');
         }
-      } catch (err: any) {
+      } catch (err) {
         console.error('[TOKEN VALIDATION PROVIDER] Validation error:', err);
         setValidationState({
           isValidating: false,

@@ -123,7 +123,10 @@ const InstructorProfile: React.FC = () => {
     }
   }, []);
 
+  // Data fetch on mount — the standard fetch-on-mount pattern, not state derived
+  // from render.
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     loadProfile();
     loadPreferences();
   }, [loadProfile, loadPreferences]);

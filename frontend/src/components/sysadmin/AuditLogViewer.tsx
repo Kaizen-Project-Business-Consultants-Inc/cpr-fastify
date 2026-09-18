@@ -93,7 +93,7 @@ const AuditLogViewer = ({ onShowSnackbar }: AuditLogViewerProps) => {
     if (entityTypeFilter) params.entity_type = entityTypeFilter;
     if (fromDate) params.from = fromDate;
     if (toDate) params.to = toDate;
-    const response = await sysAdminApi.getAuditLogs(params as any);
+    const response = await sysAdminApi.getAuditLogs(params);
     return { data: response.data, pagination: response.pagination };
   }, [debouncedSearch, actionFilter, entityTypeFilter, fromDate, toDate]);
 
@@ -111,8 +111,11 @@ const AuditLogViewer = ({ onShowSnackbar }: AuditLogViewerProps) => {
     }
   };
 
+  // Mount-time fetch of summary stat cards (external API sync, not state
+  // derived from render data), so a direct setState inside is expected.
+  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { loadStats(); }, []);
-  useEffect(() => { load(1); }, [debouncedSearch, actionFilter, entityTypeFilter, fromDate, toDate]);
+  useEffect(() => { load(1); }, [load, debouncedSearch, actionFilter, entityTypeFilter, fromDate, toDate]);
 
   const handleExportCSV = async () => {
     try {

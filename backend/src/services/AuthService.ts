@@ -4,6 +4,7 @@ import { createHash } from 'node:crypto';
 import { env } from '../config/env.js';
 import { getPool } from '../config/database.js';
 import { UserRepository, User } from '../repositories/UserRepository.js';
+import type { RowDataPacket } from 'mysql2/promise';
 
 export interface TokenPair {
   accessToken: string;
@@ -56,7 +57,7 @@ export class AuthService {
   /** Check if account is locked. Returns minutes remaining, or null if not locked. */
   private async checkLockout(key: string): Promise<number | null> {
     const pool = getPool();
-    const [rows] = await pool.query<any[]>(
+    const [rows] = await pool.query<RowDataPacket[]>(
       `SELECT COUNT(*) as cnt FROM login_attempts
        WHERE username = ? AND attempted_at > NOW() - INTERVAL ? MINUTE`,
       [key, LOCKOUT_WINDOW_MINUTES]
@@ -65,7 +66,7 @@ export class AuthService {
     if (count < MAX_FAILED_ATTEMPTS) return null;
 
     // Check when the most recent attempt was (to calculate remaining lockout)
-    const [latest] = await pool.query<any[]>(
+    const [latest] = await pool.query<RowDataPacket[]>(
       `SELECT attempted_at FROM login_attempts
        WHERE username = ? ORDER BY attempted_at DESC LIMIT 1`,
       [key]
@@ -106,7 +107,7 @@ export class AuthService {
 
     const pool = getPool();
     const hash = hashToken(token);
-    const [rows] = await pool.query<any[]>(
+    const [rows] = await pool.query<RowDataPacket[]>(
       'SELECT id, user_id, revoked_at, expires_at FROM refresh_tokens WHERE token_hash = ? LIMIT 1',
       [hash]
     );
@@ -187,7 +188,7 @@ export class AuthService {
   /** Check if a token was issued before the user's tokens were invalidated (DB-backed) */
   async isTokenBlacklisted(userId: number, tokenIssuedAt: number): Promise<boolean> {
     const pool = getPool();
-    const [rows] = await pool.query<any[]>(
+    const [rows] = await pool.query<RowDataPacket[]>(
       'SELECT invalidated_at FROM token_blacklist WHERE user_id = ?',
       [userId]
     );

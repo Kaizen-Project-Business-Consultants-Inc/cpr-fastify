@@ -3,7 +3,7 @@ import { getPool } from '../config/database.js';
 import { RowDataPacket } from 'mysql2/promise';
 import { getHSTRate } from '../utils/taxConfig.js';
 import { PaginationParams, PaginatedResult, paginatedQuery } from '../utils/pagination.js';
-import type { PaymentRow, AgingInvoiceRow } from '../types/billing.js';
+import type { PaymentRow, AgingInvoiceRow, BillingQueueRow } from '../types/billing.js';
 
 /** Canonical WHERE clause for counting verified, non-deleted payments. */
 export const VERIFIED_PAYMENT_FILTER = "status = 'verified' AND deleted_at IS NULL";
@@ -107,8 +107,8 @@ export class InvoiceRepository extends BaseRepository<Invoice> {
     };
   }
 
-  async getBillingQueue(): Promise<any[]> {
-    return this.query(
+  async getBillingQueue(): Promise<BillingQueueRow[]> {
+    return this.query<BillingQueueRow>(
       `SELECT
          cr.id as course_id, cr.organization_id,
          o.name as organization_name, o.contact_email,
@@ -226,7 +226,7 @@ export class InvoiceRepository extends BaseRepository<Invoice> {
     return this.query<InvoiceWithDetails>(`${dataSQL} LIMIT 200`);
   }
 
-  async findRejected(pg?: PaginationParams): Promise<any[] | PaginatedResult<any>> {
+  async findRejected(pg?: PaginationParams): Promise<InvoiceWithDetails[] | PaginatedResult<InvoiceWithDetails>> {
     const dataSQL = `SELECT i.*, o.name as organization_name, ct.name as course_type_name,
               u.username as rejected_by_name
        FROM invoices i

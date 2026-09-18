@@ -2,6 +2,7 @@ import { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { requireRole } from '../plugins/auth.js';
 import { getPool } from '../config/database.js';
+import type { RowDataPacket } from 'mysql2/promise';
 
 const updateProfileSchema = z.object({
   username: z.string().min(1),
@@ -15,7 +16,7 @@ export async function studentRoutes(app: FastifyInstance) {
 
   app.get('/classes', { preHandler: studentRole }, async (request) => {
     const pool = getPool();
-    const [rows] = await pool.query<any[]>(
+    const [rows] = await pool.query<RowDataPacket[]>(
       `SELECT c.*, ct.name as type, ct.description, ct.duration_minutes
        FROM classes c JOIN class_types ct ON c.class_type_id = ct.id
        WHERE c.student_id = ?`,
@@ -26,7 +27,7 @@ export async function studentRoutes(app: FastifyInstance) {
 
   app.get('/upcoming-classes', { preHandler: studentRole }, async (request) => {
     const pool = getPool();
-    const [rows] = await pool.query<any[]>(
+    const [rows] = await pool.query<RowDataPacket[]>(
       `SELECT c.*, ct.name as type, ct.description, ct.duration_minutes
        FROM classes c JOIN class_types ct ON c.class_type_id = ct.id
        WHERE c.student_id = ? AND c.start_time > NOW()
@@ -38,7 +39,7 @@ export async function studentRoutes(app: FastifyInstance) {
 
   app.get('/completed-classes', { preHandler: studentRole }, async (request) => {
     const pool = getPool();
-    const [rows] = await pool.query<any[]>(
+    const [rows] = await pool.query<RowDataPacket[]>(
       `SELECT c.*, ct.name as type, ct.description, ct.duration_minutes
        FROM classes c JOIN class_types ct ON c.class_type_id = ct.id
        WHERE c.student_id = ? AND c.end_time < NOW()
@@ -50,7 +51,7 @@ export async function studentRoutes(app: FastifyInstance) {
 
   app.get('/profile', { preHandler: studentRole }, async (request) => {
     const pool = getPool();
-    const [rows] = await pool.query<any[]>(
+    const [rows] = await pool.query<RowDataPacket[]>(
       'SELECT id, username, email, full_name, phone FROM users WHERE id = ?',
       [request.userId]
     );
@@ -64,7 +65,7 @@ export async function studentRoutes(app: FastifyInstance) {
       'UPDATE users SET username = ?, email = ?, full_name = ?, phone = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
       [username, email, fullName ?? null, phone ?? null, request.userId]
     );
-    const [rows] = await pool.query<any[]>(
+    const [rows] = await pool.query<RowDataPacket[]>(
       'SELECT id, username, email, full_name, phone FROM users WHERE id = ?',
       [request.userId]
     );
@@ -73,7 +74,7 @@ export async function studentRoutes(app: FastifyInstance) {
 
   app.get('/enrollments', { preHandler: studentRole }, async (request) => {
     const pool = getPool();
-    const [rows] = await pool.query<any[]>(
+    const [rows] = await pool.query<RowDataPacket[]>(
       'SELECT * FROM enrollments WHERE student_id = ? ORDER BY created_at DESC',
       [request.userId]
     );

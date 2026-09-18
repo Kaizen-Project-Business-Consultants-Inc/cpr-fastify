@@ -1,4 +1,5 @@
-import { FastifyInstance } from 'fastify';
+import { FastifyInstance, FastifyReply } from 'fastify';
+import type { PoolConnection, RowDataPacket, ResultSetHeader } from 'mysql2/promise';
 import { z } from 'zod';
 import { getPool } from '../config/database.js';
 import { requireRole } from '../plugins/auth.js';
@@ -6,10 +7,9 @@ import { logger } from '../config/logger.js';
 import { env } from '../config/env.js';
 import bcrypt from 'bcryptjs';
 import { StudentRepository } from '../repositories/StudentRepository.js';
-import { parsePagination, paginatedQuery } from '../utils/pagination.js';
+import { parsePagination, paginatedQuery, maybePaginate, paginatedResponse, isPaginated } from '../utils/pagination.js';
 import { toCSV } from '../utils/csv.js';
 import { CertReminderService } from '../services/CertReminderService.js';
-import { logAudit } from '../utils/auditLog.js';
 
 const createUserSchema = z.object({
   username: z.string().min(3).max(50).regex(/^[a-zA-Z0-9_-]+$/),
@@ -71,32 +71,99 @@ const vendorBodySchema = z.object({
   is_active: z.boolean().optional(),
 });
 
+/** An expected 4xx raised inside a transaction: rolls back, then becomes the reply. */
+class TxAbort extends Error {
+  constructor(public statusCode: number, public payload: Record<string, unknown>) {
+    super(String(payload.error ?? 'Transaction aborted'));
+    this.name = 'TxAbort';
+  }
+}
+
+interface AuditEntry {
+  userId?: number;
+  username?: string;
+  action: string;
+  entityType?: string;
+  entityId?: number;
+  details?: Record<string, unknown>;
+  ipAddress?: string;
+}
+
+/**
+ * Transaction-aware audit write. `logAudit` is deliberately fire-and-forget on
+ * the pool, which would leave an audit row behind after a rollback; inside a
+ * transaction we write through the same connection so the audit trail commits
+ * or rolls back with the change it describes.
+ */
+async function writeAudit(conn: PoolConnection, entry: AuditEntry): Promise<void> {
+  await conn.query(
+    `INSERT INTO audit_logs (user_id, username, action, entity_type, entity_id, details, ip_address)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    [
+      entry.userId ?? null,
+      entry.username ?? null,
+      entry.action,
+      entry.entityType ?? null,
+      entry.entityId ?? null,
+      entry.details ? JSON.stringify(entry.details) : null,
+      entry.ipAddress ?? null,
+    ]
+  );
+}
+
 export async function adminRoutes(app: FastifyInstance) {
   const pool = getPool();
   const adminRole = [requireRole('admin', 'sysadmin')];
   const sysadminRole = [requireRole('sysadmin')];
 
+  /**
+   * Run `fn` inside a transaction. Commits on normal return; rolls back on any
+   * throw. Throw `TxAbort` for an expected 4xx — it rolls back and is turned
+   * into the error response rather than a 500.
+   */
+  async function inTransaction<T>(
+    reply: FastifyReply,
+    fn: (conn: PoolConnection) => Promise<T>,
+  ): Promise<T | FastifyReply> {
+    const conn = await pool.getConnection();
+    try {
+      await conn.beginTransaction();
+      const result = await fn(conn);
+      await conn.commit();
+      return result;
+    } catch (err) {
+      await conn.rollback();
+      if (err instanceof TxAbort) return reply.status(err.statusCode).send(err.payload);
+      throw err;
+    } finally {
+      conn.release();
+    }
+  }
+
   // ===== Course type management =====
-  app.get('/courses', { preHandler: adminRole }, async () => {
-    const [rows] = await pool.query<any[]>(
+  app.get('/courses', { preHandler: adminRole }, async (request) => {
+    const result = await maybePaginate(
       `SELECT id, name, description, duration_minutes, course_code,
               certification_validity_months,
               COALESCE(is_active, true) as is_active, created_at, updated_at
-       FROM class_types ORDER BY name`
+       FROM class_types ORDER BY name`,
+      'SELECT COUNT(*) as count FROM class_types',
+      [],
+      request.query as Record<string, string>,
     );
-    return { success: true, data: rows };
+    return paginatedResponse(result);
   });
 
   app.post('/courses', { preHandler: adminRole }, async (request, reply) => {
     const data = createCourseSchema.parse(request.body);
-    const [existing] = await pool.query<any[]>('SELECT id FROM class_types WHERE LOWER(name) = LOWER(?)', [data.name]);
+    const [existing] = await pool.query<RowDataPacket[]>('SELECT id FROM class_types WHERE LOWER(name) = LOWER(?)', [data.name]);
     if (existing.length > 0) return reply.status(400).send({ error: 'A course with this name already exists' });
 
-    const [result] = await pool.query<any>(
+    const [result] = await pool.query<ResultSetHeader>(
       'INSERT INTO class_types (name, description, duration_minutes, course_code, is_active, certification_validity_months) VALUES (?, ?, ?, ?, ?, ?)',
       [data.name, data.description ?? null, data.duration_minutes, data.course_code ?? null, data.is_active, data.certification_validity_months ?? null]
     );
-    const [rows] = await pool.query<any[]>('SELECT * FROM class_types WHERE id = ?', [result.insertId]);
+    const [rows] = await pool.query<RowDataPacket[]>('SELECT * FROM class_types WHERE id = ?', [result.insertId]);
     return { success: true, message: 'Course created successfully', data: rows[0] };
   });
 
@@ -105,11 +172,11 @@ export async function adminRoutes(app: FastifyInstance) {
     const { name, description, duration_minutes, course_code, is_active, certification_validity_months } = createCourseSchema.partial().parse(request.body);
 
     if (name) {
-      const [dup] = await pool.query<any[]>('SELECT id FROM class_types WHERE LOWER(name) = LOWER(?) AND id != ?', [name, id]);
+      const [dup] = await pool.query<RowDataPacket[]>('SELECT id FROM class_types WHERE LOWER(name) = LOWER(?) AND id != ?', [name, id]);
       if (dup.length > 0) return reply.status(400).send({ error: 'A course with this name already exists' });
     }
 
-    const [result] = await pool.query<any>(
+    const [result] = await pool.query<ResultSetHeader>(
       `UPDATE class_types SET name = COALESCE(?, name), description = COALESCE(?, description),
        duration_minutes = COALESCE(?, duration_minutes), course_code = COALESCE(?, course_code),
        is_active = COALESCE(?, is_active),
@@ -119,31 +186,34 @@ export async function adminRoutes(app: FastifyInstance) {
        ...(certification_validity_months !== undefined ? [certification_validity_months ?? null] : []), id]
     );
     if (result.affectedRows === 0) return reply.status(404).send({ error: 'Course not found' });
-    const [rows] = await pool.query<any[]>('SELECT * FROM class_types WHERE id = ?', [id]);
+    const [rows] = await pool.query<RowDataPacket[]>('SELECT * FROM class_types WHERE id = ?', [id]);
     return { success: true, message: 'Course updated successfully', data: rows[0] };
   });
 
   app.put('/courses/:id/toggle-active', { preHandler: adminRole }, async (request, reply) => {
     const { id } = request.params as { id: string };
-    const [result] = await pool.query<any>(
+    const [result] = await pool.query<ResultSetHeader>(
       'UPDATE class_types SET is_active = NOT COALESCE(is_active, true), updated_at = CURRENT_TIMESTAMP WHERE id = ?', [id]
     );
     if (result.affectedRows === 0) return reply.status(404).send({ error: 'Course not found' });
-    const [rows] = await pool.query<any[]>('SELECT * FROM class_types WHERE id = ?', [id]);
+    const [rows] = await pool.query<RowDataPacket[]>('SELECT * FROM class_types WHERE id = ?', [id]);
     return { success: true, message: `Course ${rows[0].is_active ? 'activated' : 'deactivated'} successfully`, data: rows[0] };
   });
 
   app.delete('/courses/:id', { preHandler: adminRole }, async (request, reply) => {
     const { id } = request.params as { id: string };
-    const [usage] = await pool.query<any[]>('SELECT COUNT(*) as count FROM course_requests WHERE course_type_id = ?', [id]);
-    if (Number(usage[0].count) > 0) {
-      await pool.query('UPDATE class_types SET is_active = false, updated_at = CURRENT_TIMESTAMP WHERE id = ?', [id]);
-      const [rows] = await pool.query<any[]>('SELECT * FROM class_types WHERE id = ?', [id]);
-      return { success: true, message: `Course deactivated (${usage[0].count} course requests exist)`, data: rows[0], softDeleted: true };
-    }
-    const [result] = await pool.query<any>('DELETE FROM class_types WHERE id = ?', [id]);
-    if (result.affectedRows === 0) return reply.status(404).send({ error: 'Course not found' });
-    return { success: true, message: 'Course deleted permanently', softDeleted: false };
+    // The usage count decides soft- vs hard-delete, so read and write together.
+    return inTransaction(reply, async (conn) => {
+      const [usage] = await conn.query<RowDataPacket[]>('SELECT COUNT(*) as count FROM course_requests WHERE course_type_id = ?', [id]);
+      if (Number(usage[0].count) > 0) {
+        await conn.query('UPDATE class_types SET is_active = false, updated_at = CURRENT_TIMESTAMP WHERE id = ?', [id]);
+        const [rows] = await conn.query<RowDataPacket[]>('SELECT * FROM class_types WHERE id = ?', [id]);
+        return { success: true, message: `Course deactivated (${usage[0].count} course requests exist)`, data: rows[0], softDeleted: true };
+      }
+      const [result] = await conn.query<ResultSetHeader>('DELETE FROM class_types WHERE id = ?', [id]);
+      if (result.affectedRows === 0) throw new TxAbort(404, { error: 'Course not found' });
+      return { success: true, message: 'Course deleted permanently', softDeleted: false };
+    });
   });
 
   // ===== User management =====
@@ -185,7 +255,7 @@ export async function adminRoutes(app: FastifyInstance) {
   const PRIVILEGED_ROLES = ['admin', 'sysadmin'];
 
   async function targetIsPrivileged(userId: string | number): Promise<boolean> {
-    const [rows] = await pool.query<any[]>('SELECT role FROM users WHERE id = ?', [userId]);
+    const [rows] = await pool.query<RowDataPacket[]>('SELECT role FROM users WHERE id = ?', [userId]);
     return rows.length > 0 && PRIVILEGED_ROLES.includes(rows[0].role);
   }
 
@@ -198,7 +268,7 @@ export async function adminRoutes(app: FastifyInstance) {
     }
 
     // Check duplicates
-    const [existingUser] = await pool.query<any[]>(
+    const [existingUser] = await pool.query<RowDataPacket[]>(
       'SELECT id FROM users WHERE username = ? OR email = ?', [data.username, data.email]
     );
     if (existingUser.length > 0) return reply.status(400).send({ error: 'Username or email already exists' });
@@ -207,18 +277,27 @@ export async function adminRoutes(app: FastifyInstance) {
     const password = data.password;
     const hash = await bcrypt.hash(password, env.BCRYPT_SALT_ROUNDS);
 
-    const [result] = await pool.query<any>(
-      `INSERT INTO users (username, email, password_hash, role, first_name, last_name,
-       phone, mobile, organization_id, location_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [data.username, data.email, hash, data.role, data.firstName ?? null, data.lastName ?? null,
-       data.phone ?? null, data.mobile ?? null, data.organizationId ?? null, data.locationId ?? null]
-    );
-    const [rows] = await pool.query<any[]>(
-      'SELECT id, username, email, role, first_name, last_name, organization_id, created_at FROM users WHERE id = ?',
-      [result.insertId]
-    );
-    logAudit({ userId: request.userId, username: request.userRole, action: 'create_user', entityType: 'user', entityId: result.insertId, details: { username: data.username, role: data.role }, ipAddress: request.ip });
-    return { success: true, message: 'User created successfully', data: rows[0] };
+    // users + audit_logs are two tables; keep them atomic.
+    return inTransaction(reply, async (conn) => {
+      // Re-check under the transaction — the pool-level check above can race.
+      const [dup] = await conn.query<RowDataPacket[]>(
+        'SELECT id FROM users WHERE username = ? OR email = ?', [data.username, data.email]
+      );
+      if (dup.length > 0) throw new TxAbort(400, { error: 'Username or email already exists' });
+
+      const [result] = await conn.query<ResultSetHeader>(
+        `INSERT INTO users (username, email, password_hash, role, first_name, last_name,
+         phone, mobile, organization_id, location_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [data.username, data.email, hash, data.role, data.firstName ?? null, data.lastName ?? null,
+         data.phone ?? null, data.mobile ?? null, data.organizationId ?? null, data.locationId ?? null]
+      );
+      const [rows] = await conn.query<RowDataPacket[]>(
+        'SELECT id, username, email, role, first_name, last_name, organization_id, created_at FROM users WHERE id = ?',
+        [result.insertId]
+      );
+      await writeAudit(conn, { userId: request.userId, username: request.userRole, action: 'create_user', entityType: 'user', entityId: result.insertId, details: { username: data.username, role: data.role }, ipAddress: request.ip });
+      return { success: true, message: 'User created successfully', data: rows[0] };
+    });
   });
 
   app.put('/users/:id', { preHandler: adminRole }, async (request, reply) => {
@@ -234,24 +313,26 @@ export async function adminRoutes(app: FastifyInstance) {
       }
     }
 
-    const [result] = await pool.query<any>(
-      `UPDATE users SET username = COALESCE(?, username), email = COALESCE(?, email),
-       role = COALESCE(?, role), first_name = COALESCE(?, first_name), last_name = COALESCE(?, last_name),
-       phone = COALESCE(?, phone), mobile = COALESCE(?, mobile),
-       organization_id = COALESCE(?, organization_id), location_id = COALESCE(?, location_id),
-       status = COALESCE(?, status), updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
-      [username ?? null, email ?? null, role ?? null, firstName ?? null, lastName ?? null,
-       phone ?? null, mobile ?? null, organizationId ?? null, locationId ?? null, status ?? null, id]
-    );
-    if (result.affectedRows === 0) return reply.status(404).send({ error: 'User not found' });
-    const [rows] = await pool.query<any[]>(
-      `SELECT id, username, email, full_name, first_name, last_name, role,
-              organization_id, location_id, status, phone, mobile, address,
-              date_onboarded, date_offboarded, created_at, updated_at
-       FROM users WHERE id = ?`, [id]
-    );
-    logAudit({ userId: request.userId, action: 'update_user', entityType: 'user', entityId: parseInt(id), details: { username, email, role, status }, ipAddress: request.ip });
-    return { success: true, message: 'User updated successfully', data: rows[0] };
+    return inTransaction(reply, async (conn) => {
+      const [result] = await conn.query<ResultSetHeader>(
+        `UPDATE users SET username = COALESCE(?, username), email = COALESCE(?, email),
+         role = COALESCE(?, role), first_name = COALESCE(?, first_name), last_name = COALESCE(?, last_name),
+         phone = COALESCE(?, phone), mobile = COALESCE(?, mobile),
+         organization_id = COALESCE(?, organization_id), location_id = COALESCE(?, location_id),
+         status = COALESCE(?, status), updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+        [username ?? null, email ?? null, role ?? null, firstName ?? null, lastName ?? null,
+         phone ?? null, mobile ?? null, organizationId ?? null, locationId ?? null, status ?? null, id]
+      );
+      if (result.affectedRows === 0) throw new TxAbort(404, { error: 'User not found' });
+      const [rows] = await conn.query<RowDataPacket[]>(
+        `SELECT id, username, email, full_name, first_name, last_name, role,
+                organization_id, location_id, status, phone, mobile, address,
+                date_onboarded, date_offboarded, created_at, updated_at
+         FROM users WHERE id = ?`, [id]
+      );
+      await writeAudit(conn, { userId: request.userId, action: 'update_user', entityType: 'user', entityId: parseInt(id), details: { username, email, role, status }, ipAddress: request.ip });
+      return { success: true, message: 'User updated successfully', data: rows[0] };
+    });
   });
 
   app.post('/users/:id/reset-password', { preHandler: adminRole }, async (request, reply) => {
@@ -262,7 +343,7 @@ export async function adminRoutes(app: FastifyInstance) {
       return reply.status(403).send({ error: 'Only a system administrator can reset admin or sysadmin passwords' });
     }
     const hash = await bcrypt.hash(password, env.BCRYPT_SALT_ROUNDS);
-    const [result] = await pool.query<any>(
+    const [result] = await pool.query<ResultSetHeader>(
       'UPDATE users SET password_hash = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?', [hash, id]
     );
     if (result.affectedRows === 0) return reply.status(404).send({ error: 'User not found' });
@@ -290,30 +371,83 @@ export async function adminRoutes(app: FastifyInstance) {
     return { success: true, ...result };
   });
 
-  app.post('/organizations', { preHandler: adminRole }, async (request) => {
-    const data = createOrgSchema.parse(request.body);
-    const [result] = await pool.query<any>(
-      'INSERT INTO organizations (name, contact_email, contact_phone, address) VALUES (?, ?, ?, ?)',
-      [data.name, data.contact_email ?? null, data.contact_phone ?? null, data.address ?? null]
+  // `locations` is optional; when present the org and all of its locations are
+  // written in one transaction so a half-built organization can never persist.
+  const orgWithLocationsSchema = createOrgSchema.extend({
+    locations: z.array(locationSchema).optional(),
+  });
+  const orgUpdateWithLocationsSchema = createOrgSchema.partial().extend({
+    locations: z.array(locationSchema.partial().extend({ id: z.number().int().positive().optional() })).optional(),
+  });
+
+  async function insertLocation(conn: PoolConnection, orgId: number, loc: z.infer<typeof locationSchema>) {
+    const [res] = await conn.query<ResultSetHeader>(
+      `INSERT INTO organization_locations
+         (organization_id, location_name, address, city, province, postal_code,
+          contact_first_name, contact_last_name, contact_email, contact_phone, is_active)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [orgId, loc.locationName, loc.address ?? null, loc.city ?? null, loc.province ?? null,
+       loc.postalCode ?? null, loc.contactFirstName ?? null, loc.contactLastName ?? null,
+       loc.contactEmail || null, loc.contactPhone ?? null, loc.isActive === false ? 0 : 1]
     );
-    const [rows] = await pool.query<any[]>('SELECT * FROM organizations WHERE id = ?', [result.insertId]);
-    logAudit({ userId: request.userId, action: 'create_organization', entityType: 'organization', entityId: result.insertId, details: { name: data.name }, ipAddress: request.ip });
-    return { success: true, message: 'Organization created successfully', data: rows[0] };
+    return res.insertId as number;
+  }
+
+  app.post('/organizations', { preHandler: adminRole }, async (request, reply) => {
+    const data = orgWithLocationsSchema.parse(request.body);
+    return inTransaction(reply, async (conn) => {
+      const [result] = await conn.query<ResultSetHeader>(
+        'INSERT INTO organizations (name, contact_email, contact_phone, address) VALUES (?, ?, ?, ?)',
+        [data.name, data.contact_email ?? null, data.contact_phone ?? null, data.address ?? null]
+      );
+      for (const loc of data.locations ?? []) {
+        await insertLocation(conn, result.insertId, loc);
+      }
+      const [rows] = await conn.query<RowDataPacket[]>('SELECT * FROM organizations WHERE id = ?', [result.insertId]);
+      await writeAudit(conn, { userId: request.userId, action: 'create_organization', entityType: 'organization', entityId: result.insertId, details: { name: data.name, locations: data.locations?.length ?? 0 }, ipAddress: request.ip });
+      return { success: true, message: 'Organization created successfully', data: rows[0] };
+    });
   });
 
   app.put('/organizations/:id', { preHandler: adminRole }, async (request, reply) => {
     const { id } = request.params as { id: string };
-    const { name, contact_email, contact_phone, address } = createOrgSchema.partial().parse(request.body);
-    const [result] = await pool.query<any>(
-      `UPDATE organizations SET name = COALESCE(?, name), contact_email = COALESCE(?, contact_email),
-       contact_phone = COALESCE(?, contact_phone), address = COALESCE(?, address),
-       updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
-      [name ?? null, contact_email ?? null, contact_phone ?? null, address ?? null, id]
-    );
-    if (result.affectedRows === 0) return reply.status(404).send({ error: 'Organization not found' });
-    const [rows] = await pool.query<any[]>('SELECT * FROM organizations WHERE id = ?', [id]);
-    logAudit({ userId: request.userId, action: 'update_organization', entityType: 'organization', entityId: parseInt(id), details: { name }, ipAddress: request.ip });
-    return { success: true, message: 'Organization updated successfully', data: rows[0] };
+    const { name, contact_email, contact_phone, address, locations } = orgUpdateWithLocationsSchema.parse(request.body);
+
+    return inTransaction(reply, async (conn) => {
+      const [result] = await conn.query<ResultSetHeader>(
+        `UPDATE organizations SET name = COALESCE(?, name), contact_email = COALESCE(?, contact_email),
+         contact_phone = COALESCE(?, contact_phone), address = COALESCE(?, address),
+         updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+        [name ?? null, contact_email ?? null, contact_phone ?? null, address ?? null, id]
+      );
+      if (result.affectedRows === 0) throw new TxAbort(404, { error: 'Organization not found' });
+
+      // Locations with an id are updated, those without are inserted — all in
+      // the same transaction as the organization row itself.
+      for (const loc of locations ?? []) {
+        if (loc.id) {
+          await conn.query(
+            `UPDATE organization_locations SET
+               location_name = COALESCE(?, location_name), address = COALESCE(?, address),
+               city = COALESCE(?, city), province = COALESCE(?, province), postal_code = COALESCE(?, postal_code),
+               contact_first_name = COALESCE(?, contact_first_name), contact_last_name = COALESCE(?, contact_last_name),
+               contact_email = COALESCE(?, contact_email), contact_phone = COALESCE(?, contact_phone),
+               is_active = COALESCE(?, is_active), updated_at = CURRENT_TIMESTAMP
+             WHERE id = ? AND organization_id = ?`,
+            [loc.locationName ?? null, loc.address ?? null, loc.city ?? null, loc.province ?? null,
+             loc.postalCode ?? null, loc.contactFirstName ?? null, loc.contactLastName ?? null,
+             loc.contactEmail ?? null, loc.contactPhone ?? null,
+             loc.isActive === undefined ? null : (loc.isActive ? 1 : 0), loc.id, id]
+          );
+        } else if (loc.locationName) {
+          await insertLocation(conn, parseInt(id), loc as z.infer<typeof locationSchema>);
+        }
+      }
+
+      const [rows] = await conn.query<RowDataPacket[]>('SELECT * FROM organizations WHERE id = ?', [id]);
+      await writeAudit(conn, { userId: request.userId, action: 'update_organization', entityType: 'organization', entityId: parseInt(id), details: { name, locations: locations?.length ?? 0 }, ipAddress: request.ip });
+      return { success: true, message: 'Organization updated successfully', data: rows[0] };
+    });
   });
 
   // DELETE /organizations/:id — soft delete (organizations.status = 'inactive').
@@ -321,33 +455,37 @@ export async function adminRoutes(app: FastifyInstance) {
   // stays consistent; those must be cancelled/archived first.
   app.delete('/organizations/:id', { preHandler: sysadminRole }, async (request, reply) => {
     const { id } = z.object({ id: z.coerce.number().int().positive() }).parse(request.params);
-    const [orgRows] = await pool.query<any[]>('SELECT id, name, status FROM organizations WHERE id = ?', [id]);
-    if (orgRows.length === 0) return reply.status(404).send({ error: 'Organization not found' });
-    if (orgRows[0].status === 'inactive') {
-      return { success: true, message: 'Organization is already inactive' };
-    }
 
-    const [[courses]] = await pool.query<any[]>(
-      `SELECT COUNT(*) AS count FROM course_requests
-       WHERE organization_id = ? AND deleted_at IS NULL AND status NOT IN ('cancelled', 'completed', 'invoiced')`,
-      [id]
-    );
-    if (Number(courses.count) > 0) {
-      return reply.status(409).send({ error: `Organization has ${courses.count} open course request(s); cancel or complete them first` });
-    }
-    const [[invoices]] = await pool.query<any[]>(
-      `SELECT COUNT(*) AS count FROM invoices WHERE organization_id = ? AND deleted_at IS NULL AND status NOT IN ('paid', 'cancelled', 'void')`,
-      [id]
-    );
-    if (Number(invoices.count) > 0) {
-      return reply.status(409).send({ error: `Organization has ${invoices.count} outstanding invoice(s); settle them first` });
-    }
+    return inTransaction(reply, async (conn) => {
+      const [orgRows] = await conn.query<RowDataPacket[]>('SELECT id, name, status FROM organizations WHERE id = ?', [id]);
+      if (orgRows.length === 0) throw new TxAbort(404, { error: 'Organization not found' });
+      if (orgRows[0].status === 'inactive') {
+        return { success: true, message: 'Organization is already inactive' };
+      }
 
-    await pool.query(
-      `UPDATE organizations SET status = 'inactive', updated_at = CURRENT_TIMESTAMP WHERE id = ?`, [id]
-    );
-    logAudit({ userId: request.userId, action: 'deactivate_organization', entityType: 'organization', entityId: id, details: { name: orgRows[0].name }, ipAddress: request.ip });
-    return { success: true, message: 'Organization deactivated successfully' };
+      // The guard counts and the status write must see the same snapshot.
+      const [[courses]] = await conn.query<RowDataPacket[]>(
+        `SELECT COUNT(*) AS count FROM course_requests
+         WHERE organization_id = ? AND deleted_at IS NULL AND status NOT IN ('cancelled', 'completed', 'invoiced')`,
+        [id]
+      );
+      if (Number(courses.count) > 0) {
+        throw new TxAbort(409, { error: `Organization has ${courses.count} open course request(s); cancel or complete them first` });
+      }
+      const [[invoices]] = await conn.query<RowDataPacket[]>(
+        `SELECT COUNT(*) AS count FROM invoices WHERE organization_id = ? AND deleted_at IS NULL AND status NOT IN ('paid', 'cancelled', 'void')`,
+        [id]
+      );
+      if (Number(invoices.count) > 0) {
+        throw new TxAbort(409, { error: `Organization has ${invoices.count} outstanding invoice(s); settle them first` });
+      }
+
+      await conn.query(
+        `UPDATE organizations SET status = 'inactive', updated_at = CURRENT_TIMESTAMP WHERE id = ?`, [id]
+      );
+      await writeAudit(conn, { userId: request.userId, action: 'deactivate_organization', entityType: 'organization', entityId: id, details: { name: orgRows[0].name }, ipAddress: request.ip });
+      return { success: true, message: 'Organization deactivated successfully' };
+    });
   });
 
   // DELETE /users/:userId — soft delete (status = 'inactive'); the account is kept for audit history.
@@ -357,12 +495,14 @@ export async function adminRoutes(app: FastifyInstance) {
     if (request.userRole !== 'sysadmin' && (await targetIsPrivileged(userId))) {
       return reply.status(403).send({ error: 'Only a system administrator can deactivate admin or sysadmin users' });
     }
-    const [result] = await pool.query<any>(
-      `UPDATE users SET status = 'inactive', updated_at = CURRENT_TIMESTAMP WHERE id = ?`, [userId]
-    );
-    if (result.affectedRows === 0) return reply.status(404).send({ error: 'User not found' });
-    logAudit({ userId: request.userId, action: 'deactivate_user', entityType: 'user', entityId: userId, ipAddress: request.ip });
-    return { success: true, message: 'User deactivated successfully' };
+    return inTransaction(reply, async (conn) => {
+      const [result] = await conn.query<ResultSetHeader>(
+        `UPDATE users SET status = 'inactive', updated_at = CURRENT_TIMESTAMP WHERE id = ?`, [userId]
+      );
+      if (result.affectedRows === 0) throw new TxAbort(404, { error: 'User not found' });
+      await writeAudit(conn, { userId: request.userId, action: 'deactivate_user', entityType: 'user', entityId: userId, ipAddress: request.ip });
+      return { success: true, message: 'User deactivated successfully' };
+    });
   });
 
   // ===== Sysadmin: PIPEDA data erasure =====
@@ -371,7 +511,7 @@ export async function adminRoutes(app: FastifyInstance) {
     const id = parseInt(userId);
     if (isNaN(id) || id <= 0) return reply.status(400).send({ error: 'Invalid userId' });
 
-    const [check] = await pool.query<any[]>('SELECT id FROM users WHERE id = ?', [id]);
+    const [check] = await pool.query<RowDataPacket[]>('SELECT id FROM users WHERE id = ?', [id]);
     if (check.length === 0) return reply.status(404).send({ error: `User ${id} not found` });
 
     await pool.query(
@@ -384,21 +524,28 @@ export async function adminRoutes(app: FastifyInstance) {
   });
 
   // ===== Instructor list for dropdowns =====
-  app.get('/instructors', { preHandler: adminRole }, async () => {
-    const [rows] = await pool.query<any[]>(
+  app.get('/instructors', { preHandler: adminRole }, async (request) => {
+    const where = `WHERE role = 'instructor' AND status = 'active'`;
+    const result = await maybePaginate(
       `SELECT id, username, email, first_name, last_name FROM users
-       WHERE role = 'instructor' AND status = 'active' ORDER BY username`
+       ${where} ORDER BY username`,
+      `SELECT COUNT(*) as count FROM users ${where}`,
+      [],
+      request.query as Record<string, string>,
     );
-    return { success: true, data: rows };
+    return paginatedResponse(result);
   });
 
   // ===== Organization locations =====
   app.get('/organizations/:orgId/locations', { preHandler: adminRole }, async (request) => {
     const { orgId } = request.params as { orgId: string };
-    const [rows] = await pool.query<any[]>(
-      'SELECT * FROM organization_locations WHERE organization_id = ? ORDER BY location_name', [orgId]
+    const result = await maybePaginate(
+      'SELECT * FROM organization_locations WHERE organization_id = ? ORDER BY location_name',
+      'SELECT COUNT(*) as count FROM organization_locations WHERE organization_id = ?',
+      [orgId],
+      request.query as Record<string, string>,
     );
-    return { success: true, data: rows };
+    return paginatedResponse(result);
   });
 
   const orgLocationParams = z.object({
@@ -410,21 +557,16 @@ export async function adminRoutes(app: FastifyInstance) {
   app.post('/organizations/:orgId/locations', { preHandler: adminRole }, async (request, reply) => {
     const { orgId } = orgLocationParams.parse(request.params);
     const data = locationSchema.parse(request.body);
-    const [org] = await pool.query<any[]>('SELECT id FROM organizations WHERE id = ?', [orgId]);
-    if (org.length === 0) return reply.status(404).send({ error: 'Organization not found' });
 
-    const [result] = await pool.query<any>(
-      `INSERT INTO organization_locations
-         (organization_id, location_name, address, city, province, postal_code,
-          contact_first_name, contact_last_name, contact_email, contact_phone, is_active)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [orgId, data.locationName, data.address ?? null, data.city ?? null, data.province ?? null,
-       data.postalCode ?? null, data.contactFirstName ?? null, data.contactLastName ?? null,
-       data.contactEmail || null, data.contactPhone ?? null, data.isActive === false ? 0 : 1]
-    );
-    const [rows] = await pool.query<any[]>('SELECT * FROM organization_locations WHERE id = ?', [result.insertId]);
-    logAudit({ userId: request.userId, action: 'create_location', entityType: 'organization_location', entityId: result.insertId, details: { organizationId: orgId, locationName: data.locationName }, ipAddress: request.ip });
-    return { success: true, message: 'Location created successfully', data: rows[0] };
+    return inTransaction(reply, async (conn) => {
+      const [org] = await conn.query<RowDataPacket[]>('SELECT id FROM organizations WHERE id = ?', [orgId]);
+      if (org.length === 0) throw new TxAbort(404, { error: 'Organization not found' });
+
+      const insertId = await insertLocation(conn, orgId, data);
+      const [rows] = await conn.query<RowDataPacket[]>('SELECT * FROM organization_locations WHERE id = ?', [insertId]);
+      await writeAudit(conn, { userId: request.userId, action: 'create_location', entityType: 'organization_location', entityId: insertId, details: { organizationId: orgId, locationName: data.locationName }, ipAddress: request.ip });
+      return { success: true, message: 'Location created successfully', data: rows[0] };
+    });
   });
 
   // PUT /organizations/:orgId/locations/:locationId
@@ -432,50 +574,56 @@ export async function adminRoutes(app: FastifyInstance) {
     const { orgId, locationId } = orgLocationParams.required().parse(request.params);
     const data = locationSchema.partial().parse(request.body);
 
-    const [result] = await pool.query<any>(
-      `UPDATE organization_locations SET
-         location_name = COALESCE(?, location_name), address = COALESCE(?, address),
-         city = COALESCE(?, city), province = COALESCE(?, province), postal_code = COALESCE(?, postal_code),
-         contact_first_name = COALESCE(?, contact_first_name), contact_last_name = COALESCE(?, contact_last_name),
-         contact_email = COALESCE(?, contact_email), contact_phone = COALESCE(?, contact_phone),
-         is_active = COALESCE(?, is_active), updated_at = CURRENT_TIMESTAMP
-       WHERE id = ? AND organization_id = ?`,
-      [data.locationName ?? null, data.address ?? null, data.city ?? null, data.province ?? null,
-       data.postalCode ?? null, data.contactFirstName ?? null, data.contactLastName ?? null,
-       data.contactEmail ?? null, data.contactPhone ?? null,
-       data.isActive === undefined ? null : (data.isActive ? 1 : 0), locationId, orgId]
-    );
-    if (result.affectedRows === 0) return reply.status(404).send({ error: 'Location not found' });
-    const [rows] = await pool.query<any[]>('SELECT * FROM organization_locations WHERE id = ?', [locationId]);
-    logAudit({ userId: request.userId, action: 'update_location', entityType: 'organization_location', entityId: locationId, details: { organizationId: orgId, ...data }, ipAddress: request.ip });
-    return { success: true, message: 'Location updated successfully', data: rows[0] };
+    return inTransaction(reply, async (conn) => {
+      const [result] = await conn.query<ResultSetHeader>(
+        `UPDATE organization_locations SET
+           location_name = COALESCE(?, location_name), address = COALESCE(?, address),
+           city = COALESCE(?, city), province = COALESCE(?, province), postal_code = COALESCE(?, postal_code),
+           contact_first_name = COALESCE(?, contact_first_name), contact_last_name = COALESCE(?, contact_last_name),
+           contact_email = COALESCE(?, contact_email), contact_phone = COALESCE(?, contact_phone),
+           is_active = COALESCE(?, is_active), updated_at = CURRENT_TIMESTAMP
+         WHERE id = ? AND organization_id = ?`,
+        [data.locationName ?? null, data.address ?? null, data.city ?? null, data.province ?? null,
+         data.postalCode ?? null, data.contactFirstName ?? null, data.contactLastName ?? null,
+         data.contactEmail ?? null, data.contactPhone ?? null,
+         data.isActive === undefined ? null : (data.isActive ? 1 : 0), locationId, orgId]
+      );
+      if (result.affectedRows === 0) throw new TxAbort(404, { error: 'Location not found' });
+      const [rows] = await conn.query<RowDataPacket[]>('SELECT * FROM organization_locations WHERE id = ?', [locationId]);
+      await writeAudit(conn, { userId: request.userId, action: 'update_location', entityType: 'organization_location', entityId: locationId, details: { organizationId: orgId, ...data }, ipAddress: request.ip });
+      return { success: true, message: 'Location updated successfully', data: rows[0] };
+    });
   });
 
   // DELETE /organizations/:orgId/locations/:locationId — hard delete unless referenced
   app.delete('/organizations/:orgId/locations/:locationId', { preHandler: adminRole }, async (request, reply) => {
     const { orgId, locationId } = orgLocationParams.required().parse(request.params);
 
-    const [[users]] = await pool.query<any[]>('SELECT COUNT(*) AS count FROM users WHERE location_id = ?', [locationId]);
-    const [[courses]] = await pool.query<any[]>(
-      'SELECT COUNT(*) AS count FROM course_requests WHERE location_id = ? AND deleted_at IS NULL', [locationId]
-    );
-    if (Number(users.count) > 0 || Number(courses.count) > 0) {
-      // Referenced: deactivate instead of deleting so history keeps resolving.
-      const [result] = await pool.query<any>(
-        `UPDATE organization_locations SET is_active = 0, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND organization_id = ?`,
-        [locationId, orgId]
+    return inTransaction(reply, async (conn) => {
+      // The reference counts decide delete-vs-deactivate, so they must be read
+      // in the same transaction as the write they gate.
+      const [[users]] = await conn.query<RowDataPacket[]>('SELECT COUNT(*) AS count FROM users WHERE location_id = ?', [locationId]);
+      const [[courses]] = await conn.query<RowDataPacket[]>(
+        'SELECT COUNT(*) AS count FROM course_requests WHERE location_id = ? AND deleted_at IS NULL', [locationId]
       );
-      if (result.affectedRows === 0) return reply.status(404).send({ error: 'Location not found' });
-      logAudit({ userId: request.userId, action: 'deactivate_location', entityType: 'organization_location', entityId: locationId, details: { organizationId: orgId, users: users.count, courses: courses.count }, ipAddress: request.ip });
-      return { success: true, message: 'Location is in use and was deactivated instead of deleted' };
-    }
+      if (Number(users.count) > 0 || Number(courses.count) > 0) {
+        // Referenced: deactivate instead of deleting so history keeps resolving.
+        const [result] = await conn.query<ResultSetHeader>(
+          `UPDATE organization_locations SET is_active = 0, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND organization_id = ?`,
+          [locationId, orgId]
+        );
+        if (result.affectedRows === 0) throw new TxAbort(404, { error: 'Location not found' });
+        await writeAudit(conn, { userId: request.userId, action: 'deactivate_location', entityType: 'organization_location', entityId: locationId, details: { organizationId: orgId, users: users.count, courses: courses.count }, ipAddress: request.ip });
+        return { success: true, message: 'Location is in use and was deactivated instead of deleted' };
+      }
 
-    const [result] = await pool.query<any>(
-      'DELETE FROM organization_locations WHERE id = ? AND organization_id = ?', [locationId, orgId]
-    );
-    if (result.affectedRows === 0) return reply.status(404).send({ error: 'Location not found' });
-    logAudit({ userId: request.userId, action: 'delete_location', entityType: 'organization_location', entityId: locationId, details: { organizationId: orgId }, ipAddress: request.ip });
-    return { success: true, message: 'Location deleted successfully' };
+      const [result] = await conn.query<ResultSetHeader>(
+        'DELETE FROM organization_locations WHERE id = ? AND organization_id = ?', [locationId, orgId]
+      );
+      if (result.affectedRows === 0) throw new TxAbort(404, { error: 'Location not found' });
+      await writeAudit(conn, { userId: request.userId, action: 'delete_location', entityType: 'organization_location', entityId: locationId, details: { organizationId: orgId }, ipAddress: request.ip });
+      return { success: true, message: 'Location deleted successfully' };
+    });
   });
 
   // ===== System admin dashboard =====
@@ -494,26 +642,26 @@ export async function adminRoutes(app: FastifyInstance) {
 
     const [[userCount], [orgCount], [courseCount], [vendorCount],
            [usersThisYear], [usersLastYear], [orgsThisYear], [orgsLastYear], [coursesThisYear], [coursesLastYear]] = await Promise.all([
-      pool.query<any[]>(`SELECT COUNT(*) as count FROM users WHERE 1=1${userDateFilter}`, userDateParams),
-      pool.query<any[]>(`SELECT COUNT(*) as count FROM organizations WHERE 1=1${orgDateFilter}`, orgDateParams),
-      pool.query<any[]>('SELECT COUNT(*) as count FROM class_types WHERE is_active = true'),
-      pool.query<any[]>('SELECT COUNT(*) as count FROM vendors WHERE is_active = true'),
+      pool.query<RowDataPacket[]>(`SELECT COUNT(*) as count FROM users WHERE 1=1${userDateFilter}`, userDateParams),
+      pool.query<RowDataPacket[]>(`SELECT COUNT(*) as count FROM organizations WHERE 1=1${orgDateFilter}`, orgDateParams),
+      pool.query<RowDataPacket[]>('SELECT COUNT(*) as count FROM class_types WHERE is_active = true'),
+      pool.query<RowDataPacket[]>('SELECT COUNT(*) as count FROM vendors WHERE is_active = true'),
       // YoY: users this year vs last year
-      pool.query<any[]>('SELECT COUNT(*) as count FROM users WHERE YEAR(created_at) = YEAR(CURDATE())'),
-      pool.query<any[]>('SELECT COUNT(*) as count FROM users WHERE YEAR(created_at) = YEAR(CURDATE()) - 1'),
+      pool.query<RowDataPacket[]>('SELECT COUNT(*) as count FROM users WHERE YEAR(created_at) = YEAR(CURDATE())'),
+      pool.query<RowDataPacket[]>('SELECT COUNT(*) as count FROM users WHERE YEAR(created_at) = YEAR(CURDATE()) - 1'),
       // YoY: organizations this year vs last year
-      pool.query<any[]>('SELECT COUNT(*) as count FROM organizations WHERE YEAR(created_at) = YEAR(CURDATE())'),
-      pool.query<any[]>('SELECT COUNT(*) as count FROM organizations WHERE YEAR(created_at) = YEAR(CURDATE()) - 1'),
+      pool.query<RowDataPacket[]>('SELECT COUNT(*) as count FROM organizations WHERE YEAR(created_at) = YEAR(CURDATE())'),
+      pool.query<RowDataPacket[]>('SELECT COUNT(*) as count FROM organizations WHERE YEAR(created_at) = YEAR(CURDATE()) - 1'),
       // YoY: course types this year vs last year
-      pool.query<any[]>('SELECT COUNT(*) as count FROM class_types WHERE is_active = true AND YEAR(created_at) = YEAR(CURDATE())'),
-      pool.query<any[]>('SELECT COUNT(*) as count FROM class_types WHERE is_active = true AND YEAR(created_at) = YEAR(CURDATE()) - 1'),
+      pool.query<RowDataPacket[]>('SELECT COUNT(*) as count FROM class_types WHERE is_active = true AND YEAR(created_at) = YEAR(CURDATE())'),
+      pool.query<RowDataPacket[]>('SELECT COUNT(*) as count FROM class_types WHERE is_active = true AND YEAR(created_at) = YEAR(CURDATE()) - 1'),
     ]);
 
-    const [recentUsers] = await pool.query<any[]>(
+    const [recentUsers] = await pool.query<RowDataPacket[]>(
       `SELECT username, role, created_at as createdAt FROM users WHERE 1=1${userDateFilter} ORDER BY created_at DESC LIMIT 5`,
       userDateParams
     );
-    const [recentCourses] = await pool.query<any[]>(
+    const [recentCourses] = await pool.query<RowDataPacket[]>(
       `SELECT name, course_code as courseCode, created_at as createdAt
        FROM class_types WHERE is_active = true ORDER BY created_at DESC LIMIT 5`
     );
@@ -540,22 +688,22 @@ export async function adminRoutes(app: FastifyInstance) {
 
   // ===== System configurations =====
   app.get('/configurations', { preHandler: sysadminRole }, async () => {
-    const [rows] = await pool.query<any[]>(
+    const [rows] = await pool.query<RowDataPacket[]>(
       'SELECT * FROM system_configurations ORDER BY category, config_key LIMIT 500'
     );
     return { success: true, data: rows };
   });
 
   app.get('/configurations/categories', { preHandler: sysadminRole }, async () => {
-    const [rows] = await pool.query<any[]>(
+    const [rows] = await pool.query<RowDataPacket[]>(
       'SELECT DISTINCT category FROM system_configurations ORDER BY category'
     );
-    return { success: true, data: rows.map((r: any) => r.category) };
+    return { success: true, data: rows.map((r) => r.category) };
   });
 
   app.get('/configurations/category/:category', { preHandler: sysadminRole }, async (request) => {
     const { category } = request.params as { category: string };
-    const [rows] = await pool.query<any[]>(
+    const [rows] = await pool.query<RowDataPacket[]>(
       'SELECT * FROM system_configurations WHERE category = ? ORDER BY config_key',
       [category]
     );
@@ -564,7 +712,7 @@ export async function adminRoutes(app: FastifyInstance) {
 
   app.get('/configurations/:key', { preHandler: sysadminRole }, async (request, reply) => {
     const { key } = request.params as { key: string };
-    const [rows] = await pool.query<any[]>(
+    const [rows] = await pool.query<RowDataPacket[]>(
       'SELECT * FROM system_configurations WHERE config_key = ?', [key]
     );
     if (rows.length === 0) return reply.status(404).send({ error: `Configuration key '${key}' not found` });
@@ -576,25 +724,37 @@ export async function adminRoutes(app: FastifyInstance) {
     const { value } = request.body as { value: string };
     if (!value) return reply.status(400).send({ error: 'Configuration value is required' });
 
-    const [result] = await pool.query<any>(
-      `UPDATE system_configurations SET config_value = ?, updated_by = ?, updated_at = CURRENT_TIMESTAMP
-       WHERE config_key = ?`,
-      [value, request.userId, key]
-    );
-    if (result.affectedRows === 0) return reply.status(404).send({ error: `Configuration key '${key}' not found` });
-    const [rows] = await pool.query<any[]>('SELECT * FROM system_configurations WHERE config_key = ?', [key]);
-    return { success: true, data: rows[0], message: `Configuration '${key}' updated successfully` };
+    return inTransaction(reply, async (conn) => {
+      const [before] = await conn.query<RowDataPacket[]>(
+        'SELECT config_value FROM system_configurations WHERE config_key = ?', [key]
+      );
+      const [result] = await conn.query<ResultSetHeader>(
+        `UPDATE system_configurations SET config_value = ?, updated_by = ?, updated_at = CURRENT_TIMESTAMP
+         WHERE config_key = ?`,
+        [value, request.userId, key]
+      );
+      if (result.affectedRows === 0) throw new TxAbort(404, { error: `Configuration key '${key}' not found` });
+      const [rows] = await conn.query<RowDataPacket[]>('SELECT * FROM system_configurations WHERE config_key = ?', [key]);
+      await writeAudit(conn, {
+        userId: request.userId, action: 'update_configuration', entityType: 'system_configuration',
+        details: { key, oldValue: before[0]?.config_value ?? null, newValue: value }, ipAddress: request.ip,
+      });
+      return { success: true, data: rows[0], message: `Configuration '${key}' updated successfully` };
+    });
   });
 
   // ===== Vendor entity CRUD (sysadmin) =====
-  app.get('/vendors', { preHandler: adminRole }, async () => {
-    const [rows] = await pool.query<any[]>(
+  app.get('/vendors', { preHandler: adminRole }, async (request) => {
+    const result = await maybePaginate(
       `SELECT id, name as vendorName, contact_email as email, contact_phone as phone,
               address, vendor_type as vendorType, is_active as isActive,
               created_at as createdAt, updated_at as updatedAt
-       FROM vendors ORDER BY name`
+       FROM vendors ORDER BY name`,
+      'SELECT COUNT(*) as count FROM vendors',
+      [],
+      request.query as Record<string, string>,
     );
-    const vendors = rows.map((v: any) => {
+    return paginatedResponse(result, (rows) => rows.map((v) => {
       let addressStreet = '', addressCity = '', addressProvince = '', addressPostalCode = '';
       if (v.address) {
         const parts = v.address.split(',').map((p: string) => p.trim());
@@ -605,8 +765,7 @@ export async function adminRoutes(app: FastifyInstance) {
       }
       return { ...v, addressStreet, addressCity, addressProvince, addressPostalCode,
                status: v.isActive ? 'active' : 'inactive' };
-    });
-    return { success: true, data: vendors };
+    }));
   });
 
   app.post('/vendors', { preHandler: adminRole }, async (request, reply) => {
@@ -622,12 +781,12 @@ export async function adminRoutes(app: FastifyInstance) {
       fullAddress = [address_street, address_city, address_province, address_postal_code].filter(Boolean).join(', ');
     }
 
-    const [result] = await pool.query<any>(
+    const [result] = await pool.query<ResultSetHeader>(
       'INSERT INTO vendors (name, contact_email, contact_phone, address, vendor_type, is_active) VALUES (?, ?, ?, ?, ?, COALESCE(?, true))',
       [vendorName, email || contactEmail || contact_email || null, phone || contact_phone || null,
        fullAddress || null, vendor_type || null, is_active ?? true]
     );
-    const [rows] = await pool.query<any[]>('SELECT * FROM vendors WHERE id = ?', [result.insertId]);
+    const [rows] = await pool.query<RowDataPacket[]>('SELECT * FROM vendors WHERE id = ?', [result.insertId]);
     return { success: true, message: 'Vendor created successfully', data: rows[0] };
   });
 
@@ -643,7 +802,7 @@ export async function adminRoutes(app: FastifyInstance) {
       fullAddress = [address_street, address_city, address_province, address_postal_code].filter(Boolean).join(', ');
     }
 
-    const [result] = await pool.query<any>(
+    const [result] = await pool.query<ResultSetHeader>(
       `UPDATE vendors SET name = COALESCE(?, name), contact_email = COALESCE(?, contact_email),
        contact_phone = COALESCE(?, contact_phone), address = COALESCE(?, address),
        vendor_type = COALESCE(?, vendor_type), is_active = COALESCE(?, is_active),
@@ -652,17 +811,17 @@ export async function adminRoutes(app: FastifyInstance) {
        fullAddress || null, vendor_type || null, is_active ?? null, id]
     );
     if (result.affectedRows === 0) return reply.status(404).send({ error: 'Vendor not found' });
-    const [rows] = await pool.query<any[]>('SELECT * FROM vendors WHERE id = ?', [id]);
+    const [rows] = await pool.query<RowDataPacket[]>('SELECT * FROM vendors WHERE id = ?', [id]);
     return { success: true, message: 'Vendor updated successfully', data: rows[0] };
   });
 
   app.delete('/vendors/:id', { preHandler: adminRole }, async (request, reply) => {
     const { id } = request.params as { id: string };
-    const [result] = await pool.query<any>(
+    const [result] = await pool.query<ResultSetHeader>(
       'UPDATE vendors SET is_active = false, updated_at = CURRENT_TIMESTAMP WHERE id = ?', [id]
     );
     if (result.affectedRows === 0) return reply.status(404).send({ error: 'Vendor not found' });
-    const [rows] = await pool.query<any[]>('SELECT * FROM vendors WHERE id = ?', [id]);
+    const [rows] = await pool.query<RowDataPacket[]>('SELECT * FROM vendors WHERE id = ?', [id]);
     return { success: true, message: 'Vendor deactivated successfully', data: rows[0] };
   });
 
@@ -671,11 +830,15 @@ export async function adminRoutes(app: FastifyInstance) {
 
   // Search students by name or email
   app.get('/students', { preHandler: adminRole }, async (request) => {
-    const { q, orgId } = request.query as { q?: string; orgId?: string };
+    const query = request.query as Record<string, string>;
+    const { q, orgId } = query as { q?: string; orgId?: string };
+    const wantsPage = isPaginated(query);
 
     if (orgId) {
-      const students = await studentRepo.findByOrg(parseInt(orgId));
-      return { success: true, data: students };
+      const students = wantsPage
+        ? await studentRepo.findByOrg(parseInt(orgId), parsePagination(query))
+        : await studentRepo.findByOrg(parseInt(orgId));
+      return paginatedResponse(students);
     }
 
     if (q && q.trim().length >= 2) {
@@ -683,8 +846,27 @@ export async function adminRoutes(app: FastifyInstance) {
       return { success: true, data: students };
     }
 
-    // No filter — return recent students (last 100)
-    const [rows] = await pool.query<any[]>(
+    // No filter — historically the 100 most recent students. When the caller
+    // asks for a page we run the same query properly paginated instead.
+    if (wantsPage) {
+      const result = await paginatedQuery(
+        `SELECT s.*, COUNT(DISTINCT cs.course_request_id) as course_count,
+                MAX(cr.completed_at) as last_course_date,
+                o.name as organization_name
+         FROM students s
+         LEFT JOIN course_students cs ON cs.student_id = s.id
+         LEFT JOIN course_requests cr ON cs.course_request_id = cr.id
+         LEFT JOIN organizations o ON s.organization_id = o.id
+         GROUP BY s.id
+         ORDER BY s.created_at DESC`,
+        'SELECT COUNT(*) as count FROM students s',
+        [],
+        parsePagination(query),
+      );
+      return paginatedResponse(result);
+    }
+
+    const [rows] = await pool.query<RowDataPacket[]>(
       `SELECT s.*, COUNT(DISTINCT cs.course_request_id) as course_count,
               MAX(cr.completed_at) as last_course_date,
               o.name as organization_name
@@ -812,7 +994,7 @@ export async function adminRoutes(app: FastifyInstance) {
 
   // Summary stats for dashboard
   app.get('/certifications/stats', { preHandler: adminRole }, async () => {
-    const [rows] = await pool.query<any[]>(`
+    const [rows] = await pool.query<RowDataPacket[]>(`
       SELECT
         COUNT(CASE WHEN cs.certificate_expires_at > NOW() THEN 1 END) as active_certs,
         COUNT(CASE WHEN cs.certificate_expires_at BETWEEN NOW() AND DATE_ADD(NOW(), INTERVAL 30 DAY) THEN 1 END) as expiring_30d,
@@ -842,7 +1024,7 @@ export async function adminRoutes(app: FastifyInstance) {
       where = 'WHERE name LIKE ? OR contact_email LIKE ? OR contact_person LIKE ?';
       params.push(`%${search}%`, `%${search}%`, `%${search}%`);
     }
-    const [rows] = await pool.query<any[]>(`SELECT * FROM organizations ${where} ORDER BY name`, params);
+    const [rows] = await pool.query<RowDataPacket[]>(`SELECT * FROM organizations ${where} ORDER BY name`, params);
     const csv = toCSV(rows, [
       { key: 'name', label: 'Organization' },
       { key: 'contact_person', label: 'Contact Person' },
@@ -862,7 +1044,7 @@ export async function adminRoutes(app: FastifyInstance) {
   app.get('/certifications/expiring/export/csv', { preHandler: adminRole }, async (request, reply) => {
     const { days = '90' } = request.query as Record<string, string>;
     const withinDays = parseInt(days) || 90;
-    const [rows] = await pool.query<any[]>(
+    const [rows] = await pool.query<RowDataPacket[]>(
       `SELECT s.id as student_id, s.email, s.first_name, s.last_name, s.phone,
               o.name as organization_name,
               ct.name as course_type_name, ct.certification_validity_months,
@@ -931,14 +1113,14 @@ export async function adminRoutes(app: FastifyInstance) {
   });
 
   app.get('/audit-logs/stats', { preHandler: sysadminRole }, async () => {
-    const [rows] = await pool.query<any[]>(`
+    const [rows] = await pool.query<RowDataPacket[]>(`
       SELECT
         COUNT(*) as total_entries,
         COUNT(CASE WHEN created_at >= CURDATE() THEN 1 END) as entries_today,
         COUNT(DISTINCT user_id) as unique_users
       FROM audit_logs
     `);
-    const [topActions] = await pool.query<any[]>(`
+    const [topActions] = await pool.query<RowDataPacket[]>(`
       SELECT action, COUNT(*) as count
       FROM audit_logs
       GROUP BY action
@@ -970,7 +1152,7 @@ export async function adminRoutes(app: FastifyInstance) {
 
     const where = conditions.length > 0 ? 'WHERE ' + conditions.join(' AND ') : '';
 
-    const [rows] = await pool.query<any[]>(
+    const [rows] = await pool.query<RowDataPacket[]>(
       `SELECT id, user_id, username, action, entity_type, entity_id, details, ip_address, created_at
        FROM audit_logs ${where} ORDER BY created_at DESC LIMIT 10000`,
       params,
@@ -1007,7 +1189,7 @@ export async function adminRoutes(app: FastifyInstance) {
     }
     if (conditions.length > 0) where = 'WHERE ' + conditions.join(' AND ');
 
-    const [rows] = await pool.query<any[]>(
+    const [rows] = await pool.query<RowDataPacket[]>(
       `SELECT s.first_name, s.last_name, s.email, s.phone,
               o.name as organization_name,
               COUNT(DISTINCT cs.course_request_id) as course_count,
@@ -1133,7 +1315,7 @@ export async function adminRoutes(app: FastifyInstance) {
     const q = request.query as Record<string, string>;
     const { selectSQL, params } = buildWSIBQuery(q);
 
-    const [rows] = await pool.query<any[]>(selectSQL, params);
+    const [rows] = await pool.query<RowDataPacket[]>(selectSQL, params);
 
     const csv = toCSV(rows, [
       { key: 'first_name', label: 'First Name' },
@@ -1160,7 +1342,7 @@ export async function adminRoutes(app: FastifyInstance) {
     const q = request.query as Record<string, string>;
     const { selectSQL, params } = buildWSIBQuery(q);
 
-    const [rows] = await pool.query<any[]>(selectSQL, params);
+    const [rows] = await pool.query<RowDataPacket[]>(selectSQL, params);
 
     const csv = toCSV(rows, [
       { key: 'first_name', label: 'First Name' },
@@ -1188,7 +1370,7 @@ export async function adminRoutes(app: FastifyInstance) {
     const orgCondition = q.org_id ? 'AND s.organization_id = ?' : '';
     const orgParams = q.org_id ? [parseInt(q.org_id)] : [];
 
-    const [summaryRows] = await pool.query<any[]>(`
+    const [summaryRows] = await pool.query<RowDataPacket[]>(`
       SELECT
         COUNT(DISTINCT s.id) as total_trained,
         COUNT(DISTINCT CASE WHEN cs.certificate_expires_at > NOW() THEN s.id END) as current_certs,
@@ -1208,7 +1390,7 @@ export async function adminRoutes(app: FastifyInstance) {
     const currentCerts = Number(summary.current_certs) || 0;
     const complianceRate = totalTrained > 0 ? Math.round((currentCerts / totalTrained) * 100) : 0;
 
-    const [orgRows] = await pool.query<any[]>(`
+    const [orgRows] = await pool.query<RowDataPacket[]>(`
       SELECT o.name as organization_name, COUNT(DISTINCT s.id) as student_count
       FROM course_students cs
       JOIN students s ON cs.student_id = s.id

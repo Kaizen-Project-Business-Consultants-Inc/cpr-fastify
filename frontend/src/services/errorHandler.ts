@@ -29,7 +29,7 @@ export class ErrorHandler {
   }
 
   // Parse and standardize errors from different sources
-  parseError(error: unknown, context?: ErrorContext): AppError {
+  parseError(error: unknown, _context?: ErrorContext): AppError {
     const err = error as Record<string, unknown>;
     // Handle axios errors
     const response = err.response as Record<string, unknown> | undefined;

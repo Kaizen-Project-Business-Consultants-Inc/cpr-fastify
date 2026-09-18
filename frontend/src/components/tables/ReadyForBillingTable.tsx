@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import {
   Table,
   TableBody,
@@ -21,9 +21,33 @@ import {
   Divider,
 } from '@mui/material';
 import { Receipt as InvoiceIcon, Visibility as ViewIcon, CheckCircle as PresentIcon, Cancel as AbsentIcon } from '@mui/icons-material';
-import { formatCurrency, formatDisplayDate, HST_RATE, HST_LABEL } from '../../utils/formatters';
+import { formatCurrency, formatDisplayDate, getHSTRate, getHSTLabel } from '../../utils/formatters';
 import api from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
+import { getErrorMessage } from '../../utils/errorMessage';
+
+interface BillingStudent {
+  id: number | string;
+  firstName?: string;
+  lastName?: string;
+  email?: string;
+  attended?: boolean;
+  attendanceMarked?: boolean;
+}
+
+export interface BillingCourse {
+  courseId: number | string;
+  dateCompleted?: string;
+  organizationName?: string;
+  contactEmail?: string;
+  courseTypeName?: string;
+  location?: string;
+  instructorName?: string;
+  studentsAttended?: number;
+  registeredStudents?: number;
+  ratePerStudent?: number;
+  totalAmount?: number;
+}
 
 const ReadyForBillingTable = ({
   courses,
@@ -31,20 +55,20 @@ const ReadyForBillingTable = ({
   isLoading,
   error,
 }: {
-  courses: any;
-  onCreateInvoice: any;
-  isLoading: any;
-  error: any;
+  courses: BillingCourse[];
+  onCreateInvoice: (courseId: number | string) => Promise<void> | void;
+  isLoading: boolean;
+  error?: string | null;
 }) => {
   const { user } = useAuth();
   const [creatingInvoice, setCreatingInvoice] = useState<Record<string, boolean>>({});
-  const [selectedCourse, setSelectedCourse] = useState<any>(null);
+  const [selectedCourse, setSelectedCourse] = useState<BillingCourse | null>(null);
   const [previewOpen, setPreviewOpen] = useState(false);
-  const [students, setStudents] = useState<any[]>([]);
+  const [students, setStudents] = useState<BillingStudent[]>([]);
   const [loadingStudents, setLoadingStudents] = useState(false);
   const [invoiceSuccess, setInvoiceSuccess] = useState(false);
 
-  const fetchStudents = async (courseId: any) => {
+  const fetchStudents = async (courseId: number | string | undefined) => {
     if (!courseId) {
       console.error('No course ID provided for fetching students');
       setStudents([]);
@@ -72,7 +96,14 @@ const ReadyForBillingTable = ({
       let normalizedStudents = response.data.data || [];
       if (user?.role === 'instructor') {
         // Transform instructor endpoint format to match accounting format
-        normalizedStudents = normalizedStudents.map((student: any) => ({
+        normalizedStudents = normalizedStudents.map((student: {
+          studentId: number | string;
+          firstName?: string;
+          lastName?: string;
+          email?: string;
+          attendance?: boolean;
+          attendanceMarked?: boolean;
+        }) => ({
           id: student.studentId,
           firstName: student.firstName,
           lastName: student.lastName,
@@ -81,14 +112,13 @@ const ReadyForBillingTable = ({
           attendanceMarked: student.attendanceMarked,
         }));
       }
-      
+
       setStudents(normalizedStudents);
-    } catch (error: any) {
+    } catch (error) {
       console.error('[ReadyForBillingTable] Error fetching students:', error);
       console.error('[ReadyForBillingTable] Error details:', {
-        status: error.response?.status,
-        message: error.response?.data?.error?.message,
-        endpoint: endpoint
+        message: getErrorMessage(error),
+        endpoint: endpoint,
       });
       setStudents([]);
     } finally {
@@ -96,7 +126,7 @@ const ReadyForBillingTable = ({
     }
   };
 
-  const handleViewInvoice = (course: any) => {
+  const handleViewInvoice = (course: BillingCourse) => {
     if (!course || !course.courseId) {
       console.error('Invalid course data for invoice preview:', course);
       return;
@@ -123,7 +153,7 @@ const ReadyForBillingTable = ({
         setStudents([]);
         setInvoiceSuccess(false);
       }, 1500); // Show success for 1.5 seconds
-    } catch (error: any) {
+    } catch (error) {
       console.error('❌ [INVOICE] Invoice creation failed in table component:', error);
       // Error handling is done in the parent component, but we keep the dialog open
       // so the user can see the error message and try again if needed
@@ -245,7 +275,7 @@ const ReadyForBillingTable = ({
                   </TableCell>
                   <TableCell align='right'>
                     {course.ratePerStudent && course.studentsAttended ?
-                      formatCurrency((course.ratePerStudent * course.studentsAttended) * HST_RATE) :
+                      formatCurrency((course.ratePerStudent * course.studentsAttended) * getHSTRate()) :
                       <Typography component="span" color="error.main">
                         N/A
                       </Typography>
@@ -254,7 +284,7 @@ const ReadyForBillingTable = ({
                   <TableCell align='right'>
                     <Typography variant='body2' fontWeight='bold' color='primary'>
                       {course.ratePerStudent && course.studentsAttended ?
-                        formatCurrency((course.ratePerStudent * course.studentsAttended) * (1 + HST_RATE)) :
+                        formatCurrency((course.ratePerStudent * course.studentsAttended) * (1 + getHSTRate())) :
                         <Typography component="span" color="error.main">
                           N/A
                         </Typography>
@@ -361,10 +391,10 @@ const ReadyForBillingTable = ({
                     </Typography>
                   </Box>
                   <Box sx={{ mb: 2 }}>
-                    <Typography variant="body2" color="textSecondary">{HST_LABEL}</Typography>
+                    <Typography variant="body2" color="textSecondary">{getHSTLabel()}</Typography>
                     <Typography variant="body1" fontWeight="medium">
                       {selectedCourse.ratePerStudent ?
-                        formatCurrency(((selectedCourse.studentsAttended || 0) * selectedCourse.ratePerStudent) * HST_RATE) :
+                        formatCurrency(((selectedCourse.studentsAttended || 0) * selectedCourse.ratePerStudent) * getHSTRate()) :
                         <Typography component="span" color="error.main">
                           N/A
                         </Typography>
@@ -482,17 +512,17 @@ const ReadyForBillingTable = ({
               ✅ Invoice created successfully! The course has been moved to the Organizational Receivables Queue. This dialog will close automatically.
             </Alert>
           )}
-          <Button onClick={handleClosePreview} disabled={creatingInvoice[selectedCourse?.courseId]}>
+          <Button onClick={handleClosePreview} disabled={creatingInvoice[selectedCourse?.courseId ?? '']}>
             {invoiceSuccess ? 'Close Now' : 'Cancel'}
           </Button>
           <Button
             variant="contained"
             color="primary"
             onClick={handleCreateInvoice}
-            disabled={creatingInvoice[selectedCourse?.courseId] || !selectedCourse?.ratePerStudent || invoiceSuccess}
-            startIcon={creatingInvoice[selectedCourse?.courseId] ? <CircularProgress size={20} /> : <InvoiceIcon />}
+            disabled={creatingInvoice[selectedCourse?.courseId ?? ''] || !selectedCourse?.ratePerStudent || invoiceSuccess}
+            startIcon={creatingInvoice[selectedCourse?.courseId ?? ''] ? <CircularProgress size={20} /> : <InvoiceIcon />}
           >
-            {creatingInvoice[selectedCourse?.courseId] ? 'Creating Invoice...' :
+            {creatingInvoice[selectedCourse?.courseId ?? ''] ? 'Creating Invoice...' :
              !selectedCourse?.ratePerStudent ? 'Pricing Not Configured' :
              invoiceSuccess ? 'Invoice Created!' : 'Create Invoice'}
           </Button>

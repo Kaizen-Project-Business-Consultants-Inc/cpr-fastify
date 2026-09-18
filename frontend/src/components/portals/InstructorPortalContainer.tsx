@@ -1,21 +1,16 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { useNavigate, useLocation, Routes, Route } from 'react-router-dom';
-import { useQueryClient } from '@tanstack/react-query';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { Box, Alert, Snackbar } from '@mui/material';
 import { useAuth } from '../../contexts/AuthContext';
-import { useRealtime } from '../../contexts/RealtimeContext';
-import { useErrorHandler } from '../../hooks/useErrorHandler';
-import { useNetworkStatus } from '../../hooks/useNetworkStatus';
-import { 
-  useInstructorClasses, 
-  useCompletedClasses, 
+import {
+  useInstructorClasses,
+  useCompletedClasses,
   useInstructorAvailability,
   useTodayClasses,
   useAddAvailability,
   useRemoveAvailability,
   useCompleteClass,
   useUpdateAttendance,
-  useClassStudents,
   useRefreshInstructorData
 } from '../../services/instructorService';
 import analytics from '../../services/analytics';
@@ -27,11 +22,16 @@ const InstructorPortalContainer: React.FC = () => {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
-  const queryClient = useQueryClient();
-  
+
   // Error handling
   const [error, setError] = useState<string | null>(null);
   const [successState, setSuccessState] = useState<string | null>(null);
+
+  // Get current view from URL
+  const getCurrentView = useCallback(() => {
+    const pathSegments = location.pathname.split('/');
+    return pathSegments[pathSegments.length - 1] || 'dashboard';
+  }, [location.pathname]);
 
   // Analytics tracking
   useEffect(() => {
@@ -49,7 +49,7 @@ const InstructorPortalContainer: React.FC = () => {
       portal: 'instructor',
       view: currentView,
     });
-  }, [location.pathname]);
+  }, [location.pathname, getCurrentView]);
 
   // Error handler for error boundaries
   const handleError = useCallback((error: Error, errorInfo: { componentStack?: string | null }) => {
@@ -59,13 +59,7 @@ const InstructorPortalContainer: React.FC = () => {
       view: getCurrentView(),
     });
     setError(error.message);
-  }, []);
-
-  // Get current view from URL
-  const getCurrentView = () => {
-    const pathSegments = location.pathname.split('/');
-    return pathSegments[pathSegments.length - 1] || 'dashboard';
-  };
+  }, [getCurrentView]);
 
   // Use centralized service hooks instead of direct API calls
   const { data: availableDates = [], isLoading: availabilityLoading } = useInstructorAvailability();
@@ -88,7 +82,7 @@ const InstructorPortalContainer: React.FC = () => {
     try {
       await logout();
       navigate('/login');
-    } catch (error: any) {
+    } catch (error: unknown) {
       logger.error('Logout error:', error);
       setError('Failed to logout. Please try again.');
     }
@@ -99,7 +93,7 @@ const InstructorPortalContainer: React.FC = () => {
     try {
       // Views (AvailabilityView / MyClassesView) show their own success + error feedback.
       await addAvailabilityMutation.mutateAsync(date);
-    } catch (error: any) {
+    } catch (error: unknown) {
       logger.error('Add availability error:', error);
       throw error;
     }
@@ -108,7 +102,7 @@ const InstructorPortalContainer: React.FC = () => {
   const handleRemoveAvailability = useCallback(async (date: string) => {
     try {
       await removeAvailabilityMutation.mutateAsync(date);
-    } catch (error: any) {
+    } catch (error: unknown) {
       logger.error('Remove availability error:', error);
       throw error;
     }
@@ -119,7 +113,7 @@ const InstructorPortalContainer: React.FC = () => {
     try {
       await completeClassMutation.mutateAsync(courseId);
       setSuccessState('Class completed successfully');
-    } catch (error: any) {
+    } catch (error: unknown) {
       setError('Failed to complete class');
       logger.error('Complete class error:', error);
     }
@@ -129,7 +123,7 @@ const InstructorPortalContainer: React.FC = () => {
     try {
       await updateAttendanceMutation.mutateAsync({ courseId, students });
       setSuccessState('Attendance updated successfully');
-    } catch (error: any) {
+    } catch (error: unknown) {
       setError('Failed to update attendance');
       logger.error('Update attendance error:', error);
     }
@@ -140,7 +134,7 @@ const InstructorPortalContainer: React.FC = () => {
     try {
       refreshData();
       setSuccessState('Data refreshed successfully');
-    } catch (error: any) {
+    } catch (error: unknown) {
       setError('Failed to refresh data');
       logger.error('Refresh data error:', error);
     }

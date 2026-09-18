@@ -4,6 +4,7 @@ import { CourseRequestRepository, CourseRequest, CourseWithDetails } from '../re
 import { CourseStudentRepository, CourseStudent } from '../repositories/CourseStudentRepository.js';
 import { UserRepository } from '../repositories/UserRepository.js';
 import { emailService } from './EmailService.js';
+import type { RowDataPacket } from 'mysql2/promise';
 
 // --- Error types ---
 
@@ -66,18 +67,18 @@ export class CourseService {
 
   private async getOrgAdminEmails(organizationId: number): Promise<string[]> {
     const pool = getPool();
-    const [rows] = await pool.query<any[]>(
+    const [rows] = await pool.query<RowDataPacket[]>(
       `SELECT email FROM users
        WHERE organization_id = ? AND role IN ('org_admin', 'organization') AND status = 'active' AND email IS NOT NULL`,
       [organizationId]
     );
-    return rows.map((r: any) => r.email).filter(Boolean);
+    return rows.map((r) => r.email).filter(Boolean);
   }
 
   private async shouldSendEmail(userId: number, notificationType: string): Promise<boolean> {
     try {
       const pool = getPool();
-      const [rows] = await pool.query<any[]>(
+      const [rows] = await pool.query<RowDataPacket[]>(
         'SELECT email_enabled FROM notification_preferences WHERE user_id = ? AND notification_type = ?',
         [userId, notificationType]
       );
@@ -92,7 +93,7 @@ export class CourseService {
 
   private async getOrgAdminEmailsWithPreference(organizationId: number, notificationType: string): Promise<string[]> {
     const pool = getPool();
-    const [rows] = await pool.query<any[]>(
+    const [rows] = await pool.query<RowDataPacket[]>(
       `SELECT id, email FROM users
        WHERE organization_id = ? AND role IN ('org_admin', 'organization') AND status = 'active' AND email IS NOT NULL`,
       [organizationId]
@@ -108,7 +109,7 @@ export class CourseService {
 
   private async getCourseDetails(courseId: number): Promise<{ courseName: string; date: string; location: string; organizationId: number }> {
     const pool = getPool();
-    const [rows] = await pool.query<any[]>(
+    const [rows] = await pool.query<RowDataPacket[]>(
       `SELECT cr.organization_id, cr.location,
               COALESCE(cr.confirmed_date, cr.scheduled_date) as course_date,
               ct.name as course_name
@@ -185,7 +186,7 @@ export class CourseService {
       await conn.beginTransaction();
 
       // Verify course exists and get scheduled date
-      const [courseRows] = await conn.query<any[]>(
+      const [courseRows] = await conn.query<RowDataPacket[]>(
         'SELECT * FROM course_requests WHERE id = ? AND deleted_at IS NULL',
         [input.courseId]
       );
@@ -201,7 +202,7 @@ export class CourseService {
       const endTimeFormatted = `${input.endTime}:00`;
 
       // Check instructor availability (no overlapping assignments)
-      const [conflicts] = await conn.query<any[]>(
+      const [conflicts] = await conn.query<RowDataPacket[]>(
         `SELECT id FROM course_requests
          WHERE instructor_id = ? AND confirmed_date = ? AND status = 'confirmed'
          AND id != ?
@@ -290,7 +291,7 @@ export class CourseService {
     try {
       await conn.beginTransaction();
 
-      const [courseRows] = await conn.query<any[]>(
+      const [courseRows] = await conn.query<RowDataPacket[]>(
         'SELECT * FROM course_requests WHERE id = ? AND deleted_at IS NULL',
         [courseId]
       );
@@ -366,7 +367,7 @@ export class CourseService {
     try {
       await conn.beginTransaction();
 
-      const [courseRows] = await conn.query<any[]>(
+      const [courseRows] = await conn.query<RowDataPacket[]>(
         'SELECT * FROM course_requests WHERE id = ? AND deleted_at IS NULL',
         [input.courseId]
       );

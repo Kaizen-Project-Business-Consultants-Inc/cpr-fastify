@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Box,
   Typography,
@@ -8,19 +8,21 @@ import {
   DialogActions,
   TextField,
   Alert,
-  CircularProgress,
   Grid,
   FormControl,
   InputLabel,
   Select,
   MenuItem,
 } from '@mui/material';
-import { adminApi } from '../../../services/api';
+import { api, adminApi } from '../../../services/api';
 import logger from '../../../utils/logger';
 import { useVendorInvoiceUpdates } from '../../../hooks/useVendorInvoiceUpdates';
+import useServerPagination from '../../../hooks/useServerPagination';
+import useDebounce from '../../../hooks/useDebounce';
 import StatCard from '../../gtacpr/StatCard';
 import StatusChip from '../../gtacpr/StatusChip';
 import DataTable, { DataTableRow } from '../../gtacpr/DataTable';
+import SearchBar from '../../gtacpr/SearchBar';
 import { PrimaryButton, GhostButton } from '../../gtacpr/Buttons';
 import LinkButton from '../../gtacpr/LinkButton';
 import { formatCurrency, formatDisplayDate } from '../../../utils/formatters';
@@ -70,9 +72,37 @@ interface PaymentHistory {
   processedByName: string;
 }
 
+/**
+ * The five stat cards are counts over EVERY invoice in a status, not over the
+ * page on screen. `GET /admin/vendor-invoices` applies `status` to its COUNT as
+ * well as its data query, so asking for one row of each status and reading
+ * `pagination.total` gives the whole-set count without pulling the rows.
+ */
+const COUNTED_STATUSES = [
+  'pending_submission',
+  'submitted_to_admin',
+  'submitted_to_accounting',
+  'rejected_by_admin',
+  'rejected_by_accountant',
+  'paid',
+] as const;
+
+type StatusCounts = Record<(typeof COUNTED_STATUSES)[number], number>;
+
+const emptyCounts: StatusCounts = {
+  pending_submission: 0,
+  submitted_to_admin: 0,
+  submitted_to_accounting: 0,
+  rejected_by_admin: 0,
+  rejected_by_accountant: 0,
+  paid: 0,
+};
+
+/** `'pending'` in the picker means "everything not yet paid" — the API's `unpaid`. */
+const toStatusParam = (filter: string) =>
+  filter === 'pending' ? 'unpaid' : filter === 'all' ? '' : filter;
+
 const VendorInvoiceApproval: React.FC = () => {
-  const [invoices, setInvoices] = useState<VendorInvoice[]>([]);
-  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedInvoice, setSelectedInvoice] = useState<VendorInvoice | null>(null);
   const [viewDialog, setViewDialog] = useState(false);
@@ -83,20 +113,71 @@ const VendorInvoiceApproval: React.FC = () => {
   const [processing, setProcessing] = useState(false);
   const [paymentHistory, setPaymentHistory] = useState<PaymentHistory[]>([]);
   const [statusFilter, setStatusFilter] = useState('pending');
+  const [searchTerm, setSearchTerm] = useState('');
+  const [counts, setCounts] = useState<StatusCounts>(emptyCounts);
 
-  const fetchVendorInvoices = async () => {
-    try {
-      setLoading(true);
-      const response = await adminApi.getVendorInvoices();
-      setInvoices(response.data || []);
-      setError(null);
-    } catch (err: any) {
+  const debouncedSearch = useDebounce(searchTerm, 300);
+  const searchParam = debouncedSearch.trim();
+  const statusParam = toStatusParam(statusFilter);
+
+  // The status picker and the search box are both server-side: the endpoint
+  // filters and counts on `status` + `search`, so page N really is page N of
+  // the selected status rather than "the matching rows of the first 25".
+  const grid = useServerPagination<VendorInvoice>({
+    pageSize: 25,
+    fetchFn: ({ page, limit }) =>
+      api
+        .get('/admin/vendor-invoices', {
+          params: {
+            page,
+            limit,
+            ...(statusParam ? { status: statusParam } : {}),
+            ...(searchParam ? { search: searchParam } : {}),
+          },
+        })
+        .then((r) => {
+          setError(null);
+          return r.data;
+        }),
+    onError: (err: unknown) => {
       logger.error('Error fetching vendor invoices:', err);
       setError('Failed to load vendor invoices');
-    } finally {
-      setLoading(false);
+    },
+  });
+
+  const loadCounts = useCallback(async () => {
+    try {
+      const totals = await Promise.all(
+        COUNTED_STATUSES.map((status) =>
+          api
+            .get('/admin/vendor-invoices', {
+              params: { status, page: 1, limit: 1, ...(searchParam ? { search: searchParam } : {}) },
+            })
+            .then((r) => Number(r.data?.pagination?.total ?? r.data?.data?.length ?? 0))
+        )
+      );
+      setCounts(
+        COUNTED_STATUSES.reduce(
+          (acc, status, i) => ({ ...acc, [status]: totals[i] }),
+          {} as StatusCounts
+        )
+      );
+    } catch (err: unknown) {
+      logger.error('Error loading vendor invoice status counts:', err);
+      setCounts(emptyCounts);
     }
-  };
+  }, [searchParam]);
+
+  const refresh = useCallback(() => {
+    grid.load(1);
+    loadCounts();
+  }, [grid.load, loadCounts]);
+
+  /** Re-fetch the page currently on screen plus the whole-set counts. */
+  const reloadCurrentPage = useCallback(() => {
+    grid.reload();
+    loadCounts();
+  }, [grid.reload, loadCounts]);
 
   const { isConnected } = useVendorInvoiceUpdates({
     onStatusUpdate: (update) => {
@@ -105,12 +186,19 @@ const VendorInvoiceApproval: React.FC = () => {
     onNotesUpdate: (update) => {
       logger.info(`Real-time notes update: Invoice ${update.invoiceId} notes updated by ${update.updatedBy}`);
     },
-    onRefresh: fetchVendorInvoices
+    onRefresh: reloadCurrentPage
   });
 
+  // Status filter and search restart at page 1; `refresh` changes identity with them.
   useEffect(() => {
-    fetchVendorInvoices();
-  }, []);
+    grid.load(1);
+  }, [grid.load, statusParam, searchParam]);
+
+  useEffect(() => {
+    loadCounts();
+  }, [loadCounts]);
+
+  const invoices = grid.items;
 
   const handleView = async (invoice: VendorInvoice) => {
     setSelectedInvoice(invoice);
@@ -149,7 +237,7 @@ const VendorInvoiceApproval: React.FC = () => {
     try {
       setProcessing(true);
       await adminApi.approveVendorInvoice(selectedInvoice.id, action, notes);
-      await fetchVendorInvoices();
+      reloadCurrentPage();
       setApprovalDialog(false);
       setViewDialog(false);
       setSelectedInvoice(null);
@@ -191,7 +279,7 @@ const VendorInvoiceApproval: React.FC = () => {
         ...selectedInvoice,
         adminNotes: modalNotes
       });
-      await fetchVendorInvoices();
+      reloadCurrentPage();
       logger.info('Notes saved successfully');
     } catch (err: any) {
       logger.error('Error saving notes:', err);
@@ -241,27 +329,7 @@ const VendorInvoiceApproval: React.FC = () => {
 
   const formatDate = (dateString: string) => formatDisplayDate(dateString);
 
-  const filteredInvoices = invoices.filter(invoice => {
-    if (statusFilter === 'all') return true;
-    if (statusFilter === 'pending') return invoice.status !== 'paid';
-    return invoice.status === statusFilter;
-  });
-
-  const stats = {
-    pending_submission: invoices.filter(i => i.status === 'pending_submission').length,
-    submitted_to_admin: invoices.filter(i => i.status === 'submitted_to_admin').length,
-    submitted_to_accounting: invoices.filter(i => i.status === 'submitted_to_accounting').length,
-    rejected: invoices.filter(i => i.status === 'rejected_by_admin' || i.status === 'rejected_by_accountant').length,
-    paid: invoices.filter(i => i.status === 'paid').length,
-  };
-
-  if (loading) {
-    return (
-      <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: 400 }}>
-        <CircularProgress />
-      </Box>
-    );
-  }
+  const rejectedCount = counts.rejected_by_admin + counts.rejected_by_accountant;
 
   const invoiceTableColumns = [
     { key: 'date', label: 'Date', width: '1fr' },
@@ -300,7 +368,7 @@ const VendorInvoiceApproval: React.FC = () => {
             kind={isConnected ? 'success' : 'danger'}
             label={isConnected ? 'Live Updates' : 'Offline'}
           />
-          <GhostButton onClick={fetchVendorInvoices} disabled={loading}>
+          <GhostButton onClick={refresh} disabled={grid.loading}>
             Refresh
           </GhostButton>
         </Box>
@@ -313,14 +381,14 @@ const VendorInvoiceApproval: React.FC = () => {
       )}
 
       <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'repeat(2, 1fr)', sm: 'repeat(3, 1fr)', md: 'repeat(5, 1fr)' }, gap: 2, mb: 3 }}>
-        <StatCard label="Pending Submission" value={stats.pending_submission} dotColor="#9CA3AF" />
-        <StatCard label="Submitted to Admin" value={stats.submitted_to_admin} dotColor="#F59E0B" />
-        <StatCard label="Submitted to Accounting" value={stats.submitted_to_accounting} dotColor="#3B82F6" />
-        <StatCard label="Rejected" value={stats.rejected} dotColor="#EF4444" />
-        <StatCard label="Paid" value={stats.paid} dotColor="#10B981" />
+        <StatCard label="Pending Submission" value={counts.pending_submission} dotColor="#9CA3AF" />
+        <StatCard label="Submitted to Admin" value={counts.submitted_to_admin} dotColor="#F59E0B" />
+        <StatCard label="Submitted to Accounting" value={counts.submitted_to_accounting} dotColor="#3B82F6" />
+        <StatCard label="Rejected" value={rejectedCount} dotColor="#EF4444" />
+        <StatCard label="Paid" value={counts.paid} dotColor="#10B981" />
       </Box>
 
-      <Box sx={{ mb: 2, border: (theme) => `1px solid ${theme.palette.divider}`, borderRadius: '10px', bgcolor: (theme) => theme.palette.background.paper, p: 2 }}>
+      <Box sx={{ mb: 2, border: (theme) => `1px solid ${theme.palette.divider}`, borderRadius: '10px', bgcolor: (theme) => theme.palette.background.paper, p: 2, display: 'flex', flexDirection: { xs: 'column', md: 'row' }, gap: 2, alignItems: { md: 'center' } }}>
         <FormControl sx={{ minWidth: 200 }}>
           <InputLabel>Filter by Status</InputLabel>
           <Select
@@ -338,11 +406,28 @@ const VendorInvoiceApproval: React.FC = () => {
             <MenuItem value="paid">Paid</MenuItem>
           </Select>
         </FormControl>
+        <Box sx={{ flex: 1 }}>
+          <SearchBar
+            placeholder="Search vendor invoices by invoice # or vendor"
+            value={searchTerm}
+            onChange={setSearchTerm}
+          />
+        </Box>
       </Box>
 
       <Box sx={{ border: (theme) => `1px solid ${theme.palette.divider}`, borderRadius: '10px', bgcolor: (theme) => theme.palette.background.paper, p: 3, overflowX: 'auto' }}>
-        <DataTable columns={invoiceTableColumns} shownCount={filteredInvoices.length} totalCount={invoices.length}>
-          {filteredInvoices.map((invoice) => (
+        <DataTable
+          columns={invoiceTableColumns}
+          shownCount={grid.shownCount}
+          totalCount={grid.totalCount}
+          page={grid.page}
+          hasNextPage={grid.hasNextPage}
+          onPrevPage={grid.onPrevPage}
+          onNextPage={grid.onNextPage}
+          loading={grid.loading}
+          emptyMessage="No invoices found matching the current filter."
+        >
+          {invoices.map((invoice) => (
             <DataTableRow key={invoice.id} columns={invoiceTableColumns}>
               <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>
                 {formatDisplayDate(invoice.createdAt)}
@@ -405,14 +490,6 @@ const VendorInvoiceApproval: React.FC = () => {
           ))}
         </DataTable>
       </Box>
-
-      {filteredInvoices.length === 0 && (
-        <Box sx={{ textAlign: 'center', py: 4 }}>
-          <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>
-            No invoices found matching the current filter.
-          </Typography>
-        </Box>
-      )}
 
       {/* View Invoice Dialog */}
       <Dialog open={viewDialog} onClose={() => setViewDialog(false)} maxWidth="md" fullWidth sx={{ '& .MuiDialog-paper': { maxHeight: '90vh' } }}>

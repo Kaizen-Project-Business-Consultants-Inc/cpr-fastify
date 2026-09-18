@@ -1,7 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { instructorApi } from './api';
 import { useAuth } from '../contexts/AuthContext';
-import { errorHandler, handleError } from './errorHandler';
+import { handleError } from './errorHandler';
 
 // Query keys for React Query
 export const INSTRUCTOR_QUERY_KEYS = {

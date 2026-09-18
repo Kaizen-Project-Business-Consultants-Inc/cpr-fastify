@@ -74,7 +74,7 @@ const PrivateRoute: React.FC<PrivateRouteProps> = ({
             devLog('[TRACE] PrivateRoute - Route validation successful');
             setValidationError(null);
           }
-        } catch (err: any) {
+        } catch (err) {
           if (!isMountedRef.current) return;
           devLog('[TRACE] PrivateRoute - Validation error:', err);
           setValidationError('Route validation failed');

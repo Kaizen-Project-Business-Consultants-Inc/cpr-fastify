@@ -6,7 +6,6 @@ interface PageTransitionProps {
   type?: 'fade' | 'slideUp' | 'slideDown' | 'slideLeft' | 'slideRight' | 'grow' | 'scale';
   duration?: number;
   delay?: number;
-  direction?: 'up' | 'down' | 'left' | 'right';
 }
 
 const PageTransition: React.FC<PageTransitionProps> = ({
@@ -14,7 +13,6 @@ const PageTransition: React.FC<PageTransitionProps> = ({
   type = 'fade',
   duration = 300,
   delay = 0,
-  direction = 'up',
 }) => {
   const theme = useTheme();
   const [isVisible, setIsVisible] = useState(false);

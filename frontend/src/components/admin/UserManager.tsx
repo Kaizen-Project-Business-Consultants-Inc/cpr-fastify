@@ -10,8 +10,9 @@ import RoleChip from '../gtacpr/RoleChip';
 import { PrimaryButton } from '../gtacpr/Buttons';
 import LinkButton from '../gtacpr/LinkButton';
 import { useConfirm } from '../gtacpr/ConfirmDialog';
+import { getErrorMessage } from '../../utils/errorMessage';
 
-const formatPhone = (phoneString: any) => {
+const formatPhone = (phoneString: string | null | undefined) => {
   if (!phoneString) return '—';
   return formatPhoneNumber(phoneString) || phoneString;
 };
@@ -26,7 +27,19 @@ const columns = [
   { key: 'actions', label: '', width: '0.5fr', align: 'right' as const },
 ];
 
-function getInitials(user: any): string {
+interface UserRecord {
+  userId: number;
+  username: string;
+  role?: string;
+  firstName?: string;
+  lastName?: string;
+  email?: string;
+  phone?: string;
+  organizationName?: string;
+  locationName?: string;
+}
+
+function getInitials(user: UserRecord): string {
   const f = user.firstName || '';
   const l = user.lastName || '';
   if (f || l) return `${f[0] || ''}${l[0] || ''}`.toUpperCase();
@@ -34,11 +47,11 @@ function getInitials(user: any): string {
 }
 
 function UserManager() {
-  const [users, setUsers] = useState<any[]>([]);
+  const [users, setUsers] = useState<UserRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [dialogOpen, setDialogOpen] = useState(false);
-  const [editingUser, setEditingUser] = useState(null);
+  const [editingUser, setEditingUser] = useState<UserRecord | null>(null);
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' as 'success' | 'error' | 'warning' | 'info' });
   const { confirm, dialog: confirmDialog } = useConfirm();
 
@@ -48,7 +61,7 @@ function UserManager() {
     try {
       const data = await api.getUsers();
       setUsers(data || []);
-    } catch (err: any) {
+    } catch (err) {
       logger.error('Error fetching users:', err);
       setError('Failed to load users');
     } finally {
@@ -63,9 +76,9 @@ function UserManager() {
   };
 
   const handleAddOpen = () => { setEditingUser(null); setDialogOpen(true); };
-  const handleEditOpen = (user: any) => { setEditingUser(user); setDialogOpen(true); };
+  const handleEditOpen = (user: UserRecord) => { setEditingUser(user); setDialogOpen(true); };
 
-  const handleDeactivate = async (user: any) => {
+  const handleDeactivate = async (user: UserRecord) => {
     const label = `${user.firstName || ''} ${user.lastName || ''}`.trim() || user.username;
     const ok = await confirm({
       title: 'Deactivate user?',
@@ -78,9 +91,9 @@ function UserManager() {
       await api.api.put(`/sysadmin/users/${user.userId}`, { status: 'inactive' });
       showSnackbar(`${label} deactivated.`, 'success');
       fetchUsers();
-    } catch (err: any) {
+    } catch (err) {
       logger.error(`Error deactivating user ${user.userId}:`, err);
-      showSnackbar(`Failed to deactivate user: ${err?.response?.data?.error?.message || err.message}`, 'error');
+      showSnackbar(`Failed to deactivate user: ${getErrorMessage(err)}`, 'error');
     }
   };
 
@@ -120,7 +133,7 @@ function UserManager() {
                   <Typography sx={{ fontSize: 11.5, color: (theme) => theme.palette.text.secondary }}>{user.username}</Typography>
                 </Box>
               </Box>
-              <RoleChip role={user.role} />
+              <RoleChip role={user.role || 'Unknown'} />
               <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>{user.email}</Typography>
               <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>{formatPhone(user.phone)}</Typography>
               <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>{user.organizationName || '—'}</Typography>

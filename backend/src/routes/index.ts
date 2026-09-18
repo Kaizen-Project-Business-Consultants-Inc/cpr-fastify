@@ -26,6 +26,7 @@ import { instructorAdminRoutes } from './instructor-admin.js';
 import { logger } from '../config/logger.js';
 import { registerSwagger } from '../plugins/swagger.js';
 import { env } from '../config/env.js';
+import { getHSTRate, getHSTLabel } from '../utils/taxConfig.js';
 
 export async function registerRoutes(app: FastifyInstance) {
   // OpenAPI docs at /api/v1/docs — not exposed in production
@@ -46,6 +47,37 @@ export async function registerRoutes(app: FastifyInstance) {
     }, 'Client-side error reported');
     return { received: true };
   });
+  // Public, read-only client configuration. The tax rate lives in the database
+  // (system_config.tax_rate) and is loaded at startup; exposing it here keeps
+  // the frontend from baking a build-time constant that can silently drift.
+  // Unauthenticated and rate-limited like /client-errors.
+  app.get('/config', {
+    config: { rateLimit: { max: 20, timeWindow: '1 minute' } },
+    schema: {
+      description: 'Public client configuration (tax rate and label). No authentication required.',
+      tags: ['Config'],
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            success: { type: 'boolean' },
+            data: {
+              type: 'object',
+              properties: {
+                taxRate: { type: 'number', description: 'Tax rate as a fraction, e.g. 0.13' },
+                taxLabel: { type: 'string', description: 'Display label, e.g. "HST (13%)"' },
+              },
+            },
+          },
+        },
+      },
+    },
+  }, async (_request, reply) => {
+    // Small and stable — safe for shared caches for a few minutes.
+    reply.header('Cache-Control', 'public, max-age=300');
+    return { success: true, data: { taxRate: getHSTRate(), taxLabel: getHSTLabel() } };
+  });
+
   // SSE endpoint for real-time updates (keeps connection open)
   app.get('/events', { preHandler: [requireAuth] }, async (request, reply) => {
     reply.raw.writeHead(200, {

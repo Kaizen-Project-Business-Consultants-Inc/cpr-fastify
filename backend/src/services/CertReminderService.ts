@@ -1,6 +1,7 @@
 import { getPool } from '../config/database.js';
 import { logger } from '../config/logger.js';
 import { EmailService } from './EmailService.js';
+import type { RowDataPacket, ResultSetHeader } from 'mysql2/promise';
 
 const REMINDER_WINDOWS = [30, 60, 90]; // days before expiry
 const RUN_LOCK = 'cpr_cert_reminders';
@@ -25,7 +26,7 @@ export class CertReminderService {
     // Named lock is per-connection: hold one connection for the whole run.
     const lockConn = await pool.getConnection();
     try {
-      const [lockRows] = await lockConn.query<any[]>('SELECT GET_LOCK(?, 0) AS got', [RUN_LOCK]);
+      const [lockRows] = await lockConn.query<RowDataPacket[]>('SELECT GET_LOCK(?, 0) AS got', [RUN_LOCK]);
       if (Number(lockRows[0]?.got) !== 1) {
         logger.info('Cert reminder run skipped: another worker holds the lock');
         return { sent, skipped, errors };
@@ -33,7 +34,7 @@ export class CertReminderService {
 
       for (const days of REMINDER_WINDOWS) {
         const reminderType = `${days}d`;
-        const [rows] = await pool.query<any[]>(
+        const [rows] = await pool.query<RowDataPacket[]>(
           `SELECT cs.id as course_student_id, cs.email, cs.first_name, cs.last_name,
                   cs.certificate_number, cs.certificate_expires_at,
                   ct.name as course_type_name,
@@ -57,7 +58,7 @@ export class CertReminderService {
         for (const row of rows) {
           // Claim first. INSERT IGNORE + UNIQUE(course_student_id, reminder_type)
           // means exactly one worker wins the row.
-          const [claim] = await pool.query<any>(
+          const [claim] = await pool.query<ResultSetHeader>(
             `INSERT IGNORE INTO certification_reminders (course_student_id, student_email, reminder_type)
              VALUES (?, ?, ?)`,
             [row.course_student_id, row.email, reminderType]

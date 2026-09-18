@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { useNavigate, Link as RouterLink } from 'react-router-dom';
+import { Link as RouterLink } from 'react-router-dom';
 import {
   Box,
   Button,
@@ -18,7 +18,6 @@ import {
   ListItem,
   ListItemIcon,
   ListItemText,
-  Divider,
 } from '@mui/material';
 import {
   CheckCircle,

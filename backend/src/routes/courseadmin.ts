@@ -6,6 +6,7 @@ import { CourseRequestRepository } from '../repositories/CourseRequestRepository
 import { CourseStudentRepository } from '../repositories/CourseStudentRepository.js';
 import { UserRepository } from '../repositories/UserRepository.js';
 import { requireRole } from '../plugins/auth.js';
+import type { RowDataPacket } from 'mysql2/promise';
 
 const scheduleSchema = z.object({
   instructorId: z.number().int().positive(),
@@ -24,7 +25,7 @@ export async function courseAdminRoutes(app: FastifyInstance) {
 
   // Get instructors for scheduling
   app.get('/instructors', { preHandler: adminRole }, async () => {
-    const [rows] = await pool.query<any[]>(
+    const [rows] = await pool.query<RowDataPacket[]>(
       `SELECT id, username, email, first_name, last_name
        FROM users WHERE role = 'instructor' AND status = 'active' ORDER BY username`
     );

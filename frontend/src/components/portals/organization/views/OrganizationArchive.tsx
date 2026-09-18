@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Box,
   Typography,
@@ -16,6 +16,8 @@ import {
 } from '@mui/material';
 import { api } from '../../../../services/api';
 import { formatDisplayDate, getTodayDate } from '../../../../utils/formatters';
+import useServerPagination from '../../../../hooks/useServerPagination';
+import useDebounce from '../../../../hooks/useDebounce';
 import DataTable, { DataTableRow } from '../../../gtacpr/DataTable';
 import StatusChip from '../../../gtacpr/StatusChip';
 import LinkButton from '../../../gtacpr/LinkButton';
@@ -47,7 +49,12 @@ interface Student {
 }
 
 interface OrganizationArchiveProps {
-  courses: Course[];
+  /**
+   * Kept for compatibility with the portal: this screen loads its own rows from
+   * `/organization/archive`. A new array identity (the parent refetching) is the
+   * signal to refresh the rows on screen.
+   */
+  courses?: Course[];
   onViewStudentsClick?: (courseId: string | number) => void;
 }
 
@@ -76,6 +83,34 @@ const getStatusKind = (status: string): 'success' | 'danger' | 'warning' => {
   }
 };
 
+/**
+ * `/organization/archive` currently answers `{ success, data }` with no
+ * `pagination` block — it ignores page/limit and returns every archived course.
+ * The hook treats that as a single page holding everything, so this screen sends
+ * the params (ready for the day the endpoint pages) without changing behaviour.
+ */
+interface ArchiveApiEnvelope {
+  data?: Course[];
+  pagination?: { page?: number; limit?: number; total?: number; total_records?: number; pages?: number };
+}
+
+const toEnvelope = (body: ArchiveApiEnvelope | Course[]) => {
+  const rows: Course[] = Array.isArray(body) ? body : Array.isArray(body?.data) ? body.data : [];
+  const p = Array.isArray(body) ? undefined : body?.pagination;
+  if (!p) return { data: rows };
+  const limit = Number(p.limit) || rows.length || 25;
+  const total = Number(p.total ?? p.total_records ?? 0);
+  return {
+    data: rows,
+    pagination: {
+      page: Number(p.page) || 1,
+      limit,
+      total,
+      pages: Number(p.pages) || (limit > 0 ? Math.ceil(total / limit) : 0),
+    },
+  };
+};
+
 const OrganizationArchive: React.FC<OrganizationArchiveProps> = ({ courses }) => {
   const [studentDialogOpen, setStudentDialogOpen] = useState(false);
   const [selectedCourse, setSelectedCourse] = useState<Course | null>(null);
@@ -86,6 +121,27 @@ const OrganizationArchive: React.FC<OrganizationArchiveProps> = ({ courses }) =>
   const [statusFilter, setStatusFilter] = useState('all');
   const [courseTypeFilter, setCourseTypeFilter] = useState('all');
   const [exportError, setExportError] = useState<string | null>(null);
+
+  const debouncedSearch = useDebounce(searchTerm, 300);
+
+  const grid = useServerPagination<Course>({
+    pageSize: 25,
+    fetchFn: ({ page, limit }) =>
+      api.get('/organization/archive', { params: { page, limit } }).then((r) => toEnvelope(r.data)),
+  });
+
+  const loadError = grid.error ? 'Failed to load archived courses' : null;
+  const { load: gridLoad, reload: gridReload } = grid;
+
+  useEffect(() => {
+    gridLoad(1);
+  }, [gridLoad]);
+
+  const didMount = useRef(false);
+  useEffect(() => {
+    if (!didMount.current) { didMount.current = true; return; }
+    gridReload();
+  }, [courses, gridReload]);
 
   const handleExportCSV = async () => {
     try {
@@ -127,22 +183,30 @@ const OrganizationArchive: React.FC<OrganizationArchiveProps> = ({ courses }) =>
     setStudentError(null);
   };
 
-  const safeCourses = Array.isArray(courses) ? courses : [];
-  const term = searchTerm.trim().toLowerCase();
+  const safeCourses = grid.items;
+  // `/organization/archive` accepts no search or status parameter, so these
+  // narrow the rows the server returned.
+  const isPaged = grid.meta.pages > 1;
 
-  const filteredCourses = safeCourses.filter(course => {
-    // Instructor (and other fields) can be null for archived/cancelled courses
-    const matchesSearch =
-      !term ||
-      [course.courseTypeName, course.location, course.instructor]
-        .filter(Boolean)
-        .some((v) => String(v).toLowerCase().includes(term));
-    const matchesStatus = statusFilter === 'all' || (course.status || '').toLowerCase() === statusFilter.toLowerCase();
-    const matchesCourseType = courseTypeFilter === 'all' || course.courseTypeName === courseTypeFilter;
-    return matchesSearch && matchesStatus && matchesCourseType;
-  });
+  const filteredCourses = useMemo(() => {
+    const term = debouncedSearch.trim().toLowerCase();
+    return safeCourses.filter(course => {
+      // Instructor (and other fields) can be null for archived/cancelled courses
+      const matchesSearch =
+        !term ||
+        [course.courseTypeName, course.location, course.instructor]
+          .filter(Boolean)
+          .some((v) => String(v).toLowerCase().includes(term));
+      const matchesStatus = statusFilter === 'all' || (course.status || '').toLowerCase() === statusFilter.toLowerCase();
+      const matchesCourseType = courseTypeFilter === 'all' || course.courseTypeName === courseTypeFilter;
+      return matchesSearch && matchesStatus && matchesCourseType;
+    });
+  }, [safeCourses, debouncedSearch, statusFilter, courseTypeFilter]);
 
-  const courseTypes = Array.from(new Set(safeCourses.map(course => course.courseTypeName).filter(Boolean))).sort();
+  const courseTypes = useMemo(
+    () => Array.from(new Set(safeCourses.map(course => course.courseTypeName).filter(Boolean))).sort(),
+    [safeCourses]
+  );
 
   const formatStatus = (status: string | null | undefined) => {
     if (!status) return 'Unknown';
@@ -152,12 +216,13 @@ const OrganizationArchive: React.FC<OrganizationArchiveProps> = ({ courses }) =>
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
       {exportError && <Alert severity="error" onClose={() => setExportError(null)}>{exportError}</Alert>}
+      {loadError && <Alert severity="error">{loadError}</Alert>}
 
       {/* Filters */}
       <Box sx={{ border: (theme) => `1px solid ${theme.palette.divider}`, borderRadius: '10px', bgcolor: (theme) => theme.palette.background.paper, p: 3 }}>
         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
           <Typography sx={{ fontSize: 13, fontWeight: 700, color: (theme) => theme.palette.text.secondary, textTransform: 'uppercase', letterSpacing: '0.07em' }}>
-            Filters
+            {isPaged ? `Filter this page (${filteredCourses.length} of ${safeCourses.length} shown · ${grid.totalCount} total)` : 'Filters'}
           </Typography>
           <GhostButton onClick={handleExportCSV}>Export CSV</GhostButton>
         </Box>
@@ -182,28 +247,32 @@ const OrganizationArchive: React.FC<OrganizationArchiveProps> = ({ courses }) =>
       </Box>
 
       {/* Table */}
-      {filteredCourses.length === 0 ? (
-        <Box sx={{ bgcolor: (theme) => theme.palette.background.paper, border: (theme) => `1px solid ${theme.palette.divider}`, borderRadius: '10px', p: 6, textAlign: 'center' }}>
-          <Typography sx={{ fontSize: 14, fontWeight: 600, color: (theme) => theme.palette.text.secondary }}>No archived courses found</Typography>
-        </Box>
-      ) : (
-        <DataTable columns={columns} shownCount={filteredCourses.length} totalCount={safeCourses.length}>
-          {filteredCourses.map((course) => (
-            <DataTableRow key={course.id} columns={columns}>
-              <Typography sx={{ fontSize: 13.5, fontWeight: 600, color: (theme) => theme.palette.text.primary }}>{course.courseTypeName}</Typography>
-              <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>{course.location}</Typography>
-              <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>{course.instructor || '—'}</Typography>
-              <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.primary }}>{course.studentsAttended || 0} / {course.registeredStudents}</Typography>
-              <StatusChip kind={getStatusKind(course.status)} label={formatStatus(course.status)} />
-              <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>{formatDisplayDate(course.confirmedDate)}</Typography>
-              <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>{formatDisplayDate(course.archivedAt)}</Typography>
-              <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>
-                <LinkButton onClick={() => handleViewStudentsClick(course)} aria-label={`View students for ${course.courseTypeName}`}>Students</LinkButton>
-              </Box>
-            </DataTableRow>
-          ))}
-        </DataTable>
-      )}
+      <DataTable
+        columns={columns}
+        shownCount={filteredCourses.length}
+        totalCount={grid.totalCount}
+        page={grid.page}
+        hasNextPage={grid.hasNextPage}
+        onPrevPage={grid.onPrevPage}
+        onNextPage={grid.onNextPage}
+        loading={grid.loading}
+        emptyMessage="No archived courses found"
+      >
+        {filteredCourses.map((course) => (
+          <DataTableRow key={course.id} columns={columns}>
+            <Typography sx={{ fontSize: 13.5, fontWeight: 600, color: (theme) => theme.palette.text.primary }}>{course.courseTypeName}</Typography>
+            <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>{course.location}</Typography>
+            <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>{course.instructor || '—'}</Typography>
+            <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.primary }}>{course.studentsAttended || 0} / {course.registeredStudents}</Typography>
+            <StatusChip kind={getStatusKind(course.status)} label={formatStatus(course.status)} />
+            <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>{formatDisplayDate(course.confirmedDate)}</Typography>
+            <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>{formatDisplayDate(course.archivedAt)}</Typography>
+            <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>
+              <LinkButton onClick={() => handleViewStudentsClick(course)} aria-label={`View students for ${course.courseTypeName}`}>Students</LinkButton>
+            </Box>
+          </DataTableRow>
+        ))}
+      </DataTable>
 
       {/* Student Dialog */}
       <Dialog open={studentDialogOpen} onClose={handleCloseStudentDialog} maxWidth="md" fullWidth aria-labelledby="archive-students-dialog-title">

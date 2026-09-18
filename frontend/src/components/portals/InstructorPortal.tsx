@@ -2,15 +2,14 @@ import React, { Suspense, lazy, useMemo } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import {
   Box,
-  Alert,
-  Button,
 } from '@mui/material';
 import { ErrorBoundary } from '../common/ErrorBoundary';
 import InstructorLayout from './InstructorLayout';
 import { formatDisplayDate } from '../../utils/dateUtils';
 import type { User } from '../../types/api';
-import type { Student, ScheduledClass } from '../../types/instructor';
+import type { ScheduledClass } from '../../types/instructor';
 import type { CombinedScheduleItem } from '../../types/instructor';
+import { getErrorMessage } from '../../utils/errorMessage';
 
 interface AvailabilityDate {
   id: number;
@@ -91,17 +90,17 @@ interface InstructorPortalProps {
 }
 
 const InstructorPortal: React.FC<InstructorPortalProps> = ({
-  user,
+  user: _user,
   availableDates,
   scheduledClasses,
   completedClasses,
-  todayClasses = [],
+  todayClasses: _todayClasses = [],
   loading,
-  onLogout,
+  onLogout: _onLogout,
   onAddAvailability,
   onRemoveAvailability,
   onCompleteClass,
-  onUpdateAttendance,
+  onUpdateAttendance: _onUpdateAttendance,
   onRefreshData,
 }) => {
   // Create combined schedule from scheduled classes and availability dates
@@ -164,7 +163,7 @@ const InstructorPortal: React.FC<InstructorPortalProps> = ({
     return combined;
   }, [availableDates, scheduledClasses]);
 
-  const handleError = (error: Error, errorInfo: React.ErrorInfo) => {
+  const handleError = (_error: Error, _errorInfo: React.ErrorInfo) => {
     // Error boundary handler — logged by ErrorBoundary itself
   };
 
@@ -218,11 +217,10 @@ const InstructorPortal: React.FC<InstructorPortalProps> = ({
                         try {
                           await onRemoveAvailability(date);
                           return { success: true };
-                        } catch (error: any) {
-                          const axiosErr = error as { response?: { data?: { error?: string } } };
+                        } catch (error: unknown) {
                           return {
                             success: false,
-                            error: axiosErr.response?.data?.error || (error instanceof Error ? error.message : 'Unknown error'),
+                            error: getErrorMessage(error, 'Unknown error'),
                           };
                         }
                       }}

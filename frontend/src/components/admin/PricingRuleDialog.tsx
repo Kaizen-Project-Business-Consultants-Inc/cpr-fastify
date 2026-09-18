@@ -18,7 +18,9 @@ import {
   InputAdornment,
 } from '@mui/material';
 import Grid2 from '@mui/material/Unstable_Grid2';
+import type { SelectChangeEvent } from '@mui/material';
 import logger from '../../utils/logger';
+import { getErrorMessage } from '../../utils/errorMessage';
 
 const initialRuleState = {
   organizationId: '',
@@ -26,10 +28,35 @@ const initialRuleState = {
   price: '', // Store as string for TextField
 };
 
-function PricingRuleDialog({ open, onClose, onSave, rule }: { open: any; onClose: any; onSave: any; rule: any }) {
+interface PricingRule {
+  pricingid: number;
+  organizationid?: number | null;
+  coursetypeid?: number | null;
+  price: number | string | null;
+}
+
+interface OrganizationOption {
+  organizationid: number;
+  organizationname: string;
+}
+
+interface CourseTypeOption {
+  id: number;
+  name: string;
+  coursecode: string;
+}
+
+interface PricingRuleDialogProps {
+  open: boolean;
+  onClose: () => void;
+  onSave: () => void;
+  rule: PricingRule | null;
+}
+
+function PricingRuleDialog({ open, onClose, onSave, rule }: PricingRuleDialogProps) {
   const [formData, setFormData] = useState(initialRuleState);
-  const [organizations, setOrganizations] = useState<any[]>([]);
-  const [courseTypes, setCourseTypes] = useState<any[]>([]);
+  const [organizations, setOrganizations] = useState<OrganizationOption[]>([]);
+  const [courseTypes, setCourseTypes] = useState<CourseTypeOption[]>([]);
   const [loadingLists, setLoadingLists] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -76,7 +103,9 @@ function PricingRuleDialog({ open, onClose, onSave, rule }: { open: any; onClose
     }
   }, [rule, isEditMode, open, fetchLists]);
 
-  const handleChange = (event: any) => {
+  const handleChange = (
+    event: SelectChangeEvent<string> | React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>
+  ) => {
     const { name, value } = event.target;
     // Allow only numbers and one decimal point for price
     if (name === 'price' && value && !/^[0-9]*\.?[0-9]{0,2}$/.test(value)) {
@@ -97,7 +126,6 @@ function PricingRuleDialog({ open, onClose, onSave, rule }: { open: any; onClose
   const handleSave = async () => {
     setError('');
     setFieldErrors({});
-    let hasClientError = false;
     const newFieldErrors: Record<string, string> = {};
 
     // Client-side validation
@@ -116,7 +144,6 @@ function PricingRuleDialog({ open, onClose, onSave, rule }: { open: any; onClose
     if (Object.keys(newFieldErrors).length > 0) {
       setError('Please fix highlighted field(s).');
       setFieldErrors(newFieldErrors);
-      hasClientError = true;
       return;
     }
 
@@ -129,7 +156,7 @@ function PricingRuleDialog({ open, onClose, onSave, rule }: { open: any; onClose
         price: parseFloat(formData.price),
       };
 
-      if (isEditMode) {
+      if (isEditMode && rule) {
         // Update pricing rule with new data
         await api.updatePricingRule(rule.pricingid, dataToSend);
       } else {
@@ -137,9 +164,9 @@ function PricingRuleDialog({ open, onClose, onSave, rule }: { open: any; onClose
       }
       onSave();
       onClose();
-    } catch (err: any) {
+    } catch (err) {
       logger.error('Save pricing rule error:', err);
-      const message = err.message || 'Failed to save rule.';
+      const message = getErrorMessage(err, 'Failed to save rule.');
       setError('Failed to save. Please fix highlighted field(s).');
 
       const tempFieldErrors: Record<string, string> = {};

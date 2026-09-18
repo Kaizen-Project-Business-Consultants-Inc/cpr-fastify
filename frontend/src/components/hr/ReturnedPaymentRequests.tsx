@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Box,
   Typography,
@@ -13,6 +13,7 @@ import {
   FormControl,
   InputLabel,
   Select,
+  SelectChangeEvent,
   MenuItem,
   Grid,
   ButtonBase,
@@ -75,7 +76,7 @@ const ReturnedPaymentRequestDetailDialog: React.FC<{
       await hrService.processReturnedPaymentRequest(request.id, action, notes.trim());
       if (onActionSuccess) onActionSuccess();
       handleClose();
-    } catch (error: any) {
+    } catch {
       alert('Failed to process payment request. Please try again.');
     } finally {
       setProcessing(false);
@@ -155,7 +156,7 @@ const ReturnedPaymentRequestDetailDialog: React.FC<{
                   <Grid item xs={12} md={6}>
                     <FormControl fullWidth>
                       <InputLabel>Action</InputLabel>
-                      <Select value={action} onChange={(e) => setAction(e.target.value as any)} label="Action">
+                      <Select value={action} onChange={(e: SelectChangeEvent) => setAction(e.target.value as 'override_approve' | 'final_reject')} label="Action">
                         <MenuItem value="override_approve">Override & Approve</MenuItem>
                         <MenuItem value="final_reject">Final Rejection</MenuItem>
                       </Select>
@@ -189,7 +190,7 @@ const ReturnedPaymentRequests: React.FC = () => {
   const [detailDialogOpen, setDetailDialogOpen] = useState(false);
   const [pagination, setPagination] = useState({ page: 1, limit: 10, total: 0, pages: 0 });
 
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
@@ -199,14 +200,17 @@ const ReturnedPaymentRequests: React.FC = () => {
       };
       setRequests(data.requests);
       setPagination(data.pagination);
-    } catch (err: any) {
+    } catch {
       setError('Failed to load returned payment requests');
     } finally {
       setLoading(false);
     }
-  };
+  }, [pagination.page, pagination.limit]);
 
-  useEffect(() => { loadData(); }, [pagination.page]);
+  // Data fetch on mount / whenever the page changes — the standard fetch-on-mount
+  // pattern, not state derived from render.
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => { loadData(); }, [loadData]);
 
   if (loading && requests.length === 0) {
     return <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: 400 }}><CircularProgress size={48} /></Box>;

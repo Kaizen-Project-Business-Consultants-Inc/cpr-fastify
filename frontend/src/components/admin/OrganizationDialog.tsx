@@ -20,11 +20,36 @@ import {
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import { useConfirm } from '../gtacpr/ConfirmDialog';
-import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
 // Phone Input Libraries
-import PhoneInput, { isValidPhoneNumber } from 'react-phone-number-input';
+import PhoneInput from 'react-phone-number-input';
 import 'react-phone-number-input/style.css'; // Import default styles
+import { getErrorMessage } from '../../utils/errorMessage';
+
+interface OrganizationLocation {
+  id: number;
+  name?: string;
+  locationName?: string;
+  address?: string;
+  city?: string;
+  province?: string;
+}
+
+interface Organization {
+  id?: number;
+  organizationId?: number;
+  organizationName?: string;
+  contactName?: string;
+  contactEmail?: string;
+  contactPhone?: string;
+  addressStreet?: string;
+  addressCity?: string;
+  addressProvince?: string;
+  addressPostalCode?: string;
+  ceoName?: string;
+  ceoPhone?: string;
+  ceoEmail?: string;
+}
 
 // Initial empty state for a new organization
 const initialOrgState = {
@@ -41,7 +66,14 @@ const initialOrgState = {
   ceoEmail: '',
 };
 
-function OrganizationDialog({ open, onClose, onSave, organization }: { open: any; onClose: any; onSave: any; organization: any }) {
+interface OrganizationDialogProps {
+  open: boolean;
+  onClose: () => void;
+  onSave: () => void;
+  organization: Organization | null;
+}
+
+function OrganizationDialog({ open, onClose, onSave, organization }: OrganizationDialogProps) {
   const [orgData, setOrgData] = useState(initialOrgState);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -50,7 +82,7 @@ function OrganizationDialog({ open, onClose, onSave, organization }: { open: any
   const isEditMode = Boolean(organization?.id || organization?.organizationId);
 
   // Locations state
-  const [locations, setLocations] = useState<any[]>([]);
+  const [locations, setLocations] = useState<OrganizationLocation[]>([]);
   const [locationsLoading, setLocationsLoading] = useState(false);
   const [showAddLocation, setShowAddLocation] = useState(false);
   const [newLocationName, setNewLocationName] = useState('');
@@ -92,7 +124,7 @@ function OrganizationDialog({ open, onClose, onSave, organization }: { open: any
       try {
         const data = await api.getOrganizationLocations(orgId);
         setLocations(data || []);
-      } catch (err: any) {
+      } catch (err) {
         console.error('Failed to load locations:', err);
       } finally {
         setLocationsLoading(false);
@@ -111,8 +143,8 @@ function OrganizationDialog({ open, onClose, onSave, organization }: { open: any
       setLocations(data || []);
       setNewLocationName('');
       setShowAddLocation(false);
-    } catch (err: any) {
-      setError(err.message || 'Failed to add location');
+    } catch (err) {
+      setError(getErrorMessage(err, 'Failed to add location'));
     }
   };
 
@@ -132,13 +164,13 @@ function OrganizationDialog({ open, onClose, onSave, organization }: { open: any
       await api.deleteOrganizationLocation(orgId, locationId);
       const data = await api.getOrganizationLocations(orgId);
       setLocations(data || []);
-    } catch (err: any) {
-      setError(err.message || 'Failed to delete location');
+    } catch (err) {
+      setError(getErrorMessage(err, 'Failed to delete location'));
     }
   };
 
   // Handles both TextField changes and PhoneInput changes
-  const handleChange = (name: string, value: any) => {
+  const handleChange = (name: string, value: string) => {
     setOrgData(prevData => ({
       ...prevData,
       [name]: value,
@@ -181,14 +213,16 @@ function OrganizationDialog({ open, onClose, onSave, organization }: { open: any
     setLoading(true);
     try {
       if (isEditMode) {
-        await api.updateOrganization(organization.id || organization.organizationId, orgData);
+        const orgId = organization?.id ?? organization?.organizationId;
+        if (orgId === undefined) throw new Error('Missing organization id');
+        await api.updateOrganization(orgId, orgData);
       } else {
         await api.addOrganization(orgData);
       }
       onSave();
       onClose();
-    } catch (err: any) {
-      setError(err.message || 'Failed to save organization');
+    } catch (err) {
+      setError(getErrorMessage(err, 'Failed to save organization'));
     } finally {
       setLoading(false);
     }

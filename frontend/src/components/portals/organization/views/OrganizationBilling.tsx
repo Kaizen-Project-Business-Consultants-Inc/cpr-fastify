@@ -1,4 +1,4 @@
-import React, { useState, useRef, useMemo } from 'react';
+import React, { useState, useRef, useMemo, useEffect, useCallback } from 'react';
 import {
   Box,
   Typography,
@@ -19,8 +19,11 @@ import {
   CircularProgress,
   Tooltip,
 } from '@mui/material';
-import { formatDisplayDate, formatCurrency, getTodayDate, HST_RATE } from '../../../../utils/formatters';
+import { formatDisplayDate, formatCurrency, getTodayDate, getHSTRate } from '../../../../utils/formatters';
+import { getErrorMessage } from '../../../../utils/errorMessage';
 import { api } from '../../../../services/api';
+import useServerPagination from '../../../../hooks/useServerPagination';
+import useDebounce from '../../../../hooks/useDebounce';
 import PaymentHistoryTable from '../../../common/PaymentHistoryTable';
 import ServiceDetailsTable from '../../../common/ServiceDetailsTable';
 import DataTable, { DataTableRow } from '../../../gtacpr/DataTable';
@@ -78,6 +81,18 @@ interface Payment {
   verified_by_accounting_at?: string;
 }
 
+/** Shape a payment history row can arrive in before normalization (snake_case, amount unresolved). */
+interface RawPayment {
+  id: number;
+  amount?: number;
+  amount_paid?: number;
+  payment_date?: string;
+  created_at?: string;
+  payment_method?: string;
+  status?: string;
+  [key: string]: unknown;
+}
+
 interface BillingSummary {
   total_invoices: number;
   pending_invoices: number;
@@ -100,7 +115,12 @@ interface OrganizationInfo {
 }
 
 interface OrganizationBillingProps {
-  invoices: Invoice[];
+  /**
+   * Kept for compatibility with the portal: the invoice list is now loaded a
+   * page at a time from `/organization/invoices`. A new array identity (the
+   * parent refetching) refreshes the page on screen.
+   */
+  invoices?: Invoice[];
   billingSummary: BillingSummary | undefined;
   /** The organization's profile, used for the invoice "Bill To" block. */
   organizationData?: OrganizationInfo;
@@ -129,6 +149,47 @@ const attendanceColumns = [
   { key: 'email', label: 'Email', width: '1.2fr' },
   { key: 'status', label: 'Status', width: '0.6fr', align: 'center' as const },
 ];
+
+/**
+ * `/organization/invoices` answers
+ * `{ success, data: { invoices, pagination: { current_page, total_pages, total_records, per_page } } }`,
+ * so unwrap the nested list and rename the pagination keys for the hook.
+ */
+interface BillingApiEnvelope {
+  data?: {
+    invoices?: Invoice[];
+    pagination?: { current_page?: number; per_page?: number; total_records?: number; total_pages?: number };
+  } | Invoice[];
+}
+
+const toEnvelope = (body: BillingApiEnvelope) => {
+  const payload = body?.data;
+  const rows: Invoice[] = Array.isArray(payload)
+    ? payload
+    : Array.isArray(payload?.invoices)
+      ? payload.invoices
+      : [];
+  const p = Array.isArray(payload) ? undefined : payload?.pagination;
+  if (!p) return { data: rows };
+  const limit = Number(p.per_page) || rows.length || 25;
+  const total = Number(p.total_records ?? 0);
+  return {
+    data: rows,
+    pagination: {
+      page: Number(p.current_page) || 1,
+      limit,
+      total,
+      pages: Number(p.total_pages) || (limit > 0 ? Math.ceil(total / limit) : 0),
+    },
+  };
+};
+
+/**
+ * One request for the whole outstanding list. 200 is the backend's maximum page
+ * size, so an organization with more than 200 outstanding invoices would see the
+ * ordering rule consider only the 200 most recent.
+ */
+const ALL_INVOICES_LIMIT = 200;
 
 const OrganizationBilling: React.FC<OrganizationBillingProps> = ({
   invoices,
@@ -160,7 +221,6 @@ const OrganizationBilling: React.FC<OrganizationBillingProps> = ({
   const [paymentSuccess, setPaymentSuccess] = useState(false);
   const [paymentSuccessMessage, setPaymentSuccessMessage] = useState<string>('');
   const [paymentError, setPaymentError] = useState<string | null>(null);
-  const [showPaymentConfirmation, setShowPaymentConfirmation] = useState(false);
 
   // State for real-time balance calculation
   const [balanceCalculation, setBalanceCalculation] = useState<{
@@ -213,17 +273,69 @@ const OrganizationBilling: React.FC<OrganizationBillingProps> = ({
   // Debounce timer for balance calculation
   const balanceCalculationTimer = useRef<NodeJS.Timeout | null>(null);
 
-  // Ensure invoices is an array
-  const safeInvoices = useMemo(() => (Array.isArray(invoices) ? invoices : []), [invoices]);
+  const debouncedSearch = useDebounce(searchTerm, 300);
 
-  // Course types come from the loaded invoices, never a hard-coded list
+  const grid = useServerPagination<Invoice>({
+    pageSize: 25,
+    fetchFn: ({ page, limit }) =>
+      api.get('/organization/invoices', { params: { page, limit } }).then((r) => toEnvelope(r.data)),
+  });
+
+  const loadError = grid.error ? 'Failed to load invoices' : null;
+  const { load: gridLoad, reload: gridReload } = grid;
+
+  /**
+   * The whole outstanding list, never paged. The "pay the oldest invoice first"
+   * rule and the Course Type options have to see every invoice, not one page.
+   */
+  const [allInvoices, setAllInvoices] = useState<Invoice[]>([]);
+  const fetchAllInvoices = useCallback(async () => {
+    try {
+      const response = await api.get('/organization/invoices', { params: { page: 1, limit: ALL_INVOICES_LIMIT } });
+      setAllInvoices(toEnvelope(response.data).data);
+    } catch {
+      setAllInvoices([]);
+    }
+  }, []);
+
+  useEffect(() => {
+    // Initial data fetch: genuinely synchronizing with the server on mount, not
+    // deriving state from props. `gridLoad`/`fetchAllInvoices` set state only
+    // after their internal `await`, so this does not cascade synchronous renders.
+    gridLoad(1);
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- one-time fetch on mount; state is set only after the internal await, not synchronously
+    fetchAllInvoices();
+  }, [gridLoad, fetchAllInvoices]);
+
+  // The parent invalidates its invoice query after a payment or a mark-as-paid;
+  // a new array identity is the signal to refresh what is on screen.
+  const didMount = useRef(false);
+  useEffect(() => {
+    if (!didMount.current) { didMount.current = true; return; }
+    gridReload();
+    fetchAllInvoices();
+  }, [invoices, gridReload, fetchAllInvoices]);
+
+  /** After a mutation: refresh the page on screen and the unpaged list. */
+  const refreshInvoices = useCallback(() => {
+    gridReload();
+    fetchAllInvoices();
+  }, [gridReload, fetchAllInvoices]);
+
+  // The rows on screen: one server page.
+  const safeInvoices = grid.items;
+
+  // Course types come from the full list, never a hard-coded list
   const courseTypes = useMemo(
-    () => Array.from(new Set(safeInvoices.map((i) => i.course_type_name).filter(Boolean))).sort(),
-    [safeInvoices]
+    () => Array.from(new Set(allInvoices.map((i) => i.course_type_name).filter(Boolean))).sort(),
+    [allInvoices]
   );
 
+  // `/organization/invoices` only filters on its own `status` column, whose
+  // values ('posted_to_org', 'payment_submitted', …) are not the computed
+  // payment status this screen shows, so all three filters narrow the page.
   const filteredInvoices = useMemo(() => {
-    const term = searchTerm.trim().toLowerCase();
+    const term = debouncedSearch.trim().toLowerCase();
     return safeInvoices.filter((invoice) => {
       const status = (invoice.payment_status || invoice.status || '').toLowerCase();
       const matchesSearch =
@@ -235,7 +347,7 @@ const OrganizationBilling: React.FC<OrganizationBillingProps> = ({
       const matchesCourseType = !courseTypeFilter || invoice.course_type_name === courseTypeFilter;
       return matchesSearch && matchesStatus && matchesCourseType;
     });
-  }, [safeInvoices, searchTerm, statusFilter, courseTypeFilter]);
+  }, [safeInvoices, debouncedSearch, statusFilter, courseTypeFilter]);
 
   // Get status kind for StatusChip
   const getStatusKind = (status: string): 'success' | 'active' | 'warning' | 'danger' | 'neutral' | 'inactive' | 'brand' | 'pending' => {
@@ -272,8 +384,8 @@ const OrganizationBilling: React.FC<OrganizationBillingProps> = ({
       } else {
         setAttendanceData([]);
       }
-    } catch (error: any) {
-      console.error('Error loading attendance data:', error);
+    } catch (error) {
+      console.error('Error loading attendance data:', getErrorMessage(error));
       setAttendanceData([]);
     } finally {
       setLoadingAttendance(false);
@@ -287,7 +399,7 @@ const OrganizationBilling: React.FC<OrganizationBillingProps> = ({
       const response = await api.get(`/organization/invoices/${invoiceId}/payments`);
 
       // Handle different response structures
-      let paymentsData = [];
+      let paymentsData: RawPayment[] = [];
       if (response.data && response.data.data) {
         paymentsData = Array.isArray(response.data.data) ? response.data.data : [];
       } else if (response.data && Array.isArray(response.data)) {
@@ -301,7 +413,7 @@ const OrganizationBilling: React.FC<OrganizationBillingProps> = ({
 
 
       // Filter out invalid payments and remove duplicates
-      const validPayments = paymentsData.filter((payment: any) => {
+      const validPayments = paymentsData.filter((payment) => {
         return payment &&
                payment.id &&
                (payment.amount_paid || payment.amount) &&
@@ -309,21 +421,21 @@ const OrganizationBilling: React.FC<OrganizationBillingProps> = ({
       });
 
       // Remove duplicates based on payment ID and ensure valid data
-      const uniquePayments = validPayments
-        .filter((payment: any, index: any, self: any) =>
-          index === self.findIndex((p: any) => p.id === payment.id)
+      const uniquePayments: Payment[] = validPayments
+        .filter((payment, index, self) =>
+          index === self.findIndex((p) => p.id === payment.id)
         )
-        .map((payment: any) => ({
+        .map((payment) => ({
           ...payment,
           amount_paid: Number(payment.amount_paid || payment.amount || 0),
           payment_date: payment.payment_date || payment.created_at,
           payment_method: payment.payment_method || 'Not specified',
           status: payment.status || 'pending_verification'
-        }));
+        } as Payment));
 
       setPaymentHistory(uniquePayments);
-    } catch (error: any) {
-      console.error('Error loading payment history:', error);
+    } catch (error) {
+      console.error('Error loading payment history:', getErrorMessage(error));
       setPaymentHistory([]);
     } finally {
       setLoadingPaymentHistory(false);
@@ -372,6 +484,8 @@ const OrganizationBilling: React.FC<OrganizationBillingProps> = ({
 
       if (response.data.success) {
         setMarkAsPaidSuccess(true);
+        // Refresh the page on screen and the unpaged list behind the ordering rule
+        refreshInvoices();
         // Refresh invoice list using React Query instead of page reload
         if (onPaymentSuccess) {
           onPaymentSuccess();
@@ -451,6 +565,7 @@ const OrganizationBilling: React.FC<OrganizationBillingProps> = ({
         handlePaymentDialogClose();
 
         // Refresh invoice list to update status and balance
+        refreshInvoices();
         if (onPaymentSuccess) {
           onPaymentSuccess();
         }
@@ -568,55 +683,13 @@ const OrganizationBilling: React.FC<OrganizationBillingProps> = ({
         if (response.data.success) {
           setBalanceCalculation(response.data.data);
         }
-      } catch (error: any) {
-        console.error('Error calculating balance:', error);
+      } catch (error) {
+        console.error('Error calculating balance:', getErrorMessage(error));
         setBalanceCalculation(null);
       } finally {
         setCalculatingBalance(false);
       }
     }, 300); // 300ms debounce
-  };
-
-  // Check if this is a partial payment
-  const isPartialPayment = (amount: string) => {
-    if (!selectedInvoice || !amount) return false;
-    const paymentAmount = parseFloat(amount);
-    const balanceDue = selectedInvoice.balance_due;
-    return paymentAmount > 0 && paymentAmount < balanceDue;
-  };
-
-  // Get payment status message
-  const getPaymentStatusMessage = (invoice: Invoice | null) => {
-    if (!invoice) return '';
-
-    const status = invoice.payment_status || invoice.status;
-
-    switch (status) {
-      case 'paid':
-        return 'This invoice has been fully paid.';
-      case 'payment_submitted':
-        return 'Payment has been submitted and is pending verification by accounting.';
-      case 'pending':
-        return 'This invoice is pending payment.';
-      case 'overdue':
-        return 'This invoice is overdue and requires immediate attention.';
-      default:
-        return 'This invoice is ready for payment.';
-    }
-  };
-
-  // Get payment status kind for StatusChip
-  const getPaymentStatusKind = (status: string): 'success' | 'active' | 'warning' | 'danger' | 'neutral' | 'inactive' | 'brand' | 'pending' => {
-    switch (status?.toLowerCase()) {
-      case 'verified':
-        return 'success';
-      case 'pending_verification':
-        return 'warning';
-      case 'rejected':
-        return 'danger';
-      default:
-        return 'neutral';
-    }
   };
 
   // Format payment method for display
@@ -627,7 +700,7 @@ const OrganizationBilling: React.FC<OrganizationBillingProps> = ({
 
   // Check if there are older unpaid invoices that should be paid first
   const hasOlderUnpaidInvoices = (currentInvoice: Invoice | null) => {
-    if (!currentInvoice || !safeInvoices || safeInvoices.length === 0) {
+    if (!currentInvoice || allInvoices.length === 0) {
       return false;
     }
 
@@ -639,7 +712,7 @@ const OrganizationBilling: React.FC<OrganizationBillingProps> = ({
     }
 
     // Find older invoices with outstanding balance
-    const olderUnpaidInvoices = safeInvoices.filter(invoice => {
+    const olderUnpaidInvoices = allInvoices.filter(invoice => {
       const invoiceDate = new Date(invoice.created_at || invoice.invoice_date || invoice.created_at);
 
       // Skip if date is invalid
@@ -659,9 +732,9 @@ const OrganizationBilling: React.FC<OrganizationBillingProps> = ({
 
   // Get the oldest unpaid invoice
   const getOldestUnpaidInvoice = () => {
-    if (!safeInvoices || safeInvoices.length === 0) return null;
+    if (allInvoices.length === 0) return null;
 
-    const unpaidInvoices = safeInvoices.filter(invoice => {
+    const unpaidInvoices = allInvoices.filter(invoice => {
       const balanceDue = Number(invoice.balance_due || 0);
       return balanceDue > 0;
     });
@@ -694,8 +767,8 @@ const OrganizationBilling: React.FC<OrganizationBillingProps> = ({
       link.click();
       link.remove();
       window.URL.revokeObjectURL(url);
-    } catch (error: any) {
-      console.error('Error downloading PDF:', error);
+    } catch (error) {
+      console.error('Error downloading PDF:', getErrorMessage(error));
       setPaymentError('Failed to download PDF.');
     }
   };
@@ -708,7 +781,7 @@ const OrganizationBilling: React.FC<OrganizationBillingProps> = ({
     const total = Number(invoice.amount || 0);
     const baseCost = invoice.base_cost != null
       ? Number(invoice.base_cost)
-      : Math.round((total / (1 + HST_RATE)) * 100) / 100;
+      : Math.round((total / (1 + getHSTRate())) * 100) / 100;
     const tax = invoice.tax_amount != null
       ? Number(invoice.tax_amount)
       : Math.round((total - baseCost) * 100) / 100;
@@ -738,6 +811,7 @@ const OrganizationBilling: React.FC<OrganizationBillingProps> = ({
         <GhostButton onClick={handleExportCSV}>Export CSV</GhostButton>
       </Box>
       {exportError && <Alert severity="error" onClose={() => setExportError(null)} sx={{ mb: 2 }}>{exportError}</Alert>}
+      {loadError && <Alert severity="error" sx={{ mb: 2 }}>{loadError}</Alert>}
 
       {/* Billing Summary Stat Cards */}
       <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'repeat(2, 1fr)', md: 'repeat(4, 1fr)' }, gap: 2, mb: 4 }}>
@@ -809,27 +883,26 @@ const OrganizationBilling: React.FC<OrganizationBillingProps> = ({
             </FormControl>
           </Box>
           <Typography sx={{ fontSize: 12, color: (theme) => theme.palette.text.secondary, ml: 'auto' }}>
-            {filteredInvoices.length} of {safeInvoices.length} invoices
+            {filteredInvoices.length} of {safeInvoices.length} on this page · {grid.totalCount} invoices
           </Typography>
         </Box>
+        <Typography sx={{ fontSize: 12, color: (theme) => theme.palette.text.secondary, mb: 2 }}>
+          Search and filters apply to the invoices on this page. The cards above and Export CSV cover every invoice.
+        </Typography>
 
         <DataTable
           columns={invoiceColumns}
           shownCount={filteredInvoices.length}
-          totalCount={safeInvoices.length}
+          totalCount={grid.totalCount}
+          page={grid.page}
+          hasNextPage={grid.hasNextPage}
+          onPrevPage={grid.onPrevPage}
+          onNextPage={grid.onNextPage}
+          loading={grid.loading}
+          emptyMessage={safeInvoices.length === 0 ? 'No invoices found' : 'No invoices on this page match your filters'}
         >
-          {filteredInvoices.length === 0 ? (
-            <Box sx={{ p: 3, textAlign: 'center' }}>
-              <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>
-                {safeInvoices.length === 0 ? 'No invoices found' : 'No invoices match your filters'}
-              </Typography>
-            </Box>
-          ) : (
+          {
             filteredInvoices.map((invoice) => {
-              const oldestUnpaid = getOldestUnpaidInvoice();
-              const isOldestUnpaid = oldestUnpaid?.id === invoice.id;
-              const hasOlderUnpaid = hasOlderUnpaidInvoices(invoice);
-
               return (
                 <DataTableRow key={invoice.id} columns={invoiceColumns}>
                   {/* Invoice # */}
@@ -962,7 +1035,7 @@ const OrganizationBilling: React.FC<OrganizationBillingProps> = ({
                 </DataTableRow>
               );
             })
-          )}
+          }
         </DataTable>
       </Box>
 

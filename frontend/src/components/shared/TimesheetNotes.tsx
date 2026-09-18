@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Box,
   Typography,
@@ -52,10 +52,10 @@ const TimesheetNotes: React.FC<TimesheetNotesProps> = ({ timesheetId, onNotesCha
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [noteToDelete, setNoteToDelete] = useState<TimesheetNote | null>(null);
 
-  const loadNotes = async () => {
+  const loadNotes = useCallback(async () => {
     setLoading(true);
     setError(null);
-    
+
     try {
       const notesData = await timesheetService.getTimesheetNotes(timesheetId);
       setNotes(notesData);
@@ -65,11 +65,11 @@ const TimesheetNotes: React.FC<TimesheetNotesProps> = ({ timesheetId, onNotesCha
     } finally {
       setLoading(false);
     }
-  };
+  }, [timesheetId]);
 
   useEffect(() => {
     loadNotes();
-  }, [timesheetId]);
+  }, [loadNotes]);
 
   const handleAddNote = async () => {
     if (!newNote.trim()) return;

@@ -28,8 +28,6 @@ import {
   Refresh as RefreshIcon,
 } from '@mui/icons-material';
 import { timesheetService, Timesheet } from '../../services/timesheetService';
-import TimesheetNotes from '../shared/TimesheetNotes';
-import { useAuth } from '../../contexts/AuthContext';
 
 interface TimesheetHistoryProps {
   onRefresh?: () => void;
@@ -49,7 +47,6 @@ interface CourseDetail {
 type ChipColor = 'default' | 'primary' | 'secondary' | 'error' | 'info' | 'success' | 'warning';
 
 const TimesheetHistory: React.FC<TimesheetHistoryProps> = ({ onRefresh }) => {
-  const { user } = useAuth();
   const [timesheets, setTimesheets] = useState<Timesheet[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -71,7 +68,9 @@ const TimesheetHistory: React.FC<TimesheetHistoryProps> = ({ onRefresh }) => {
     }
   };
 
+  // Fetch on mount only.
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     loadTimesheets();
   }, []);
 

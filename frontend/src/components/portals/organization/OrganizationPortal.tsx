@@ -1,25 +1,14 @@
 import React, { useState } from 'react';
 import {
   Box,
-  Typography,
-  Drawer,
-  List,
-  ListItem,
-  ListItemIcon,
-  ListItemText,
-  Divider,
-  AppBar,
-  Toolbar,
   CircularProgress,
   Alert,
 } from '@mui/material';
 import {
   Dashboard as DashboardIcon,
-  ListAlt as CoursesIcon,
   Receipt as BillingIcon,
   Person as ProfileIcon,
   Analytics as AnalyticsIcon,
-  Logout as LogoutIcon,
   Event as EventIcon,
   School as CoursesIconAlt,
   Archive as ArchiveIcon,
@@ -196,7 +185,7 @@ const OrganizationPortal: React.FC<OrganizationPortalProps> = ({
   };
 
   // Handle view students click
-  const handleViewStudentsClick = (courseId: string | number) => {
+  const handleViewStudentsClick = (_courseId: string | number) => {
     // TODO: Implement view students functionality
     // This could open a dialog or navigate to a student list view
   };
@@ -208,7 +197,7 @@ const OrganizationPortal: React.FC<OrganizationPortalProps> = ({
   };
 
   // Handle CSV upload success - accepts UploadResult from CSVUploadDialog
-  const handleCSVUploadSuccess = (data: { fileName: string; content: string; parsed: unknown; response: unknown }) => {
+  const handleCSVUploadSuccess = (_data: { fileName: string; content: string; parsed: unknown; response: unknown }) => {
 
     // Refresh the courses data to show updated student count
     queryClient.invalidateQueries({ queryKey: ['organization-courses', user?.organizationId] });

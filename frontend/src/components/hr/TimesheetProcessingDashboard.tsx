@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Box,
   Typography,
@@ -14,7 +14,6 @@ import {
   Alert,
   CircularProgress,
   Pagination,
-  Grid,
 } from '@mui/material';
 import { timesheetService, Timesheet, TimesheetStats, TimesheetFilters } from '../../services/timesheetService';
 import TimesheetNotes from '../shared/TimesheetNotes';
@@ -93,30 +92,30 @@ const TimesheetProcessingDashboard: React.FC = () => {
   const [reminderLoading, setReminderLoading] = useState(false);
   const [sendingReminders, setSendingReminders] = useState(false);
 
-  const loadStats = async () => {
+  const loadStats = useCallback(async () => {
     try {
       setStatsLoading(true);
       const statsData = await timesheetService.getStats();
       setStats(statsData);
-    } catch (err: any) {
+    } catch {
       setError('Failed to load timesheet statistics');
     } finally {
       setStatsLoading(false);
     }
-  };
+  }, []);
 
-  const loadTimesheets = async () => {
+  const loadTimesheets = useCallback(async () => {
     try {
       setLoading(true);
       const response = await timesheetService.getTimesheets({ ...filters, page: pagination.page, limit: pagination.limit });
       setTimesheets(response.timesheets);
       setPagination(prev => ({ ...prev, total: response.pagination.total, pages: response.pagination.pages }));
-    } catch (err: any) {
+    } catch {
       setError('Failed to load timesheets');
     } finally {
       setLoading(false);
     }
-  };
+  }, [filters, pagination.page, pagination.limit]);
 
   const handleApproval = async () => {
     if (!selectedTimesheet) return;
@@ -128,7 +127,7 @@ const TimesheetProcessingDashboard: React.FC = () => {
       setSelectedTimesheet(null);
       setApprovalComment('');
       await Promise.all([loadStats(), loadTimesheets()]);
-    } catch (err: any) {
+    } catch {
       setError(`Failed to ${approvalAction} timesheet`);
     } finally {
       setApprovalLoading(false);
@@ -152,7 +151,7 @@ const TimesheetProcessingDashboard: React.FC = () => {
       setReminderLoading(true);
       const data = await timesheetService.getPendingReminders();
       setPendingReminders(data);
-    } catch (err: any) {
+    } catch {
       setError('Failed to load instructors pending timesheet submission');
     } finally {
       setReminderLoading(false);
@@ -167,15 +166,19 @@ const TimesheetProcessingDashboard: React.FC = () => {
       const result = await timesheetService.sendReminders(instructorIds);
       setSuccess(`Reminders sent to ${result.sentCount} instructor(s)`);
       setReminderDialogOpen(false);
-    } catch (err: any) {
+    } catch {
       setError('Failed to send reminders');
     } finally {
       setSendingReminders(false);
     }
   };
 
-  useEffect(() => { loadStats(); }, []);
-  useEffect(() => { loadTimesheets(); }, [filters, pagination.page, pagination.limit]);
+  // Data fetch on mount / whenever the relevant filters or callback identity change —
+  // the standard fetch-on-mount pattern, not state derived from render.
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => { loadStats(); }, [loadStats]);
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => { loadTimesheets(); }, [loadTimesheets]);
   useEffect(() => {
     if (success) { const t = setTimeout(() => setSuccess(null), 5000); return () => clearTimeout(t); }
     return () => {};

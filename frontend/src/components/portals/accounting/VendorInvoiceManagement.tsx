@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Box,
   Typography,
@@ -19,12 +19,15 @@ import {
 import DataTable, { DataTableRow } from '../../gtacpr/DataTable';
 import StatusChip from '../../gtacpr/StatusChip';
 import StatCard from '../../gtacpr/StatCard';
+import SearchBar from '../../gtacpr/SearchBar';
 import { PrimaryButton, GhostButton } from '../../gtacpr/Buttons';
 import { LinkButton, useConfirm } from '../../gtacpr';
 import { formatCurrency, formatDisplayDate, getTodayDate } from '../../../utils/formatters';
-import { adminApi } from '../../../services/api';
+import { api, adminApi } from '../../../services/api';
 import { useSnackbar } from '../../../contexts/SnackbarContext';
 import { useVendorInvoiceUpdates } from '../../../hooks/useVendorInvoiceUpdates';
+import useServerPagination from '../../../hooks/useServerPagination';
+import useDebounce from '../../../hooks/useDebounce';
 
 interface VendorInvoice {
   id: number;
@@ -142,9 +145,30 @@ const getPaymentStatusKind = (status: string): 'success' | 'active' | 'warning' 
 
 const formatDate = (date: string) => formatDisplayDate(date);
 
+/** `'pending'` in the picker means "everything not yet paid" — the API's `unpaid`. */
+const toStatusParam = (filter: string) =>
+  filter === 'pending' ? 'unpaid' : filter === 'all' ? '' : filter;
+
+const toNumber = (value: number | string | null | undefined) => {
+  const n = typeof value === 'string' ? parseFloat(value) : value;
+  return n == null || Number.isNaN(n) ? 0 : n;
+};
+
+interface InvoiceSummary {
+  nonPaidCount: number;
+  totalOutstanding: number;
+  totalPaid: number;
+  partiallyPaidCount: number;
+}
+
+const emptySummary: InvoiceSummary = {
+  nonPaidCount: 0,
+  totalOutstanding: 0,
+  totalPaid: 0,
+  partiallyPaidCount: 0,
+};
+
 const VendorInvoiceManagement: React.FC = () => {
-  const [invoices, setInvoices] = useState<VendorInvoice[]>([]);
-  const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [selectedInvoice, setSelectedInvoice] = useState<VendorInvoice | null>(null);
   const [viewDialog, setViewDialog] = useState(false);
@@ -158,36 +182,90 @@ const VendorInvoiceManagement: React.FC = () => {
     notes: ''
   });
   const [statusFilter, setStatusFilter] = useState('pending');
+  const [searchTerm, setSearchTerm] = useState('');
+  const [summary, setSummary] = useState<InvoiceSummary>(emptySummary);
   const { showSuccess, showError } = useSnackbar();
   const { confirm, dialog: confirmDialog } = useConfirm();
 
-  const fetchInvoices = async () => {
-    try {
-      setLoading(true);
-      setError('');
-      const response = await adminApi.getAccountingVendorInvoices();
-      setInvoices(response.data || []);
-    } catch (error: unknown) {
-      console.error('Error fetching vendor invoices:', error);
+  const debouncedSearch = useDebounce(searchTerm, 300);
+  const searchParam = debouncedSearch.trim();
+  const statusParam = toStatusParam(statusFilter);
+
+  // Both the status picker and the search box run on the server: the endpoint
+  // applies `status` and `search` to the data query AND the COUNT, so a page is
+  // page N of the selected status, not "the matching rows of the first 25".
+  const grid = useServerPagination<VendorInvoice>({
+    pageSize: 25,
+    fetchFn: ({ page, limit }) =>
+      api
+        .get('/accounting/vendor-invoices', {
+          params: {
+            page,
+            limit,
+            ...(statusParam ? { status: statusParam } : {}),
+            ...(searchParam ? { search: searchParam } : {}),
+          },
+        })
+        .then((r) => {
+          setError('');
+          return r.data;
+        }),
+    onError: (err: unknown) => {
+      console.error('Error fetching vendor invoices:', err);
       setError('Failed to load vendor invoices. Please try again.');
       showError('Failed to load vendor invoices');
-    } finally {
-      setLoading(false);
+    },
+  });
+
+  /**
+   * The four summary cards describe EVERY invoice, in every status — they are
+   * deliberately independent of the status picker and of the page on screen.
+   * Outstanding/paid are sums the API exposes no aggregate for, so this is the
+   * unfiltered list fetched with NO `page`/`limit` (which still returns every
+   * row) rather than a subtotal of the 25 rows currently visible.
+   */
+  const loadSummary = useCallback(async () => {
+    try {
+      const response = await api.get('/accounting/vendor-invoices');
+      const rows: VendorInvoice[] = response.data?.data ?? [];
+      setSummary({
+        nonPaidCount: rows.filter((inv) => inv.status !== 'paid').length,
+        totalOutstanding: rows.reduce(
+          (sum, inv) => sum + (toNumber(inv.total) - toNumber(inv.totalPaid)),
+          0
+        ),
+        totalPaid: rows.reduce((sum, inv) => sum + toNumber(inv.totalPaid), 0),
+        partiallyPaidCount: rows.filter((inv) => inv.paymentStatus === 'partially_paid').length,
+      });
+    } catch (err: unknown) {
+      console.error('Error loading vendor invoice totals:', err);
+      setSummary(emptySummary);
     }
-  };
+  }, []);
+
+  /** Re-fetch the page currently on screen plus the whole-set totals. */
+  const reloadCurrentPage = useCallback(() => {
+    grid.reload();
+    loadSummary();
+  }, [grid.reload, loadSummary]);
 
   // Real-time updates
   const { isConnected } = useVendorInvoiceUpdates({
-    onStatusUpdate: (update) => {
-    },
-    onNotesUpdate: (update) => {
-    },
-    onRefresh: fetchInvoices
+    onStatusUpdate: () => {},
+    onNotesUpdate: () => {},
+    onRefresh: reloadCurrentPage
   });
 
+  // Changing the status filter or the search restarts at page 1.
   useEffect(() => {
-    fetchInvoices();
-  }, []);
+    grid.load(1);
+  }, [grid.load, statusParam, searchParam]);
+
+  useEffect(() => {
+    loadSummary();
+  }, [loadSummary]);
+
+  const invoices = grid.items;
 
   const handleView = async (invoice: VendorInvoice) => {
     setSelectedInvoice(invoice);
@@ -245,7 +323,7 @@ const VendorInvoiceManagement: React.FC = () => {
 
       setViewDialog(false);
       setSelectedInvoice(null);
-      fetchInvoices();
+      reloadCurrentPage();
     } catch (error: unknown) {
       console.error('Error processing payment:', error);
       const errObj = error as { response?: { data?: { message?: string } } };
@@ -255,20 +333,6 @@ const VendorInvoiceManagement: React.FC = () => {
     }
   };
 
-  const filteredInvoices = invoices.filter(invoice => {
-    if (statusFilter === 'all') return true;
-    if (statusFilter === 'pending') return invoice.status !== 'paid';
-    return invoice.status === statusFilter;
-  });
-
-  if (loading) {
-    return (
-      <Box display="flex" justifyContent="center" alignItems="center" minHeight="400px">
-        <CircularProgress />
-      </Box>
-    );
-  }
-
   if (error) {
     return (
       <Alert severity="error" sx={{ mb: 2 }}>
@@ -276,20 +340,6 @@ const VendorInvoiceManagement: React.FC = () => {
       </Alert>
     );
   }
-
-  const totalOutstanding = invoices.reduce((sum, inv) => {
-    const total = typeof inv.total === 'number' ? inv.total : parseFloat(String(inv.total)) || 0;
-    const totalPaid = Number(inv.totalPaid) || 0;
-    const balanceDue = total - totalPaid;
-    return sum + (isNaN(balanceDue) ? 0 : balanceDue);
-  }, 0);
-
-  const totalPaidSum = invoices.reduce((sum, inv) => {
-    const totalPaid = Number(inv.totalPaid) || 0;
-    return sum + (isNaN(totalPaid) ? 0 : totalPaid);
-  }, 0);
-
-  const partiallyPaidCount = invoices.filter(inv => inv.paymentStatus === 'partially_paid').length;
 
   return (
     <Box>
@@ -309,7 +359,7 @@ const VendorInvoiceManagement: React.FC = () => {
         <Grid item xs={12} md={3}>
           <StatCard
             label="Pending Invoices"
-            value={invoices.length}
+            value={summary.nonPaidCount}
             sub="Non-Paid"
             dotColor="#ED6C02"
           />
@@ -317,7 +367,7 @@ const VendorInvoiceManagement: React.FC = () => {
         <Grid item xs={12} md={3}>
           <StatCard
             label="Total Outstanding"
-            value={formatCurrency(totalOutstanding)}
+            value={formatCurrency(summary.totalOutstanding)}
             sub="Balance due across all invoices"
             dotColor="#CC1F1F"
           />
@@ -325,7 +375,7 @@ const VendorInvoiceManagement: React.FC = () => {
         <Grid item xs={12} md={3}>
           <StatCard
             label="Total Paid"
-            value={formatCurrency(totalPaidSum)}
+            value={formatCurrency(summary.totalPaid)}
             sub="Payments processed"
             dotColor="#16A34A"
           />
@@ -333,15 +383,15 @@ const VendorInvoiceManagement: React.FC = () => {
         <Grid item xs={12} md={3}>
           <StatCard
             label="Partially Paid"
-            value={partiallyPaidCount}
+            value={summary.partiallyPaidCount}
             sub="Invoices with partial payment"
             dotColor="#2563EB"
           />
         </Grid>
       </Grid>
 
-      {/* Status Filter */}
-      <Box sx={{ mb: 2 }}>
+      {/* Status filter + search — both applied by the server */}
+      <Box sx={{ mb: 2, display: 'flex', flexDirection: { xs: 'column', md: 'row' }, gap: 2, alignItems: { md: 'center' } }}>
         <FormControl sx={{ minWidth: 200 }}>
           <InputLabel>Filter by Status</InputLabel>
           <Select
@@ -359,15 +409,32 @@ const VendorInvoiceManagement: React.FC = () => {
             <MenuItem value="paid">Invoices Paid</MenuItem>
           </Select>
         </FormControl>
+        <Box sx={{ flex: 1 }}>
+          <SearchBar
+            placeholder="Search vendor invoices by invoice # or vendor"
+            value={searchTerm}
+            onChange={setSearchTerm}
+          />
+        </Box>
       </Box>
+      <Typography sx={{ mb: 2, fontSize: 12, color: (theme) => theme.palette.text.secondary }}>
+        The status filter and search run across every vendor invoice, not just this page. The summary cards above
+        always cover all invoices in every status.
+      </Typography>
 
       {/* Invoices Table */}
       <DataTable
         columns={TABLE_COLUMNS}
-        shownCount={filteredInvoices.length}
-        totalCount={invoices.length}
+        shownCount={grid.shownCount}
+        totalCount={grid.totalCount}
+        page={grid.page}
+        hasNextPage={grid.hasNextPage}
+        onPrevPage={grid.onPrevPage}
+        onNextPage={grid.onNextPage}
+        loading={grid.loading}
+        emptyMessage="No invoices found matching the current filter."
       >
-        {filteredInvoices.map((invoice) => (
+        {invoices.map((invoice) => (
           <DataTableRow key={invoice.id} columns={TABLE_COLUMNS}>
             <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>
               {formatDisplayDate(invoice.createdAt || invoice.invoiceDate)}

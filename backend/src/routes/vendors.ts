@@ -7,6 +7,10 @@ import { pipeline } from 'stream/promises';
 import { getPool } from '../config/database.js';
 import { requireAuth, requireRole } from '../plugins/auth.js';
 import { PDFService } from '../services/PDFService.js';
+import { ObjectStorage } from '../services/ObjectStorage.js';
+import { maybePaginate, paginatedResponse } from '../utils/pagination.js';
+import { httpError } from '../utils/httpError.js';
+import type { RowDataPacket, ResultSetHeader } from 'mysql2/promise';
 
 /** Validate file content by checking magic bytes against expected MIME type. */
 function validateMagicBytes(filePath: string, declaredMime: string): boolean {
@@ -61,10 +65,10 @@ const resendSchema = z.object({
 });
 
 async function getVendorIdForUser(pool: mysql.Pool, userId: number): Promise<{ vendorId: number; email: string }> {
-  const [userRows] = await pool.query<any[]>('SELECT email FROM users WHERE id = ?', [userId]);
+  const [userRows] = await pool.query<RowDataPacket[]>('SELECT email FROM users WHERE id = ?', [userId]);
   if (userRows.length === 0) throw { statusCode: 404, message: 'User not found' };
   const email = userRows[0].email;
-  const [vendorRows] = await pool.query<any[]>('SELECT id FROM vendors WHERE contact_email = ?', [email]);
+  const [vendorRows] = await pool.query<RowDataPacket[]>('SELECT id FROM vendors WHERE contact_email = ?', [email]);
   if (vendorRows.length === 0) throw { statusCode: 404, message: 'Vendor not found' };
   return { vendorId: vendorRows[0].id, email };
 }
@@ -74,21 +78,25 @@ export async function vendorRoutes(app: FastifyInstance) {
   const vendorRole = [requireRole('vendor')];
 
   // ===== Vendor list (for dropdowns) =====
-  app.get('/vendors', { preHandler: [requireAuth] }, async () => {
-    const [rows] = await pool.query<any[]>(
-      'SELECT id, name as vendor_name, vendor_type FROM vendors WHERE is_active = true ORDER BY name'
+  app.get('/vendors', { preHandler: [requireAuth] }, async (request) => {
+    const result = await maybePaginate(
+      'SELECT id, name as vendor_name, vendor_type FROM vendors WHERE is_active = true ORDER BY name',
+      'SELECT COUNT(*) as count FROM vendors WHERE is_active = true',
+      [],
+      request.query as Record<string, string>,
     );
-    return { success: true, data: rows };
+    return paginatedResponse(result);
   });
 
   // ===== Profile =====
   app.get('/profile', { preHandler: vendorRole }, async (request, reply) => {
     try {
       const { email } = await getVendorIdForUser(pool, request.userId);
-      const [rows] = await pool.query<any[]>('SELECT * FROM vendors WHERE contact_email = ?', [email]);
+      const [rows] = await pool.query<RowDataPacket[]>('SELECT * FROM vendors WHERE contact_email = ?', [email]);
       return { success: true, data: rows[0] };
-    } catch (err: any) {
-      return reply.status(err.statusCode ?? 500).send({ error: err.message });
+    } catch (err) {
+      const { statusCode, message } = httpError(err);
+      return reply.status(statusCode).send({ error: message });
     }
   });
 
@@ -106,8 +114,9 @@ export async function vendorRoutes(app: FastifyInstance) {
          data.address_province ?? null, data.address_postal_code ?? null, data.vendor_type ?? null, email]
       );
       return { success: true, message: 'Profile updated successfully' };
-    } catch (err: any) {
-      return reply.status(err.statusCode ?? 500).send({ error: err.message });
+    } catch (err) {
+      const { statusCode, message } = httpError(err);
+      return reply.status(statusCode).send({ error: message });
     }
   });
 
@@ -116,10 +125,10 @@ export async function vendorRoutes(app: FastifyInstance) {
     try {
       const { vendorId } = await getVendorIdForUser(pool, request.userId);
       const [[pending], [total], [paid], [avg]] = await Promise.all([
-        pool.query<any[]>(`SELECT COUNT(*) as count FROM vendor_invoices WHERE vendor_id = ? AND status = 'submitted'`, [vendorId]),
-        pool.query<any[]>('SELECT COUNT(*) as count FROM vendor_invoices WHERE vendor_id = ?', [vendorId]),
-        pool.query<any[]>(`SELECT COALESCE(SUM(amount), 0) as total FROM vendor_invoices WHERE vendor_id = ? AND status = 'paid'`, [vendorId]),
-        pool.query<any[]>(`SELECT COALESCE(AVG(DATEDIFF(payment_date, created_at)), 0) as avg_days FROM vendor_invoices WHERE vendor_id = ? AND status = 'paid' AND payment_date IS NOT NULL`, [vendorId]),
+        pool.query<RowDataPacket[]>(`SELECT COUNT(*) as count FROM vendor_invoices WHERE vendor_id = ? AND status = 'submitted'`, [vendorId]),
+        pool.query<RowDataPacket[]>('SELECT COUNT(*) as count FROM vendor_invoices WHERE vendor_id = ?', [vendorId]),
+        pool.query<RowDataPacket[]>(`SELECT COALESCE(SUM(amount), 0) as total FROM vendor_invoices WHERE vendor_id = ? AND status = 'paid'`, [vendorId]),
+        pool.query<RowDataPacket[]>(`SELECT COALESCE(AVG(DATEDIFF(payment_date, created_at)), 0) as avg_days FROM vendor_invoices WHERE vendor_id = ? AND status = 'paid' AND payment_date IS NOT NULL`, [vendorId]),
       ]);
       return {
         success: true,
@@ -130,8 +139,9 @@ export async function vendorRoutes(app: FastifyInstance) {
           averagePaymentTime: Math.round(Number(avg[0]?.avg_days ?? 0)),
         },
       };
-    } catch (err: any) {
-      return reply.status(err.statusCode ?? 500).send({ error: err.message });
+    } catch (err) {
+      const { statusCode, message } = httpError(err);
+      return reply.status(statusCode).send({ error: message });
     }
   });
 
@@ -146,18 +156,23 @@ export async function vendorRoutes(app: FastifyInstance) {
       if (status) { where += ' AND vi.status = ?'; params.push(status); }
       if (search) { where += ' AND (vi.invoice_number LIKE ? OR vi.description LIKE ?)'; params.push(`%${search}%`, `%${search}%`); }
 
-      const [rows] = await pool.query<any[]>(
+      const result = await maybePaginate(
         `SELECT vi.*, v.name as company, v.name as billing_company,
                 COALESCE(vi.rate, 0) as rate, COALESCE(vi.amount, 0) as amount,
                 COALESCE(vi.amount, 0) as subtotal, COALESCE(vi.hst, 0) as hst,
                 COALESCE(vi.total, vi.amount) as total
          FROM vendor_invoices vi LEFT JOIN vendors v ON vi.vendor_id = v.id
          ${where} ORDER BY vi.created_at DESC`,
-        params
+        `SELECT COUNT(*) as count
+         FROM vendor_invoices vi LEFT JOIN vendors v ON vi.vendor_id = v.id
+         ${where}`,
+        params,
+        request.query as Record<string, string>,
       );
-      return { success: true, data: rows };
-    } catch (err: any) {
-      return reply.status(err.statusCode ?? 500).send({ error: err.message });
+      return paginatedResponse(result);
+    } catch (err) {
+      const { statusCode, message } = httpError(err);
+      return reply.status(statusCode).send({ error: message });
     }
   });
 
@@ -194,6 +209,14 @@ export async function vendorRoutes(app: FastifyInstance) {
               pdfFilename = null;
               return reply.status(400).send({ error: 'File content does not match declared type. Upload a valid PDF or HTML file.' });
             }
+
+            // Mirror offsite right away when object storage is configured, so an upload
+            // is not exposed to a server loss until the nightly backup runs (audit S2).
+            // Local disk stays the serving path. Fire-and-forget: ObjectStorage.put()
+            // handles its own errors and never rejects, and the nightly job is the backstop.
+            if (ObjectStorage.isConfigured()) {
+              void ObjectStorage.put(`vendor-invoices/${pdfFilename}`, readFileSync(fullPath), part.mimetype);
+            }
           } else {
             fields[part.fieldname] = part.value as string;
           }
@@ -216,14 +239,14 @@ export async function vendorRoutes(app: FastifyInstance) {
       let targetVendorId = vendorId;
       // A vendor may only file invoices for itself; staff roles may override the vendor.
       if (data.detected_vendor_id && request.userRole !== 'vendor') {
-        const [detected] = await pool.query<any[]>('SELECT id FROM vendors WHERE id = ? AND is_active = true', [data.detected_vendor_id]);
+        const [detected] = await pool.query<RowDataPacket[]>('SELECT id FROM vendors WHERE id = ? AND is_active = true', [data.detected_vendor_id]);
         if (detected.length > 0) targetVendorId = detected[0].id;
       }
 
       const subtotal = data.subtotal ?? data.amount;
       const total = data.total ?? data.amount;
 
-      const [result] = await pool.query<any>(
+      const [result] = await pool.query<ResultSetHeader>(
         `INSERT INTO vendor_invoices (
            vendor_id, invoice_number, amount, description, invoice_date, due_date,
            manual_type, quantity, pdf_filename, status, rate, subtotal, hst, total, submitted_by, submitted_at
@@ -234,8 +257,9 @@ export async function vendorRoutes(app: FastifyInstance) {
       );
 
       return { success: true, message: 'Invoice submitted successfully', invoice_id: result.insertId };
-    } catch (err: any) {
-      return reply.status(err.statusCode ?? 500).send({ error: err.message });
+    } catch (err) {
+      const { statusCode, message } = httpError(err);
+      return reply.status(statusCode).send({ error: message });
     }
   });
 
@@ -243,7 +267,7 @@ export async function vendorRoutes(app: FastifyInstance) {
   app.get('/invoices/:id', { preHandler: vendorRole }, async (request, reply) => {
     const { id } = request.params as { id: string };
     const { vendorId } = await getVendorIdForUser(pool, request.userId);
-    const [rows] = await pool.query<any[]>(
+    const [rows] = await pool.query<RowDataPacket[]>(
       `SELECT vi.*, v.name as company, v.name as billing_company,
               COALESCE(vi.rate, 0) as rate, COALESCE(vi.amount, 0) as amount,
               COALESCE(vi.amount, 0) as subtotal, COALESCE(vi.hst, 0) as hst,
@@ -267,7 +291,7 @@ export async function vendorRoutes(app: FastifyInstance) {
   app.get('/invoices/:id/details', { preHandler: vendorRole }, async (request, reply) => {
     const { id } = request.params as { id: string };
     const { vendorId } = await getVendorIdForUser(pool, request.userId);
-    const [invoiceRows] = await pool.query<any[]>(
+    const [invoiceRows] = await pool.query<RowDataPacket[]>(
       `SELECT vi.*, v.name as company, COALESCE(vi.rate, 0) as rate,
               COALESCE(payments.total_paid, 0) as total_paid,
               (COALESCE(vi.total, vi.amount) - COALESCE(payments.total_paid, 0)) as balance_due
@@ -279,7 +303,7 @@ export async function vendorRoutes(app: FastifyInstance) {
     );
     if (invoiceRows.length === 0) return reply.status(404).send({ error: 'Invoice not found' });
 
-    const [paymentRows] = await pool.query<any[]>(
+    const [paymentRows] = await pool.query<RowDataPacket[]>(
       `SELECT vp.*, u_processed.username as processed_by_name
        FROM vendor_payments vp LEFT JOIN users u_processed ON vp.processed_by = u_processed.id
        WHERE vp.vendor_invoice_id = ? ORDER BY vp.payment_date DESC`,
@@ -292,7 +316,7 @@ export async function vendorRoutes(app: FastifyInstance) {
   app.post('/invoices/:id/submit-to-admin', { preHandler: vendorRole }, async (request, reply) => {
     const { id } = request.params as { id: string };
     const { vendorId } = await getVendorIdForUser(pool, request.userId);
-    const [result] = await pool.query<any>(
+    const [result] = await pool.query<ResultSetHeader>(
       `UPDATE vendor_invoices SET status = 'submitted_to_admin', updated_at = CURRENT_TIMESTAMP
        WHERE id = ? AND vendor_id = ? AND status = 'pending_submission'`,
       [id, vendorId]
@@ -306,7 +330,7 @@ export async function vendorRoutes(app: FastifyInstance) {
     const { id } = request.params as { id: string };
     const staffRoles = ['admin', 'sysadmin', 'accountant'];
 
-    const [rows] = await pool.query<any[]>(
+    const [rows] = await pool.query<RowDataPacket[]>(
       `SELECT vi.*, v.name as company, v.name as billing_company,
               v.contact_email as vendor_email,
               COALESCE(vi.rate, 0) as rate, COALESCE(vi.amount, 0) as amount,
@@ -322,7 +346,7 @@ export async function vendorRoutes(app: FastifyInstance) {
 
     // Authorization: staff can see any invoice, vendors only their own
     if (!staffRoles.includes(request.userRole || '')) {
-      const [userRows] = await pool.query<any[]>('SELECT email FROM users WHERE id = ?', [request.userId]);
+      const [userRows] = await pool.query<RowDataPacket[]>('SELECT email FROM users WHERE id = ?', [request.userId]);
       if (userRows.length === 0) return reply.status(404).send({ error: 'User not found' });
       if (invoice.vendor_email !== userRows[0].email) {
         return reply.status(403).send({ error: 'You can only download your own invoices' });
@@ -357,7 +381,7 @@ export async function vendorRoutes(app: FastifyInstance) {
     const { id } = request.params as { id: string };
     const { vendorId } = await getVendorIdForUser(pool, request.userId);
     const { notes } = resendSchema.parse(request.body);
-    const [result] = await pool.query<any>(
+    const [result] = await pool.query<ResultSetHeader>(
       `UPDATE vendor_invoices SET status = 'submitted_to_admin', admin_notes = ?,
        rejection_reason = NULL, rejected_at = NULL, rejected_by = NULL, updated_at = CURRENT_TIMESTAMP
        WHERE id = ? AND vendor_id = ? AND status IN ('rejected_by_admin', 'rejected_by_accountant')`,

@@ -35,49 +35,54 @@ const shouldSuppress = (message: string) => {
 };
 
 const logger = {
-  debug: (...args: any[]) => {
+  debug: (...args: unknown[]) => {
     if (isDevelopment && !shouldSuppress(args.join(' '))) {
       console.debug('[DEBUG]', ...args);
     }
   },
 
-  info: (...args: any[]) => {
+  info: (...args: unknown[]) => {
     if (isDevelopment && !shouldSuppress(args.join(' '))) {
       console.info('[INFO]', ...args);
     }
   },
 
-  warn: (...args: any[]) => {
+  warn: (...args: unknown[]) => {
     if (!shouldSuppress(args.join(' '))) {
       console.warn('[WARN]', ...args);
     }
   },
 
-  error: (...args: any[]) => {
+  error: (...args: unknown[]) => {
     if (!shouldSuppress(args.join(' '))) {
       console.error('[ERROR]', ...args);
     }
   },
 
   // Format error objects for better logging
-  formatError: (error: any) => {
-    if (error.response) {
+  formatError: (error: unknown) => {
+    const err = error as {
+      response?: { status?: unknown; data?: unknown; headers?: unknown };
+      request?: unknown;
+      message?: unknown;
+    };
+    if (err.response) {
       // The request was made and the server responded with a status code
       // that falls out of the range of 2xx
       return {
-        status: error.response.status,
-        data: error.response.data,
-        headers: error.response.headers,
+        status: err.response.status,
+        data: err.response.data,
+        headers: err.response.headers,
       };
-    } else if (error.request) {
+    } else if (err.request) {
       // The request was made but no response was received
       return {
-        request: error.request,
+        request: err.request,
       };
     } else {
       // Something happened in setting up the request that triggered an Error
       return {
-        message: error.message,
+        message: err.message,
       };
     }
   },

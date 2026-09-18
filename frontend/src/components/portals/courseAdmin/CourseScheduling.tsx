@@ -67,12 +67,12 @@ const CourseScheduling = () => {
   });
 
   const uniqueInstructors = useMemo((): string[] => {
-    const instructors = courses.map((c: Record<string, unknown>) => c.instructorName as string).filter((n: any): n is string => !!n && n !== 'Not Assigned');
+    const instructors = courses.map((c: Record<string, unknown>) => c.instructorName as string).filter((n: string | undefined): n is string => !!n && n !== 'Not Assigned');
     return Array.from(new Set<string>(instructors)).sort();
   }, [courses]);
 
   const uniqueOrganizations = useMemo((): string[] => {
-    const orgs = courses.map((c: Record<string, unknown>) => c.organizationName as string).filter((n: any): n is string => !!n);
+    const orgs = courses.map((c: Record<string, unknown>) => c.organizationName as string).filter((n: string | undefined): n is string => !!n);
     return Array.from(new Set<string>(orgs)).sort();
   }, [courses]);
 

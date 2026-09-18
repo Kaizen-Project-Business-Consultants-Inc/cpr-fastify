@@ -134,7 +134,7 @@ class AnalyticsService {
    * });
    * ```
    */
-  setUser(userId: string | number, properties?: Record<string, unknown>) {
+  setUser(userId: string | number, _properties?: Record<string, unknown>) {
     this.userId = userId;
 
     if (this.isEnabled) {
@@ -279,7 +279,7 @@ class AnalyticsService {
   /**
    * Track performance metrics
    */
-  trackPerformance(metric: PerformanceMetric) {
+  trackPerformance(_metric: PerformanceMetric) {
     if (this.isEnabled) {
 
       // TODO: Send to performance monitoring service

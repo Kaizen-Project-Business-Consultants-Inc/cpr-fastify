@@ -2,8 +2,9 @@ import { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { getPool } from '../config/database.js';
 import { requireAuth } from '../plugins/auth.js';
+import type { RowDataPacket, ResultSetHeader } from 'mysql2/promise';
 
-const validNotificationTypes = [
+const validNotificationTypes: readonly string[] = [
   'payment_submitted',
   'timesheet_submitted',
   'invoice_status_change',
@@ -30,7 +31,7 @@ export async function notificationRoutes(app: FastifyInstance) {
     const params: unknown[] = [request.userId];
     if (unread_only === 'true') { where += ' AND is_read = false'; }
 
-    const [rows] = await pool.query<any[]>(
+    const [rows] = await pool.query<RowDataPacket[]>(
       `SELECT * FROM notifications ${where} ORDER BY created_at DESC LIMIT ? OFFSET ?`,
       [...params, parseInt(limit), parseInt(offset)]
     );
@@ -39,7 +40,7 @@ export async function notificationRoutes(app: FastifyInstance) {
 
   // Get unread count
   app.get('/unread-count', { preHandler: [requireAuth] }, async (request) => {
-    const [rows] = await pool.query<any[]>(
+    const [rows] = await pool.query<RowDataPacket[]>(
       'SELECT COUNT(*) as count FROM notifications WHERE user_id = ? AND is_read = false',
       [request.userId]
     );
@@ -49,7 +50,7 @@ export async function notificationRoutes(app: FastifyInstance) {
   // Mark notification as read
   app.post('/:id/read', { preHandler: [requireAuth] }, async (request, reply) => {
     const { id } = request.params as { id: string };
-    const [result] = await pool.query<any>(
+    const [result] = await pool.query<ResultSetHeader>(
       'UPDATE notifications SET is_read = true WHERE id = ? AND user_id = ?',
       [id, request.userId]
     );
@@ -59,7 +60,7 @@ export async function notificationRoutes(app: FastifyInstance) {
 
   // Mark all as read
   app.post('/mark-all-read', { preHandler: [requireAuth] }, async (request) => {
-    const [result] = await pool.query<any>(
+    const [result] = await pool.query<ResultSetHeader>(
       'UPDATE notifications SET is_read = true WHERE user_id = ? AND is_read = false',
       [request.userId]
     );
@@ -69,7 +70,7 @@ export async function notificationRoutes(app: FastifyInstance) {
   // Delete notification
   app.delete('/:id', { preHandler: [requireAuth] }, async (request, reply) => {
     const { id } = request.params as { id: string };
-    const [result] = await pool.query<any>(
+    const [result] = await pool.query<ResultSetHeader>(
       'DELETE FROM notifications WHERE id = ? AND user_id = ?',
       [id, request.userId]
     );
@@ -79,7 +80,7 @@ export async function notificationRoutes(app: FastifyInstance) {
 
   // Get notification preferences
   app.get('/preferences', { preHandler: [requireAuth] }, async (request) => {
-    const [rows] = await pool.query<any[]>(
+    const [rows] = await pool.query<RowDataPacket[]>(
       'SELECT * FROM notification_preferences WHERE user_id = ?',
       [request.userId]
     );
@@ -89,12 +90,12 @@ export async function notificationRoutes(app: FastifyInstance) {
   // Update notification preferences
   app.put('/preferences/:type', { preHandler: [requireAuth] }, async (request, reply) => {
     const { type } = request.params as { type: string };
-    if (!validNotificationTypes.includes(type as any)) {
+    if (!validNotificationTypes.includes(type)) {
       return reply.status(400).send({ error: 'Invalid notification type' });
     }
 
     const data = updatePreferenceSchema.parse(request.body);
-    const [existing] = await pool.query<any[]>(
+    const [existing] = await pool.query<RowDataPacket[]>(
       'SELECT id FROM notification_preferences WHERE user_id = ? AND notification_type = ?',
       [request.userId, type]
     );
@@ -118,7 +119,7 @@ export async function notificationRoutes(app: FastifyInstance) {
       );
     }
 
-    const [rows] = await pool.query<any[]>(
+    const [rows] = await pool.query<RowDataPacket[]>(
       'SELECT * FROM notification_preferences WHERE user_id = ? AND notification_type = ?',
       [request.userId, type]
     );

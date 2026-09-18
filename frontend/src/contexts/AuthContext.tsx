@@ -2,7 +2,6 @@ import React, { createContext, useContext, useState, useEffect, useCallback, use
 import { useNavigate, useLocation } from 'react-router-dom';
 import { authService } from '../services/authService';
 import { tokenService } from '../services/tokenService';
-import api from '../services/api';
 
 const isDev = import.meta.env.DEV;
 // eslint-disable-next-line no-console
@@ -87,7 +86,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const location = useLocation();
 
   // Enhanced token validation on page load - LESS AGGRESSIVE
-  const validateTokenOnPageLoad = async (): Promise<TokenValidationResult> => {
+  const validateTokenOnPageLoad = useCallback(async (): Promise<TokenValidationResult> => {
     log('[TOKEN VALIDATION] Starting page load token validation');
     
     try {
@@ -203,21 +202,21 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         requiresReauth: false
       };
 
-    } catch (err: any) {
+    } catch (err) {
       log('[TOKEN VALIDATION] Validation error:', err);
-      
+
       const errorMessage = err instanceof Error ? err.message : 'Token validation failed';
       const isAuthError = errorMessage.includes('401') || errorMessage.includes('403');
-      
+
       return {
         isValid: false,
         requiresReauth: isAuthError,
         error: errorMessage
       };
     }
-  };
+  }, [user, justLoggedIn, location]);
 
-  const checkAuth = async () => {
+  const checkAuth = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
@@ -251,12 +250,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
       
       log('[TRACE] Auth check - Authentication successful');
-    } catch (err: any) {
+    } catch (err) {
       log('[TRACE] Auth check - Unexpected error:', err);
       setError(err instanceof Error ? err.message : 'Authentication failed');
       setUser(null);
       setSessionStatus(null);
-      
+
       // Clear tokens on any unexpected error
       tokenService.clearTokens();
       tokenService.clearSavedLocation();
@@ -264,9 +263,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } finally {
       setLoading(false);
     }
-  };
+  }, [validateTokenOnPageLoad]);
 
-  const refreshSession = async () => {
+  const refreshSession = useCallback(async () => {
     try {
       log('[TRACE] Auth context - Refreshing session');
       await authService.refreshToken();
@@ -276,18 +275,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setSessionStatus(status);
 
       log('[TRACE] Auth context - Session refreshed successfully');
-    } catch (err: any) {
+    } catch (err) {
       log('[TRACE] Auth context - Session refresh failed:', err);
       setError(err instanceof Error ? err.message : 'Session refresh failed');
       // Don't clear user here, let the next API call handle it
     }
-  };
+  }, []);
 
-  const register = async (username: string, email: string, password: string): Promise<void> => {
+  const register = useCallback(async (_username: string, _email: string, _password: string): Promise<void> => {
     // Registration is not currently implemented
     // This stub exists for type compatibility with the Register page
     throw new Error('Registration is not currently available. Please contact your administrator for account setup.');
-  };
+  }, []);
 
   // Monitor session status
   useEffect(() => {
@@ -308,11 +307,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return () => clearInterval(interval);
   }, [user]);
 
-  // Enhanced page load validation — runs once on mount
-   
+  // Enhanced page load validation — runs once on mount.
+  // Intentionally NOT depending on `checkAuth` (which is recreated whenever
+  // user/justLoggedIn/location change via validateTokenOnPageLoad): this
+  // bootstrap check must run exactly once, not whenever those change.
   useEffect(() => {
     log('[TRACE] Auth context - Initial page load validation');
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional one-time auth bootstrap fetch on mount, not derived state
     checkAuth();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Handle location restoration after successful authentication
@@ -393,7 +396,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, [user, loading, navigate]);
 
-  const login = async (username: string, password: string) => {
+  const login = useCallback(async (username: string, password: string) => {
     log('[DEEP TRACE] AuthContext.login - Starting login process:', {
       username,
       timestamp: new Date().toISOString()
@@ -446,7 +449,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       sessionStorage.setItem('from_auth_flow', 'true');
       navigate(targetRoute);
       log('[DEEP TRACE] AuthContext.login - Navigation completed');
-    } catch (err: any) {
+    } catch (err) {
       log('[DEEP TRACE] AuthContext.login - Error occurred:', {
         error: err,
         message: err instanceof Error ? err.message : 'Unknown error',
@@ -458,9 +461,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setLoading(false);
       log('[DEEP TRACE] AuthContext.login - Login process completed');
     }
-  };
+  }, [navigate]);
 
-  const logout = async () => {
+  const logout = useCallback(async () => {
     try {
       setLoading(true);
       await authService.logout();
@@ -471,12 +474,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       tokenService.clearSavedLocation();
       sessionStorage.removeItem('location_restoration_attempted');
       navigate('/login');
-    } catch (err: any) {
+    } catch (err) {
       setError(err instanceof Error ? err.message : 'Logout failed');
     } finally {
       setLoading(false);
     }
-  };
+  }, [navigate]);
 
   const isAuthenticated = !!user && !!tokenService.getAccessToken();
 

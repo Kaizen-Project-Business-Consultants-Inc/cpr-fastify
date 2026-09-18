@@ -71,8 +71,11 @@ const PaymentHistory: React.FC = () => {
     }
   };
 
+  // Fetch on mount only (page changes are handled explicitly via handlePageChange).
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     loadPayments();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const handlePageChange = (_event: React.ChangeEvent<unknown>, page: number) => {

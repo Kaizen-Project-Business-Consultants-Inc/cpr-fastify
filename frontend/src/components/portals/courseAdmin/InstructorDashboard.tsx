@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Box,
   Card,
@@ -32,6 +32,7 @@ import {
 } from '@mui/icons-material';
 import { fetchCourseAdminDashboardData } from '../../../services/api';
 import { toLocalDateString, formatDisplayDate } from '../../../utils/formatters';
+import { getErrorMessage } from '../../../utils/errorMessage';
 
 /** "YYYY-MM" for a Date in local time (no UTC shift). */
 const toLocalMonthString = (d: Date) => toLocalDateString(d).slice(0, 7);
@@ -66,24 +67,24 @@ const InstructorDashboard: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    fetchDashboardData();
-  }, [selectedMonth]);
-
-  const fetchDashboardData = async () => {
+  const fetchDashboardData = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
       const data = await fetchCourseAdminDashboardData(selectedMonth);
       setInstructorStats(Array.isArray(data.instructorStats) ? data.instructorStats : []);
       setDashboardSummary(data.dashboardSummary as unknown as DashboardSummary);
-    } catch (err: any) {
-      setError('Failed to fetch dashboard data');
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, 'Failed to fetch dashboard data'));
       console.error('Dashboard fetch error:', err);
     } finally {
       setLoading(false);
     }
-  };
+  }, [selectedMonth]);
+
+  useEffect(() => {
+    fetchDashboardData();
+  }, [fetchDashboardData]);
 
   const getStatusColor = (completionRate: number) => {
     if (completionRate >= 80) return 'success';
@@ -91,7 +92,7 @@ const InstructorDashboard: React.FC = () => {
     return 'error';
   };
 
-  const getWorkloadStatus = (totalCourses: number, avgCourses: number) => {
+  const getWorkloadStatus = (totalCourses: number, avgCourses: number): { status: string; color: 'error' | 'success' | 'warning' } => {
     const ratio = totalCourses / avgCourses;
     if (ratio > 1.2) return { status: 'High', color: 'error' };
     if (ratio > 0.8) return { status: 'Normal', color: 'success' };
@@ -389,7 +390,7 @@ const InstructorDashboard: React.FC = () => {
                       <TableCell align='center'>
                         <Chip
                           label={workloadStatus.status}
-                          color={workloadStatus.color as any}
+                          color={workloadStatus.color}
                           size='small'
                           variant='outlined'
                         />

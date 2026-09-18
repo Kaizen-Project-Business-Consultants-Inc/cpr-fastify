@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React from 'react';
 import {
   Box,
   Typography,
@@ -17,11 +17,9 @@ import {
   useTodayClasses,
   useRefreshInstructorData
 } from '../../services/instructorService';
-import { useQueryClient } from '@tanstack/react-query';
 import WelcomeHeader from './WelcomeHeader';
 import TodayClassesList from './TodayClassesList';
 import QuickActionsGrid from './QuickActionsGrid';
-import { handleError } from '../../services/errorHandler';
 
 interface InstructorClass {
   id: number;
@@ -29,21 +27,6 @@ interface InstructorClass {
   date: string;
   studentcount?: number;
   [key: string]: unknown;
-}
-
-interface DashboardData {
-  instructorStats: {
-    totalCourses: number;
-    completedCourses: number;
-    scheduledCourses: number;
-    cancelledCourses: number;
-  };
-  dashboardSummary: {
-    totalCourses: number;
-    completedCourses: number;
-    scheduledCourses: number;
-    cancelledCourses: number;
-  };
 }
 
 interface ErrorWithDetails {
@@ -61,46 +44,17 @@ const InstructorDashboard: React.FC = () => {
   const { data: availableDates = [], isLoading: availabilityLoading, error: availabilityError } = useInstructorAvailability();
   const { data: todayClasses = [], isLoading: todayLoading, error: todayError } = useTodayClasses();
   const refreshData = useRefreshInstructorData();
-  const queryClient = useQueryClient();
-
-  const [dashboardData, setDashboardData] = useState<DashboardData | null>(null);
-  const [errorState, setErrorState] = useState<string | null>(null);
-  const [forceRefresh, setForceRefresh] = useState(0);
 
   // Combine loading states
   const loading = classesLoading || completedLoading || availabilityLoading || todayLoading;
-  const error = classesError || completedError || availabilityError || todayError || errorState;
+  const error = classesError || completedError || availabilityError || todayError;
 
-  useEffect(() => {
-    const loadDashboardData = async () => {
-      try {
-        // Calculate statistics from the data we already have
-        const scheduled = scheduledClasses as InstructorClass[];
-        const completed = completedClasses as InstructorClass[];
-        const stats = {
-          totalCourses: scheduled.length + completed.length,
-          scheduledCourses: scheduled.length,
-          completedCourses: completed.length,
-          cancelledCourses: 0 // We'll need to get this from API if needed
-        };
-
-        setDashboardData({
-          instructorStats: stats,
-          dashboardSummary: stats
-        });
-      } catch (err: any) {
-        handleError(err, { component: 'InstructorDashboard', action: 'process dashboard data' });
-        setErrorState(err instanceof Error ? err.message : 'Failed to process dashboard data.');
-      }
-    };
-
-    // Clear dashboard data first
-    setDashboardData(null);
-    
-    if (scheduledClasses && completedClasses) {
-      loadDashboardData();
-    }
-  }, [scheduledClasses, completedClasses]);
+  // NOTE: there used to be a useEffect here that derived a `dashboardData` object from
+  // the query results. It set state on every run and depended on `scheduledClasses` /
+  // `completedClasses`, whose `= []` defaults are a NEW array identity on every render
+  // while the queries are pending — so it re-ran, set state, re-rendered, and looped.
+  // The value it produced was never read, so it is gone. Anything derived from the
+  // query data is computed during render below.
 
   // Calculate additional statistics
   const classesArray = scheduledClasses as InstructorClass[];
@@ -155,23 +109,12 @@ const InstructorDashboard: React.FC = () => {
       
       {/* Force Refresh Button */}
       <Box sx={{ mb: 2, display: 'flex', justifyContent: 'flex-end' }}>
-        <GhostButton
-          onClick={() => {
-            queryClient.clear();
-            setDashboardData(null);
-            setForceRefresh(prev => prev + 1);
-            refreshData();
-          }}
-        >
+        {/* refreshData() invalidates the instructor queries. It used to call
+            queryClient.clear() as well, which wiped the whole cache including auth. */}
+        <GhostButton onClick={() => refreshData()}>
           Refresh
         </GhostButton>
       </Box>
-      
-      {errorState && (
-        <Box sx={{ mb: 4 }}>
-          <Typography color="error" component="div">{errorState}</Typography>
-        </Box>
-      )}
 
       {/* Quick Stats */}
       <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'repeat(2, 1fr)', md: 'repeat(4, 1fr)' }, gap: '16px', mb: 4 }}>

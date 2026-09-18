@@ -22,6 +22,20 @@ import DataTable, { DataTableRow } from '../gtacpr/DataTable';
 import StatusChip from '../gtacpr/StatusChip';
 import { PrimaryButton, GhostButton } from '../gtacpr/Buttons';
 
+interface ReversalPayment {
+  payment_id: number;
+  invoice_number: string;
+  organization_name: string;
+  amount: number;
+  payment_date: string;
+  verified_by_accounting_at: string;
+  status: string;
+  payment_method: string;
+  reference_number?: string;
+  contact_email?: string;
+  notes?: string;
+}
+
 const columns = [
   { key: 'id', label: 'PAYMENT ID', width: '0.5fr' },
   { key: 'invoice', label: 'INVOICE', width: '0.8fr' },
@@ -35,7 +49,7 @@ const columns = [
 ];
 
 const PaymentReversalView = () => {
-  const [selectedPayment, setSelectedPayment] = useState<any>(null);
+  const [selectedPayment, setSelectedPayment] = useState<ReversalPayment | null>(null);
   const [reversalDialogOpen, setReversalDialogOpen] = useState(false);
   const [viewDetailsDialogOpen, setViewDetailsDialogOpen] = useState(false);
   const [reversalReason, setReversalReason] = useState('');
@@ -44,7 +58,7 @@ const PaymentReversalView = () => {
   const [filterStatus, setFilterStatus] = useState('verified');
   const queryClient = useQueryClient();
 
-  const { data: paymentsData, isLoading, refetch } = useQuery({
+  const { data: paymentsData, isLoading, refetch } = useQuery<{ payments: ReversalPayment[] }>({
     queryKey: ['verified-payments-for-reversal', filterStatus],
     queryFn: async () => {
       const response = await api.get('/accounting/verified-payments', { params: { status: filterStatus } });
@@ -71,17 +85,23 @@ const PaymentReversalView = () => {
     },
   });
 
-  const formatCurrency = (amount: any) => new Intl.NumberFormat('en-CA', { style: 'currency', currency: 'CAD' }).format(amount || 0);
-  const formatDate = (dateString: any) => dateString ? new Date(dateString).toLocaleDateString() : '-';
-  const formatDateTime = (dateString: any) => dateString ? new Date(dateString).toLocaleString() : '-';
+  const formatCurrency = (amount: number | undefined | null) => new Intl.NumberFormat('en-CA', { style: 'currency', currency: 'CAD' }).format(amount || 0);
+  const formatDate = (dateString: string | undefined | null) => dateString ? new Date(dateString).toLocaleDateString() : '-';
+  const formatDateTime = (dateString: string | undefined | null) => dateString ? new Date(dateString).toLocaleString() : '-';
 
-  const canReversePayment = (payment: any) => {
+  // Date.now() is impure to call during render, but these are pure display
+  // helpers invoked from JSX on every render; the "48h window" is inherently
+  // time-dependent, so we accept the react-hooks/purity warning here rather
+  // than restructure into a ticking interval (which would change behaviour).
+  const canReversePayment = (payment: ReversalPayment) => {
     if (payment.status !== 'verified') return false;
+    // eslint-disable-next-line react-hooks/purity -- see comment above
     const hours = (Date.now() - new Date(payment.verified_by_accounting_at).getTime()) / (1000 * 60 * 60);
     return hours <= 48;
   };
 
-  const getTimeRemaining = (payment: any) => {
+  const getTimeRemaining = (payment: ReversalPayment) => {
+    // eslint-disable-next-line react-hooks/purity -- see comment above canReversePayment
     const hours = Math.max(0, 48 - (Date.now() - new Date(payment.verified_by_accounting_at).getTime()) / (1000 * 60 * 60));
     if (hours <= 0) return 'Expired';
     if (hours < 1) return `${Math.round(hours * 60)} min`;
@@ -117,7 +137,7 @@ const PaymentReversalView = () => {
         </Box>
       ) : (
         <DataTable columns={columns} shownCount={payments.length} totalCount={payments.length}>
-          {payments.map((payment: any) => (
+          {payments.map((payment: ReversalPayment) => (
             <DataTableRow key={payment.payment_id} columns={columns}>
               <Typography sx={{ fontSize: 13, fontWeight: 600, color: (theme) => theme.palette.text.primary }}>{payment.payment_id}</Typography>
               <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>{payment.invoice_number}</Typography>

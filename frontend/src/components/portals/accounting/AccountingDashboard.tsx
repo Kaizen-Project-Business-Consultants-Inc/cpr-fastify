@@ -12,6 +12,7 @@ import StatCard from '../../gtacpr/StatCard';
 import { PrimaryButton, GhostButton } from '../../gtacpr/Buttons';
 import LinkButton from '../../gtacpr/LinkButton';
 import { formatCurrency } from '../../../utils/formatters';
+import { getErrorMessage } from '../../../utils/errorMessage';
 
 interface DashboardData {
   totalBilled: number;
@@ -242,9 +243,9 @@ const AccountingDashboard: React.FC = () => {
         const data = (await fetchAccountingDashboardData()) as unknown as DashboardData;
         setDashboardData(data);
         setError(null);
-      } catch (err: any) {
+      } catch (err: unknown) {
         console.error('Error fetching dashboard data:', err);
-        setError('Failed to fetch dashboard data');
+        setError(getErrorMessage(err, 'Failed to fetch dashboard data'));
       } finally {
         setLoading(false);
       }

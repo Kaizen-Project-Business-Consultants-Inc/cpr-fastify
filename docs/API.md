@@ -5,7 +5,7 @@ _Generated from the route table by `npm run docs:api` (backend/scripts/generate-
 Base URL: `/api/v1` (except the two root-level health/metrics endpoints).
 Auth: send the access token as `Authorization: Bearer <token>`. Role guards are enforced per route (`requireRole`); see the route file for the exact roles.
 
-**263 endpoints across 28 groups.**
+**264 endpoints across 29 groups.**
 
 ## Accounting
 
@@ -101,6 +101,12 @@ College/institution management
 | PUT | `/colleges/{id}` | Bearer |  |
 | DELETE | `/colleges/{id}` | Bearer |  |
 | GET | `/colleges/all` | Bearer |  |
+
+## Config
+
+| Method | Path | Auth | Notes |
+|---|---|---|---|
+| GET | `/config` | No | Public client configuration (tax rate and label). No authentication required. |
 
 ## Course Types
 

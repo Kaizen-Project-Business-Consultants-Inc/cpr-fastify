@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Dialog,
   DialogTitle,
@@ -22,9 +22,8 @@ import {
 } from '@mui/material';
 import api, { getInvoiceDetails, postInvoiceToOrganization } from '../../services/api';
 import { useConfirm } from '../gtacpr';
-import { formatCurrencyOrDash as formatCurrency, applyTax } from '../../utils/formatters';
+import { applyTax } from '../../utils/formatters';
 import { tokenService } from '../../services/tokenService';
-import PostAddIcon from '@mui/icons-material/PostAdd';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import { CheckCircle as PresentIcon, Cancel as AbsentIcon, People as PeopleIcon } from '@mui/icons-material';
 import logger from '../../utils/logger';
@@ -99,7 +98,7 @@ const InvoiceDetailDialog = ({
   invoiceId,
   onActionSuccess,
   onActionError,
-  showPostToOrgButton = true, // New prop to control Post to Org button visibility
+  showPostToOrgButton: _showPostToOrgButton = true, // New prop to control Post to Org button visibility (kept for caller API compatibility)
   showApprovalActions = false, // New prop to show Approve/Reject buttons for pending approvals
   onApprove,
   onReject,
@@ -123,8 +122,7 @@ const InvoiceDetailDialog = ({
 
   const [paymentNotes, setPaymentNotes] = useState('');
   const [processingPayment, setProcessingPayment] = useState(false);
-  const [paymentMethod, setPaymentMethod] = useState('bank_transfer');
-  
+
   // Student list state
   const [students, setStudents] = useState<StudentRecord[]>([]);
   const [loadingStudents, setLoadingStudents] = useState(false);
@@ -138,9 +136,6 @@ const InvoiceDetailDialog = ({
   const [rejectionReason, setRejectionReason] = useState('');
   const [isApproving, setIsApproving] = useState(false);
   const [isRejecting, setIsRejecting] = useState(false);
-
-  // Ref to prevent multiple clicks
-  const isPostingRef = useRef(false);
 
   // Transform invoice data into service details format
   const getServiceDetails = (invoiceData: InvoiceData | null) => {
@@ -172,7 +167,7 @@ const InvoiceDetailDialog = ({
     try {
       const response = await api.get(`/courses/${courseId}/students`);
       setStudents(response.data.data || []);
-    } catch (error: any) {
+    } catch (error) {
       console.error('[InvoiceDetailDialog] Error fetching students:', error);
       setStudents([]);
     } finally {
@@ -198,7 +193,7 @@ const InvoiceDetailDialog = ({
         console.warn('Unexpected payment history response format:', response.data);
         setPaymentHistory([]);
       }
-    } catch (error: any) {
+    } catch (error) {
       console.error('Error fetching payment history:', error);
       setPaymentHistory([]);
     } finally {
@@ -294,38 +289,6 @@ const InvoiceDetailDialog = ({
       setLoadingStudents(false);
     }
   }, [open, invoiceId]);
-
-  const handlePostToOrganization = async () => {
-    if (!invoiceId || isPostingRef.current) return; // Prevent multiple clicks
-    isPostingRef.current = true;
-    logger.debug(
-      `[InvoiceDetailDialog] Posting invoice to organization: ${invoiceId}, isPostingToOrg: ${isPostingRef.current}`
-    );
-    try {
-      const response = await postInvoiceToOrganization(invoiceId);
-      if (response && response.success) {
-        const message = response.message || 'Invoice posted to organization and complete invoice PDF with attendance sent via email.';
-        if (onActionSuccess) onActionSuccess(message);
-        // Refresh invoice data to show updated status
-        const updatedInvoice = await getInvoiceDetails(invoiceId) as InvoiceData;
-        setInvoice(updatedInvoice);
-      } else {
-        const errorMsg = response?.message || 'Failed to post invoice to organization.';
-        throw new Error(errorMsg);
-      }
-    } catch (err: unknown) {
-      logger.error(`Error posting invoice to organization ${invoiceId}:`, err);
-      const errObj = err as { message?: string };
-      if (onActionError) onActionError(errObj?.message || 'Failed to post invoice to organization.');
-    } finally {
-      isPostingRef.current = false;
-    }
-  };
-
-  const handlePreview = () => {
-    logger.info('Generating invoice preview for:', invoice?.id);
-    // Add preview logic here
-  };
 
   const handleDownload = async () => {
     if (!invoice?.id) {

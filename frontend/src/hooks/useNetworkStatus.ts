@@ -19,6 +19,8 @@ export const useNetworkStatus = (): NetworkStatus => {
     // Check for slow connection
     const connection = (navigator as Navigator & { connection?: { effectiveType?: string } }).connection;
     if (connection) {
+      // Synchronizing with an external system (navigator.connection) on mount, not derived state.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setIsSlowConnection(connection.effectiveType === '2g' || connection.effectiveType === 'slow-2g');
     }
 

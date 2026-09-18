@@ -105,7 +105,11 @@ const PayRateManagement: React.FC = () => {
     finally { setLoading(false); }
   }, [pagination.page, pagination.limit, debouncedSearch, hasRateFilter]);
 
+  // Data fetch on mount / whenever the callback identity changes (i.e. its own deps
+  // changed) — the standard fetch-on-mount pattern, not state derived from render.
+  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { loadTiers(); }, [loadTiers]);
+  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { loadInstructors(); }, [loadInstructors]);
 
   const selectedNames = instructors.filter(i => selectedInstructors.includes(i.id)).map(i => i.username);
@@ -207,10 +211,6 @@ const PayRateManagement: React.FC = () => {
 
   const handleInstructorSelection = (id: number, checked: boolean) => {
     setSelectedInstructors(checked ? [...selectedInstructors, id] : selectedInstructors.filter(i => i !== id));
-  };
-
-  const handleSelectAll = (checked: boolean) => {
-    setSelectedInstructors(checked ? instructors.map(i => i.id) : []);
   };
 
   if (loading && instructors.length === 0) {

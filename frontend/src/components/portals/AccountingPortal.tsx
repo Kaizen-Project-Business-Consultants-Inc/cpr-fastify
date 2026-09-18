@@ -4,11 +4,10 @@ import {
   CircularProgress
 } from '@mui/material';
 import DataTable, { DataTableRow } from '../gtacpr/DataTable';
-import { PrimaryButton, GhostButton } from '../gtacpr/Buttons';
 import ErrorBoundary from '../common/ErrorBoundary';
 import { AdminShell, PortalNotFound, LinkButton } from '../gtacpr';
 import { formatCurrency, formatDisplayDate as formatDate } from '../../utils/formatters';
-import { useClientPagination } from '../../hooks/useClientPagination';
+import { getErrorMessage } from '../../utils/errorMessage';
 import AccountingDashboard from './accounting/AccountingDashboard';
 import PaymentRequestsDashboard from '../accounting/PaymentRequestsDashboard';
 import VendorInvoiceManagement from './accounting/VendorInvoiceManagement';
@@ -17,37 +16,48 @@ import FinancialSummaryView from '../accounting/FinancialSummaryView';
 
 import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
 
-import ReadyForBillingTable from '../tables/ReadyForBillingTable';
-import AccountsReceivableTable from '../tables/AccountsReceivableTable';
+import ReadyForBillingTable, { type BillingCourse } from '../tables/ReadyForBillingTable';
+import AccountsReceivableTable, { type ReceivableInvoice } from '../tables/AccountsReceivableTable';
 import TransactionHistoryView from '../views/TransactionHistoryView';
 import AgingReportView from '../views/AgingReportView';
 import PaymentVerificationView from '../views/PaymentVerificationView';
 import PaymentReversalView from '../views/PaymentReversalView';
 import InvoiceDetailDialog from '../dialogs/InvoiceDetailDialog';
-import RecordPaymentDialog from '../dialogs/RecordPaymentDialog';
+import RecordPaymentDialog, { type PaymentDialogInvoice } from '../dialogs/RecordPaymentDialog';
 import { getBillingQueue, createInvoice, getInvoices, getPendingApprovals, approveInvoice, rejectInvoice, getRejectedInvoices, resubmitInvoice } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
 import { useSnackbar } from '../../contexts/SnackbarContext';
 
-interface BillingQueueItem {
+// Row shapes rendered by a shared table are owned by that table; the portal
+// reuses their exported types rather than keeping a second, drifting copy.
+// The two views below render their rows inline, so they declare exactly the
+// fields their own JSX reads. Note the endpoints differ in casing:
+// /accounting/pending-approvals returns snake_case, /rejected returns camelCase.
+
+interface PendingApprovalInvoice {
   id: number;
-  course_type?: string;
+  invoice_number?: string;
   organization_name?: string;
-  students_attended?: number;
-  [key: string]: unknown;
+  course_type_name?: string;
+  invoice_date?: string;
+  base_cost?: string | number;
+  tax_amount?: string | number;
 }
 
-interface Invoice {
+interface RejectedInvoice {
   id: number;
-  balancedue?: string | number;
-  paymentstatus?: string;
-  approval_status?: string;
-  [key: string]: unknown;
+  invoiceNumber?: string;
+  organizationName?: string;
+  courseTypeName?: string;
+  baseCost?: string | number;
+  taxAmount?: string | number;
+  rejectedAt?: string;
+  rejectionReason?: string;
 }
 
 // Billing Ready View Component
 const ReadyForBillingView: React.FC = () => {
-  const [billingQueue, setBillingQueue] = useState<BillingQueueItem[]>([]);
+  const [billingQueue, setBillingQueue] = useState<BillingCourse[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
   const { showSuccess, showError } = useSnackbar();
@@ -59,7 +69,7 @@ const ReadyForBillingView: React.FC = () => {
         setError('');
         const response = await getBillingQueue();
         setBillingQueue(response.data || []);
-      } catch (error: any) {
+      } catch (error: unknown) {
         console.error('Error fetching billing queue:', error);
         setError('Failed to load billing queue. Please try again.');
       } finally {
@@ -77,11 +87,7 @@ const ReadyForBillingView: React.FC = () => {
       const updatedQueue = await getBillingQueue();
       setBillingQueue(updatedQueue.data || []);
     } catch (error: unknown) {
-      const axiosErr = error as { response?: { data?: { error?: { message?: string }; message?: string } }; message?: string };
-      const errorMessage = axiosErr.response?.data?.error?.message ||
-                          axiosErr.response?.data?.message ||
-                          axiosErr.message ||
-                          'Failed to create invoice. Please try again.';
+      const errorMessage = getErrorMessage(error, 'Failed to create invoice. Please try again.');
       showError(`Invoice creation failed: ${errorMessage}`);
     }
   };
@@ -100,22 +106,21 @@ const ReadyForBillingView: React.FC = () => {
 
 // Accounts Receivable View Component
 const AccountsReceivableView: React.FC = () => {
-  const [invoices, setInvoices] = useState<Invoice[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState('');
+  const [invoices, setInvoices] = useState<ReceivableInvoice[]>([]);
+  const [, setIsLoading] = useState(false);
+  const [, setError] = useState('');
   const [showInvoiceDetailDialog, setShowInvoiceDetailDialog] = useState(false);
   const [selectedInvoiceId, setSelectedInvoiceId] = useState<number | null>(null);
   const [showRecordPaymentDialog, setShowRecordPaymentDialog] = useState(false);
-  const [selectedInvoiceForPayment, setSelectedInvoiceForPayment] = useState<Invoice | null>(null);
+  const [selectedInvoiceForPayment, setSelectedInvoiceForPayment] = useState<PaymentDialogInvoice | null>(null);
   const { showSuccess, showError } = useSnackbar();
-  const { paged: pagedAR, page: arPage, hasNextPage: arHasNext, onPrevPage: onARPrev, onNextPage: onARNext, shownCount: arShown, totalCount: arTotal } = useClientPagination(invoices, 25);
 
   const fetchInvoices = useCallback(async () => {
     setIsLoading(true);
     setError('');
     try {
       const data = await getInvoices();
-      const arInvoices = (data || []).filter((invoice: Invoice) => {
+      const arInvoices = (data || []).filter((invoice: ReceivableInvoice) => {
         const balanceDue = parseFloat(String(invoice.balancedue || 0));
         const paymentStatus = invoice.paymentstatus?.toLowerCase();
         const approvalStatus = invoice.approval_status?.toLowerCase();
@@ -123,8 +128,7 @@ const AccountsReceivableView: React.FC = () => {
       });
       setInvoices(arInvoices);
     } catch (err: unknown) {
-      const errObj = err as { message?: string };
-      setError(errObj.message || 'Failed to load invoices.');
+      setError(getErrorMessage(err, 'Failed to load invoices.'));
       setInvoices([]);
     } finally {
       setIsLoading(false);
@@ -135,8 +139,13 @@ const AccountsReceivableView: React.FC = () => {
     fetchInvoices();
   }, [fetchInvoices]);
 
-  const handleRecordPaymentClick = (invoice: Invoice) => {
-    setSelectedInvoiceForPayment(invoice);
+  const handleRecordPaymentClick = (invoice: ReceivableInvoice) => {
+    // The dialog only reads these three fields; narrow to its own prop shape.
+    setSelectedInvoiceForPayment({
+      invoiceid: Number(invoice.invoiceid),
+      invoicenumber: invoice.invoicenumber,
+      amount: invoice.amount,
+    });
     setShowRecordPaymentDialog(true);
   };
 
@@ -207,7 +216,7 @@ const AccountsReceivableView: React.FC = () => {
 const PAGE_SIZE = 25;
 
 const PendingApprovalsView: React.FC = () => {
-  const [invoices, setInvoices] = useState<Invoice[]>([]);
+  const [invoices, setInvoices] = useState<PendingApprovalInvoice[]>([]);
   const [totalCount, setTotalCount] = useState(0);
   const [page, setPage] = useState(1);
   const [isLoading, setIsLoading] = useState(false);
@@ -319,12 +328,12 @@ const PendingApprovalsView: React.FC = () => {
         <DataTable columns={pendingColumns} shownCount={invoices.length} totalCount={totalCount} page={page - 1} onPrevPage={onPrevPage} onNextPage={onNextPage} hasNextPage={hasNextPage}>
           {invoices.map((invoice) => (
             <DataTableRow key={invoice.id} columns={pendingColumns}>
-              <Typography sx={{ fontSize: 13, fontWeight: 600, color: (theme) => theme.palette.text.primary }}>{(invoice as Record<string, unknown>).invoice_number as string || '-'}</Typography>
-              <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>{(invoice as Record<string, unknown>).organization_name as string || '-'}</Typography>
-              <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>{(invoice as Record<string, unknown>).course_type_name as string || '-'}</Typography>
-              <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>{formatDate((invoice as Record<string, unknown>).invoice_date as string)}</Typography>
+              <Typography sx={{ fontSize: 13, fontWeight: 600, color: (theme) => theme.palette.text.primary }}>{invoice.invoice_number || '-'}</Typography>
+              <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>{invoice.organization_name || '-'}</Typography>
+              <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>{invoice.course_type_name || '-'}</Typography>
+              <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>{formatDate(invoice.invoice_date)}</Typography>
               <Typography sx={{ fontSize: 13, fontWeight: 600, color: (theme) => theme.palette.text.primary, fontFamily: 'monospace', textAlign: 'right' }}>
-                {formatCurrency(parseFloat(String((invoice as Record<string, unknown>).base_cost || 0)) + parseFloat(String((invoice as Record<string, unknown>).tax_amount || 0)))}
+                {formatCurrency(parseFloat(String(invoice.base_cost || 0)) + parseFloat(String(invoice.tax_amount || 0)))}
               </Typography>
               <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>
                 <LinkButton onClick={() => handleReview(invoice.id)}>Review</LinkButton>
@@ -351,7 +360,7 @@ const PendingApprovalsView: React.FC = () => {
 
 // Rejected Invoices View Component
 const RejectedInvoicesView: React.FC = () => {
-  const [invoices, setInvoices] = useState<Invoice[]>([]);
+  const [invoices, setInvoices] = useState<RejectedInvoice[]>([]);
   const [totalCount, setTotalCount] = useState(0);
   const [page, setPage] = useState(1);
   const [isLoading, setIsLoading] = useState(false);
@@ -451,15 +460,15 @@ const RejectedInvoicesView: React.FC = () => {
         <DataTable columns={rejectedColumns} shownCount={invoices.length} totalCount={totalCount} page={page - 1} onPrevPage={onPrevPage} onNextPage={onNextPage} hasNextPage={hasNextPage}>
           {invoices.map((invoice) => (
             <DataTableRow key={invoice.id} columns={rejectedColumns}>
-              <Typography sx={{ fontSize: 13, fontWeight: 600, color: (theme) => theme.palette.text.primary }}>{(invoice as Record<string, unknown>).invoiceNumber as string || '-'}</Typography>
-              <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>{(invoice as Record<string, unknown>).organizationName as string || '-'}</Typography>
-              <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>{(invoice as Record<string, unknown>).courseTypeName as string || '-'}</Typography>
+              <Typography sx={{ fontSize: 13, fontWeight: 600, color: (theme) => theme.palette.text.primary }}>{invoice.invoiceNumber || '-'}</Typography>
+              <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>{invoice.organizationName || '-'}</Typography>
+              <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>{invoice.courseTypeName || '-'}</Typography>
               <Typography sx={{ fontSize: 13, fontWeight: 600, color: (theme) => theme.palette.text.primary, fontFamily: 'monospace', textAlign: 'right' }}>
-                {formatCurrency(parseFloat(String((invoice as Record<string, unknown>).baseCost || 0)) + parseFloat(String((invoice as Record<string, unknown>).taxAmount || 0)))}
+                {formatCurrency(parseFloat(String(invoice.baseCost || 0)) + parseFloat(String(invoice.taxAmount || 0)))}
               </Typography>
-              <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>{formatDate((invoice as Record<string, unknown>).rejectedAt as string)}</Typography>
-              <Typography sx={{ fontSize: 12, color: '#CC1F1F', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={(invoice as Record<string, unknown>).rejectionReason as string}>
-                {(invoice as Record<string, unknown>).rejectionReason as string || '-'}
+              <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>{formatDate(invoice.rejectedAt)}</Typography>
+              <Typography sx={{ fontSize: 12, color: '#CC1F1F', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={invoice.rejectionReason}>
+                {invoice.rejectionReason || '-'}
               </Typography>
               <Box sx={{ display: 'flex', gap: 1.5, justifyContent: 'flex-end' }}>
                 <LinkButton onClick={() => handleViewDetails(invoice.id)}>View</LinkButton>

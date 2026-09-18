@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Box,
   Typography,
@@ -10,6 +10,7 @@ import {
   FormControl,
   InputLabel,
   Select,
+  SelectChangeEvent,
   MenuItem,
   Pagination,
   Alert,
@@ -103,7 +104,7 @@ const PaymentDetailsDialog: React.FC<{
             <Box sx={{ mt: 2, display: 'flex', flexDirection: 'column', gap: 2 }}>
               <FormControl fullWidth>
                 <InputLabel>Action</InputLabel>
-                <Select value={action} onChange={(e) => setAction(e.target.value as any)} label="Action">
+                <Select value={action} onChange={(e: SelectChangeEvent) => setAction(e.target.value as 'approve' | 'reject')} label="Action">
                   <MenuItem value="approve">Approve</MenuItem>
                   <MenuItem value="reject">Reject</MenuItem>
                 </Select>
@@ -184,7 +185,7 @@ const PayrollManagement: React.FC = () => {
   const [pagination, setPagination] = useState({ page: 1, limit: 10, total: 0, pages: 0 });
   const [activeTab, setActiveTab] = useState(0);
 
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
@@ -192,14 +193,17 @@ const PayrollManagement: React.FC = () => {
       setPayments(paymentsData.payments);
       setPagination(paymentsData.pagination);
       setStats(statsData);
-    } catch (err: any) {
+    } catch {
       setError('Failed to load payroll data');
     } finally {
       setLoading(false);
     }
-  };
+  }, [filters]);
 
-  useEffect(() => { loadData(); }, [filters]);
+  // Data fetch on mount / whenever `filters` changes — the standard fetch-on-mount
+  // pattern, not state derived from render.
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => { loadData(); }, [loadData]);
 
   const handleProcessPayment = async (paymentId: number, action: 'approve' | 'reject', transactionId?: string, notes?: string) => {
     await payrollService.processPayment(paymentId, { action, transaction_id: transactionId, notes });

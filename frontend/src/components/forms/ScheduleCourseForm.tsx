@@ -21,7 +21,7 @@ import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
 import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
 import { DatePicker } from '@mui/x-date-pickers/DatePicker';
 import { PickersDay, PickersDayProps } from '@mui/x-date-pickers/PickersDay';
-import { AxiosResponse } from 'axios';
+import type { SelectChangeEvent } from '@mui/material';
 import { format } from 'date-fns';
 
 interface CourseType {
@@ -39,13 +39,6 @@ interface FormData {
   notes: string;
   time?: string;
   instructorId?: number;
-}
-
-interface ApiResponse {
-  success: boolean;
-  error?: string;
-  message?: string;
-  course?: { id: number; scheduled_date: string; course_type_id: number };
 }
 
 interface ScheduleCourseFormProps {
@@ -106,7 +99,7 @@ const ScheduleCourseForm: React.FC<ScheduleCourseFormProps> = ({ onCourseSchedul
       try {
         const response = await api.organizationApi.getCourseTypes();
         setCourseTypes(response as CourseType[]);
-      } catch (err: any) {
+      } catch (err) {
         logger.error('Error fetching course types:', err);
         setError('Failed to load course types');
       } finally {
@@ -116,10 +109,12 @@ const ScheduleCourseForm: React.FC<ScheduleCourseFormProps> = ({ onCourseSchedul
     fetchTypes();
   }, []);
 
-  const handleChange = (event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement> | any) => {
+  const handleChange = (
+    event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement> | SelectChangeEvent<number>
+  ) => {
     const { name, value } = event.target;
     // Basic numeric validation for registeredStudents
-    if (name === 'registeredStudents' && value && !/^[0-9]*$/.test(value)) {
+    if (name === 'registeredStudents' && value && !/^[0-9]*$/.test(String(value))) {
       return;
     }
     setFormData(prevState => ({

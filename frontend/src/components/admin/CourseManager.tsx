@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Box, Typography, CircularProgress, Alert, ButtonBase } from '@mui/material';
 import { api } from '../../services/api';
 import logger from '../../utils/logger';
+import { getErrorMessage } from '../../utils/errorMessage';
 import CourseDialog from './CourseDialog';
 import { formatDisplayDate } from '../../utils/dateUtils';
 import DataTable, { DataTableRow } from '../gtacpr/DataTable';
@@ -46,7 +47,7 @@ const CourseManager: React.FC<CourseManagerProps> = ({ showSnackbar }) => {
       const response = await api.get('/sysadmin/courses');
       setCourses(response.data.data || []);
       setError(null);
-    } catch (err: any) {
+    } catch (err) {
       logger.error('Error fetching courses:', err);
       setError('Failed to load courses');
     } finally {
@@ -76,9 +77,9 @@ const CourseManager: React.FC<CourseManagerProps> = ({ showSnackbar }) => {
         } else {
           throw new Error(response.data.message || 'Failed to delete course');
         }
-      } catch (err: any) {
+      } catch (err) {
         logger.error(`Error deleting course ${id}:`, err);
-        showSnackbar(err instanceof Error ? err.message : 'Failed to delete course.', 'error');
+        showSnackbar(getErrorMessage(err, 'Failed to delete course.'), 'error');
       }
     }
   };
@@ -93,9 +94,9 @@ const CourseManager: React.FC<CourseManagerProps> = ({ showSnackbar }) => {
         showSnackbar('Course created successfully', 'success');
       }
       fetchCourses();
-    } catch (err: any) {
+    } catch (err) {
       logger.error('Error saving course:', err);
-      showSnackbar(err instanceof Error ? err.message : 'Failed to save course', 'error');
+      showSnackbar(getErrorMessage(err, 'Failed to save course'), 'error');
       throw err;
     }
   };
@@ -147,7 +148,7 @@ const CourseManager: React.FC<CourseManagerProps> = ({ showSnackbar }) => {
         </DataTable>
       )}
 
-      <CourseDialog open={dialogOpen} onClose={() => { setDialogOpen(false); setEditingCourse(null); }} onSave={handleSave as any} course={editingCourse || undefined} />
+      <CourseDialog open={dialogOpen} onClose={() => { setDialogOpen(false); setEditingCourse(null); }} onSave={handleSave} course={editingCourse || undefined} />
       {confirmDialog}
     </Box>
   );

@@ -1,4 +1,4 @@
-import { FastifyInstance } from 'fastify';
+import { FastifyInstance, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { BillingService, BillingError } from '../services/BillingService.js';
 import { InvoiceRepository } from '../repositories/InvoiceRepository.js';
@@ -9,6 +9,8 @@ import { requireAuth, requireRole } from '../plugins/auth.js';
 import { parsePagination } from '../utils/pagination.js';
 import { toCSV } from '../utils/csv.js';
 import type { InvoicePDFRow, StudentAttendanceRow, RevenueMonthRow } from '../types/billing.js';
+import type { InvoicePDFData } from '../services/PDFService.js';
+import { httpError } from '../utils/httpError.js';
 import { RowDataPacket } from 'mysql2/promise';
 
 // --- Schemas ---
@@ -38,7 +40,7 @@ const paymentSchema = z.object({
   reference: z.string().optional(),
 });
 
-function handleError(err: unknown, reply: any) {
+function handleError(err: unknown, reply: FastifyReply) {
   if (err instanceof BillingError) return reply.status(err.statusCode).send({ error: err.message });
   throw err;
 }
@@ -125,7 +127,7 @@ export async function billingRoutes(app: FastifyInstance) {
   // CSV Export: Invoices (must be before /invoices/:id to avoid param matching)
   app.get('/invoices/export/csv', { preHandler: acctRole }, async (_request, reply) => {
     const result = await service.getAllInvoices();
-    const invoices = Array.isArray(result) ? result : (result as any).data;
+    const invoices = Array.isArray(result) ? result : result.data;
     const csv = toCSV(invoices as unknown as Record<string, unknown>[], [
       { key: 'invoice_number', label: 'Invoice #' },
       { key: 'organization_name', label: 'Organization' },
@@ -452,7 +454,7 @@ export async function billingRoutes(app: FastifyInstance) {
     invoice.invoice_id = invoice.id;
 
     const { PDFService } = await import('../services/PDFService.js');
-    const pdfBuffer = await PDFService.generateInvoicePDF(invoice as any);
+    const pdfBuffer = await PDFService.generateInvoicePDF(invoice as unknown as InvoicePDFData);
 
     reply.header('Content-Type', 'application/pdf');
     reply.header('Content-Disposition', `attachment; filename="Invoice-${invoice.invoice_number}.pdf"`);
@@ -489,7 +491,7 @@ export async function billingRoutes(app: FastifyInstance) {
     invoice.invoice_id = invoice.id;
 
     const { PDFService } = await import('../services/PDFService.js');
-    const html = PDFService.getInvoicePreviewHTML(invoice as any);
+    const html = PDFService.getInvoicePreviewHTML(invoice as unknown as InvoicePDFData);
     reply.header('Content-Type', 'text/html');
     return reply.send(html);
   });
@@ -539,8 +541,8 @@ export async function billingRoutes(app: FastifyInstance) {
         reset_policy: data.resetPolicy,
       });
       return { success: true, data: seq };
-    } catch (err: any) {
-      return reply.status(400).send({ error: err.message });
+    } catch (err) {
+      return reply.status(400).send({ error: httpError(err).message });
     }
   });
 

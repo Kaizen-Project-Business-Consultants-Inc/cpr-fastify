@@ -5,12 +5,10 @@ import { useTheme } from '../../contexts/ThemeContext';
 
 interface ThemeToggleProps {
   size?: 'small' | 'medium' | 'large';
-  showLabel?: boolean;
 }
 
-const ThemeToggle: React.FC<ThemeToggleProps> = ({ 
-  size = 'medium', 
-  showLabel = false 
+const ThemeToggle: React.FC<ThemeToggleProps> = ({
+  size = 'medium',
 }) => {
   const { isDarkMode, toggleTheme } = useTheme();
 

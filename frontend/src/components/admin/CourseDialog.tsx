@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { getErrorMessage } from '../../utils/errorMessage';
 import {
   Dialog,
   DialogTitle,
@@ -109,8 +110,8 @@ const CourseDialog: React.FC<CourseDialogProps> = ({
     try {
       await onSave(formData as Omit<Course, 'coursetypeid'>);
       onClose();
-    } catch (err: any) {
-      setError(err instanceof Error ? err.message : 'Failed to save course');
+    } catch (err) {
+      setError(getErrorMessage(err, 'Failed to save course'));
     } finally {
       setLoading(false);
     }

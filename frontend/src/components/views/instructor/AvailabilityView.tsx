@@ -19,12 +19,9 @@ import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
 import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
 import { DateCalendar } from '@mui/x-date-pickers/DateCalendar';
 import { PickersDay, PickersDayProps } from '@mui/x-date-pickers/PickersDay';
-import type { Class, Availability, ApiResponse } from '../../../types/api';
-
 import { useAuth } from '../../../contexts/AuthContext';
 import { useInstructorClasses, useInstructorAvailability, useAddAvailability, useRemoveAvailability } from '../../../services/instructorService';
 import { useNavigate } from 'react-router-dom';
-import { formatDisplayDate } from '../../../utils/dateUtils';
 import { handleError } from '../../../services/errorHandler';
 
 interface AvailabilitySlot {
@@ -56,7 +53,6 @@ interface AvailabilityViewProps {
   onRemoveAvailability?: (
     date: string
   ) => Promise<{ success: boolean; error?: string } | void>;
-  onRefresh?: () => void;
   ontarioHolidays2024?: string[];
   isLoading?: boolean;
 }
@@ -73,15 +69,14 @@ const AvailabilityView: React.FC<AvailabilityViewProps> = ({
   scheduledClasses: propScheduledClasses = [],
   onAddAvailability,
   onRemoveAvailability,
-  onRefresh,
   ontarioHolidays2024 = [],
   isLoading = false,
 }) => {
-  const { isAuthenticated, logout } = useAuth();
+  const { isAuthenticated } = useAuth();
   const navigate = useNavigate();
   const theme = useTheme();
   const [currentDate, setCurrentDate] = useState<Date>(new Date());
-  const [holidays, setHolidays] = useState<string[]>(ontarioHolidays2024);
+  const holidays = ontarioHolidays2024;
 
   // Fetch data using service hooks
   const { data: rawFetchedClasses, isLoading: classesLoading } = useInstructorClasses();
@@ -129,12 +124,7 @@ const AvailabilityView: React.FC<AvailabilityViewProps> = ({
       navigate('/login');
       return;
     }
-  }, [isAuthenticated]);
-
-  const handleUnauthorized = async () => {
-    await logout();
-    navigate('/login');
-  };
+  }, [isAuthenticated, navigate]);
 
   const handleDateClick = async (date: Date | null) => {
     if (!date || !isAuthenticated) {

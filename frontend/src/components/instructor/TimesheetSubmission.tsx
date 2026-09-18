@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Box,
   Typography,
@@ -12,10 +12,6 @@ import {
   CardContent,
   Chip,
   Divider,
-  List,
-  ListItem,
-  ListItemText,
-  ListItemIcon,
   Table,
   TableBody,
   TableCell,
@@ -26,10 +22,7 @@ import {
 import {
   Assignment as AssignmentIcon,
   Add as AddIcon,
-  CheckCircle as CheckCircleIcon,
   Event as EventIcon,
-  LocationOn as LocationIcon,
-  Group as GroupIcon,
   Warning as WarningIcon,
 } from '@mui/icons-material';
 import { timesheetService, TimesheetSubmission as TimesheetSubmissionData, WeekCourses, Timesheet } from '../../services/timesheetService';
@@ -60,10 +53,64 @@ const TimesheetSubmission: React.FC<TimesheetSubmissionProps> = ({ onTimesheetSu
   const [isLateSubmission, setIsLateSubmission] = useState(false);
   const [availableWeeks, setAvailableWeeks] = useState<{ value: string; label: string; isLate: boolean }[]>([]);
 
+  // Pure date helpers — stable across renders so they can safely sit in effect dep arrays.
+  const formatDateString = useCallback((date: Date) => {
+    const pad = (n: number) => n.toString().padStart(2, '0');
+    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+  }, []);
+
+  const formatDateShort = useCallback((dateStr: string) => {
+    const [year, month, day] = dateStr.split('-').map(Number);
+    const date = new Date(year, month - 1, day);
+    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  }, []);
+
+  const getPreviousWeekStart = useCallback(() => {
+    const today = new Date();
+    const dayOfWeek = today.getDay();
+    const daysToSubtract = dayOfWeek === 0 ? 6 : dayOfWeek - 1; // Get to this Monday
+    const thisMonday = new Date(today);
+    thisMonday.setDate(today.getDate() - daysToSubtract);
+
+    // Go back one more week to get previous Monday
+    const previousMonday = new Date(thisMonday);
+    previousMonday.setDate(thisMonday.getDate() - 7);
+
+    return formatDateString(previousMonday);
+  }, [formatDateString]);
+
+  const getWeekStartByOffset = useCallback((weeksAgo: number) => {
+    const today = new Date();
+    const dayOfWeek = today.getDay();
+    const daysToSubtract = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
+    const thisMonday = new Date(today);
+    thisMonday.setDate(today.getDate() - daysToSubtract);
+
+    const targetMonday = new Date(thisMonday);
+    targetMonday.setDate(thisMonday.getDate() - (weeksAgo * 7));
+
+    return formatDateString(targetMonday);
+  }, [formatDateString]);
+
+  const checkExistingTimesheet = useCallback(async (weekStartDate: string) => {
+    setCheckingExisting(true);
+    try {
+      const response = await timesheetService.getTimesheets();
+      const existing = response.timesheets.find(ts =>
+        ts.weekStartDate === weekStartDate ||
+        ts.weekStartDate.startsWith(weekStartDate)
+      );
+      setExistingTimesheet(existing);
+    } catch (err) {
+      console.error('Error checking existing timesheet:', err);
+    } finally {
+      setCheckingExisting(false);
+    }
+  }, []);
+
   // Generate available weeks (previous week + up to 4 past weeks for late submissions)
   useEffect(() => {
     const weeks: { value: string; label: string; isLate: boolean }[] = [];
-    const today = new Date();
 
     // Get previous week's Monday (the default submission week)
     const previousMonday = getPreviousWeekStart();
@@ -85,6 +132,7 @@ const TimesheetSubmission: React.FC<TimesheetSubmissionProps> = ({ onTimesheetSu
       });
     }
 
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- initializes state from a pure computation on mount, not derived from render
     setAvailableWeeks(weeks);
 
     // Default to previous week
@@ -96,23 +144,7 @@ const TimesheetSubmission: React.FC<TimesheetSubmissionProps> = ({ onTimesheetSu
 
     // Check if timesheet already exists for this week
     checkExistingTimesheet(previousMonday);
-  }, []);
-
-  const checkExistingTimesheet = async (weekStartDate: string) => {
-    setCheckingExisting(true);
-    try {
-      const response = await timesheetService.getTimesheets();
-      const existing = response.timesheets.find(ts =>
-        ts.weekStartDate === weekStartDate ||
-        ts.weekStartDate.startsWith(weekStartDate)
-      );
-      setExistingTimesheet(existing);
-    } catch (err: any) {
-      console.error('Error checking existing timesheet:', err);
-    } finally {
-      setCheckingExisting(false);
-    }
-  };
+  }, [getPreviousWeekStart, formatDateShort, getWeekStartByOffset, checkExistingTimesheet]);
 
   const handleChange = (field: keyof TimesheetSubmissionData) => (
     event: React.ChangeEvent<HTMLInputElement>
@@ -146,17 +178,7 @@ const TimesheetSubmission: React.FC<TimesheetSubmissionProps> = ({ onTimesheetSu
     checkExistingTimesheet(selectedWeek);
   };
 
-  // Fetch courses when week start date changes
-  useEffect(() => {
-    if (formData.weekStartDate) {
-      fetchWeekCourses(formData.weekStartDate);
-    } else {
-      setWeekCourses(null);
-      setFormData(prev => ({ ...prev, coursesTaught: 0 }));
-    }
-  }, [formData.weekStartDate]);
-
-  const calculateTeachingHours = (courses: WeekCourses['courses']) => {
+  const calculateTeachingHours = useCallback((courses: WeekCourses['courses']) => {
     let totalMinutes = 0;
     courses.filter(c => c.status === 'completed').forEach(course => {
       if (course.startTime && course.endTime) {
@@ -170,9 +192,9 @@ const TimesheetSubmission: React.FC<TimesheetSubmissionProps> = ({ onTimesheetSu
       }
     });
     return Math.round((totalMinutes / 60) * 10) / 10; // Round to 1 decimal
-  };
+  }, []);
 
-  const fetchWeekCourses = async (weekStartDate: string) => {
+  const fetchWeekCourses = useCallback(async (weekStartDate: string) => {
     setLoadingCourses(true);
     try {
       const courses = await timesheetService.getWeekCourses(weekStartDate);
@@ -192,7 +214,7 @@ const TimesheetSubmission: React.FC<TimesheetSubmissionProps> = ({ onTimesheetSu
         coursesTaught: completedCount,
         totalHours: calculatedTeachingHours + (prev.travelTime || 0) + (prev.prepTime || 0),
       }));
-    } catch (err: unknown) {
+    } catch (err) {
       console.error('Error fetching week courses:', err);
       setWeekCourses(null);
       setTeachingHours(0);
@@ -200,7 +222,19 @@ const TimesheetSubmission: React.FC<TimesheetSubmissionProps> = ({ onTimesheetSu
     } finally {
       setLoadingCourses(false);
     }
-  };
+  }, [calculateTeachingHours]);
+
+  // Fetch courses when week start date changes — a data fetch driven by the
+  // (external) selected week, not state derived from render.
+  useEffect(() => {
+    if (formData.weekStartDate) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      fetchWeekCourses(formData.weekStartDate);
+    } else {
+      setWeekCourses(null);
+      setFormData(prev => ({ ...prev, coursesTaught: 0 }));
+    }
+  }, [formData.weekStartDate, fetchWeekCourses]);
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -272,49 +306,6 @@ const TimesheetSubmission: React.FC<TimesheetSubmissionProps> = ({ onTimesheetSu
     }
   };
 
-  const formatDateString = (date: Date) => {
-    const pad = (n: number) => n.toString().padStart(2, '0');
-    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
-  };
-
-  const formatDateShort = (dateStr: string) => {
-    const [year, month, day] = dateStr.split('-').map(Number);
-    const date = new Date(year, month - 1, day);
-    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-  };
-
-  const getPreviousWeekStart = () => {
-    const today = new Date();
-    const dayOfWeek = today.getDay();
-    const daysToSubtract = dayOfWeek === 0 ? 6 : dayOfWeek - 1; // Get to this Monday
-    const thisMonday = new Date(today);
-    thisMonday.setDate(today.getDate() - daysToSubtract);
-
-    // Go back one more week to get previous Monday
-    const previousMonday = new Date(thisMonday);
-    previousMonday.setDate(thisMonday.getDate() - 7);
-
-    return formatDateString(previousMonday);
-  };
-
-  const getWeekStartByOffset = (weeksAgo: number) => {
-    const today = new Date();
-    const dayOfWeek = today.getDay();
-    const daysToSubtract = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
-    const thisMonday = new Date(today);
-    thisMonday.setDate(today.getDate() - daysToSubtract);
-
-    const targetMonday = new Date(thisMonday);
-    targetMonday.setDate(thisMonday.getDate() - (weeksAgo * 7));
-
-    return formatDateString(targetMonday);
-  };
-
-  // Keep for backward compatibility
-  const getCurrentWeekStart = () => {
-    return getPreviousWeekStart();
-  };
-
   const formatDate = (dateString: string | undefined | null) => {
     if (!dateString) return 'N/A';
     // Parse the date string as local time to avoid timezone issues
@@ -325,11 +316,6 @@ const TimesheetSubmission: React.FC<TimesheetSubmissionProps> = ({ onTimesheetSu
       day: 'numeric',
       year: 'numeric'
     });
-  };
-
-  const formatTime = (timeString: string) => {
-    if (!timeString) return '';
-    return timeString.substring(0, 5); // Extract HH:MM
   };
 
   const getSubmissionStatus = () => {

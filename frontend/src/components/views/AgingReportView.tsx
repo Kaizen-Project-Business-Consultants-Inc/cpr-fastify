@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   Box,
   Typography,
@@ -37,14 +37,86 @@ import DataTable, { DataTableRow } from '../gtacpr/DataTable';
 import StatusChip from '../gtacpr/StatusChip';
 import StatCard from '../gtacpr/StatCard';
 import { PrimaryButton, GhostButton } from '../gtacpr/Buttons';
+import { getErrorMessage } from '../../utils/errorMessage';
 
+/** Rows per page in the bucket drill-down dialog. */
+const DETAIL_PAGE_SIZE = 25;
+
+interface AgingBucketSummary {
+  aging_bucket: string;
+  invoice_count: number;
+  total_balance: number;
+  percentage_of_total: number;
+  avg_days_outstanding: number;
+}
+
+interface OrganizationBreakdown {
+  organization_id: number | string;
+  organization_name: string;
+  total_balance: number;
+  current_balance: number;
+  days_1_30: number;
+  days_31_60: number;
+  days_61_90: number;
+  days_90_plus: number;
+  risk_score: string;
+}
+
+interface AgingInvoiceDetail {
+  id: number | string;
+  aging_bucket: string;
+  invoice_number: string;
+  organization_name: string;
+  amount: number;
+  balance_due: number;
+  due_date: string;
+  days_outstanding: number;
+}
+
+interface AgingReportData {
+  report_metadata: { generated_at: string; as_of_date: string };
+  executive_summary: {
+    total_outstanding: number;
+    total_overdue: number;
+    collection_efficiency: number;
+    total_invoices: number;
+    overdue_invoices: number;
+    overdue_percentage: number;
+  };
+  aging_summary: AgingBucketSummary[];
+  organization_breakdown: OrganizationBreakdown[];
+  invoice_details: AgingInvoiceDetail[];
+}
+
+interface OrganizationOption {
+  id: number | string;
+  name: string;
+}
+
+/**
+ * NOTE ON PAGINATION AND TOTALS
+ *
+ * `GET /accounting/aging-report` is deliberately NOT paginated: it returns one
+ * report document in which `executive_summary`, `aging_summary` (the bucket
+ * totals) and `organization_breakdown` are all computed on the SERVER over the
+ * entire receivables set. Those are financial figures and must never be a sum
+ * over one page, so this screen keeps taking them straight from the server and
+ * sends no `page`/`limit` to that endpoint.
+ *
+ * The only list that can grow without bound is `invoice_details`, the
+ * drill-down behind a bucket's "View" link. It arrives in full with the report,
+ * so it is paged in the browser purely for rendering; the dialog still reports
+ * the bucket's complete row count, and the CSV export is built from
+ * `executive_summary` + `aging_summary`, never from a page of rows.
+ */
 const AgingReportView = () => {
   const [selectedTab, setSelectedTab] = useState(0);
+  const [detailPage, setDetailPage] = useState(0);
   const [organizationFilter, setOrganizationFilter] = useState('');
   const [asOfDate, setAsOfDate] = useState(
     new Date().toISOString().split('T')[0]
   );
-  const [selectedBucket, setSelectedBucket] = useState<any>(null);
+  const [selectedBucket, setSelectedBucket] = useState<AgingBucketSummary | null>(null);
   const [detailDialogOpen, setDetailDialogOpen] = useState(false);
 
   // Fetch aging report data
@@ -53,7 +125,7 @@ const AgingReportView = () => {
     isLoading,
     refetch,
     error,
-  } = useQuery({
+  } = useQuery<AgingReportData>({
     queryKey: ['aging-report', organizationFilter, asOfDate],
     queryFn: async () => {
       const params: { organization_id?: string; as_of_date?: string } = {};
@@ -69,7 +141,7 @@ const AgingReportView = () => {
   });
 
   // Fetch organizations for filter
-  const { data: organizations } = useQuery({
+  const { data: organizations } = useQuery<OrganizationOption[]>({
     queryKey: ['organizations'],
     queryFn: async () => {
       const response = await api.get('/accounting/organizations');
@@ -77,12 +149,13 @@ const AgingReportView = () => {
     },
   });
 
-  const handleTabChange = (event: any, newValue: any) => {
+  const handleTabChange = (_event: React.SyntheticEvent, newValue: number) => {
     setSelectedTab(newValue);
   };
 
-  const handleBucketClick = (bucket: any) => {
+  const handleBucketClick = (bucket: AgingBucketSummary) => {
     setSelectedBucket(bucket);
+    setDetailPage(0);
     setDetailDialogOpen(true);
   };
 
@@ -120,7 +193,7 @@ const AgingReportView = () => {
         'Percentage',
         'Avg Days Outstanding',
       ],
-      ...reportData.aging_summary.map((bucket: any) => [
+      ...reportData.aging_summary.map((bucket: AgingBucketSummary) => [
         bucket.aging_bucket,
         bucket.invoice_count,
         `$${bucket.total_balance.toLocaleString()}`,
@@ -140,14 +213,14 @@ const AgingReportView = () => {
     window.URL.revokeObjectURL(url);
   };
 
-  const formatCurrency = (amount: any) => {
+  const formatCurrency = (amount: number | undefined | null) => {
     return new Intl.NumberFormat('en-CA', {
       style: 'currency',
       currency: 'CAD',
     }).format(amount || 0);
   };
 
-  const formatDate = (dateString: any) => {
+  const formatDate = (dateString: string | undefined | null) => {
     if (!dateString) return '-';
     return new Date(dateString).toLocaleDateString();
   };
@@ -182,16 +255,37 @@ const AgingReportView = () => {
     }
   };
 
+  /** Every invoice in the bucket being drilled into (the full set, not a page). */
+  const bucketInvoices = useMemo(
+    () =>
+      selectedBucket
+        ? (reportData?.invoice_details ?? []).filter(
+            (invoice) => invoice.aging_bucket === selectedBucket.aging_bucket
+          )
+        : [],
+    [reportData, selectedBucket]
+  );
+
+  const detailPageCount = Math.ceil(bucketInvoices.length / DETAIL_PAGE_SIZE);
+  const pagedBucketInvoices = useMemo(
+    () =>
+      bucketInvoices.slice(
+        detailPage * DETAIL_PAGE_SIZE,
+        detailPage * DETAIL_PAGE_SIZE + DETAIL_PAGE_SIZE
+      ),
+    [bucketInvoices, detailPage]
+  );
+
   // Prepare chart data
   const pieChartData =
-    reportData?.aging_summary?.map((bucket: any) => ({
+    reportData?.aging_summary?.map((bucket) => ({
       name: bucket.aging_bucket,
       value: bucket.total_balance,
       count: bucket.invoice_count,
     })) || [];
 
   const barChartData =
-    reportData?.aging_summary?.map((bucket: any) => ({
+    reportData?.aging_summary?.map((bucket) => ({
       bucket: bucket.aging_bucket,
       amount: bucket.total_balance,
       count: bucket.invoice_count,
@@ -247,7 +341,7 @@ const AgingReportView = () => {
   if (error) {
     return (
       <Alert severity='error' sx={{ m: 3 }}>
-        Error loading aging report: {(error as any).message}
+        Error loading aging report: {getErrorMessage(error)}
       </Alert>
     );
   }
@@ -270,9 +364,9 @@ const AgingReportView = () => {
           <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>
             As of {formatDate(reportData?.report_metadata?.as_of_date)} &bull;
             Generated{' '}
-            {new Date(
-              reportData?.report_metadata?.generated_at
-            ).toLocaleString()}
+            {reportData?.report_metadata?.generated_at
+              ? new Date(reportData.report_metadata.generated_at).toLocaleString()
+              : '-'}
           </Typography>
         </Box>
         <Box display='flex' gap={1}>
@@ -315,7 +409,7 @@ const AgingReportView = () => {
                 onChange={e => setOrganizationFilter(e.target.value)}
               >
                 <MenuItem value=''>All Organizations</MenuItem>
-                {organizations?.map((org: any) => (
+                {organizations?.map((org) => (
                   <MenuItem key={org.id} value={org.id}>
                     {org.name}
                   </MenuItem>
@@ -383,7 +477,7 @@ const AgingReportView = () => {
               shownCount={reportData?.aging_summary?.length ?? 0}
               totalCount={reportData?.aging_summary?.length ?? 0}
             >
-              {reportData?.aging_summary?.map((bucket: any) => (
+              {reportData?.aging_summary?.map((bucket) => (
                 <DataTableRow key={bucket.aging_bucket} columns={agingSummaryColumns}>
                   {/* Aging Bucket */}
                   <StatusChip kind={getBucketKind(bucket.aging_bucket)} label={bucket.aging_bucket} />
@@ -429,7 +523,7 @@ const AgingReportView = () => {
               shownCount={reportData?.organization_breakdown?.length ?? 0}
               totalCount={reportData?.organization_breakdown?.length ?? 0}
             >
-              {reportData?.organization_breakdown?.map((org: any) => (
+              {reportData?.organization_breakdown?.map((org) => (
                 <DataTableRow key={org.organization_id} columns={orgBreakdownColumns}>
                   {/* Organization */}
                   <Typography sx={{ fontSize: 13.5, fontWeight: 600, color: (theme) => theme.palette.text.primary }}>
@@ -496,14 +590,14 @@ const AgingReportView = () => {
                       fill='#8884d8'
                       dataKey='value'
                     >
-                      {pieChartData.map((entry: any, index: any) => (
+                      {pieChartData.map((_entry, index) => (
                         <Cell
                           key={`cell-${index}`}
                           fill={COLORS[index % COLORS.length]}
                         />
                       ))}
                     </Pie>
-                    <ChartTooltip formatter={(value: any) => formatCurrency(value)} />
+                    <ChartTooltip formatter={(value: number) => formatCurrency(value)} />
                   </PieChart>
                 </ResponsiveContainer>
               </Grid>
@@ -518,7 +612,7 @@ const AgingReportView = () => {
                     <YAxis
                       tickFormatter={value => `$${(value / 1000).toFixed(0)}K`}
                     />
-                    <ChartTooltip formatter={(value: any) => formatCurrency(value)} />
+                    <ChartTooltip formatter={(value: number) => formatCurrency(value)} />
                     <Legend />
                     <Bar dataKey='amount' fill='#1D4ED8' />
                   </BarChart>
@@ -543,57 +637,49 @@ const AgingReportView = () => {
           {selectedBucket && (
             <DataTable
               columns={invoiceDetailColumns}
-              shownCount={
-                reportData?.invoice_details?.filter(
-                  (invoice: any) =>
-                    invoice.aging_bucket === selectedBucket.aging_bucket
-                )?.length ?? 0
+              shownCount={pagedBucketInvoices.length}
+              totalCount={bucketInvoices.length}
+              page={detailPage}
+              hasNextPage={detailPage < detailPageCount - 1}
+              onPrevPage={() => setDetailPage((p) => Math.max(0, p - 1))}
+              onNextPage={() =>
+                setDetailPage((p) => Math.min(detailPageCount - 1, p + 1))
               }
-              totalCount={
-                reportData?.invoice_details?.filter(
-                  (invoice: any) =>
-                    invoice.aging_bucket === selectedBucket.aging_bucket
-                )?.length ?? 0
-              }
+              emptyMessage="No invoices in this aging bucket."
             >
-              {reportData?.invoice_details
-                ?.filter(
-                  (invoice: any) =>
-                    invoice.aging_bucket === selectedBucket.aging_bucket
-                )
-                ?.map((invoice: any) => (
-                  <DataTableRow key={invoice.id} columns={invoiceDetailColumns}>
-                    {/* Invoice # */}
-                    <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>
-                      {invoice.invoice_number}
-                    </Typography>
+              {pagedBucketInvoices.map((invoice) => (
+                <DataTableRow key={invoice.id} columns={invoiceDetailColumns}>
+                  {/* Invoice # */}
+                  <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>
+                    {invoice.invoice_number}
+                  </Typography>
 
-                    {/* Organization */}
-                    <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>
-                      {invoice.organization_name}
-                    </Typography>
+                  {/* Organization */}
+                  <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>
+                    {invoice.organization_name}
+                  </Typography>
 
-                    {/* Amount */}
-                    <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary, fontFamily: 'monospace' }}>
-                      {formatCurrency(invoice.amount)}
-                    </Typography>
+                  {/* Amount */}
+                  <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary, fontFamily: 'monospace' }}>
+                    {formatCurrency(invoice.amount)}
+                  </Typography>
 
-                    {/* Balance Due */}
-                    <Typography sx={{ fontSize: 13.5, fontWeight: 600, color: (theme) => theme.palette.text.primary, fontFamily: 'monospace' }}>
-                      {formatCurrency(invoice.balance_due)}
-                    </Typography>
+                  {/* Balance Due */}
+                  <Typography sx={{ fontSize: 13.5, fontWeight: 600, color: (theme) => theme.palette.text.primary, fontFamily: 'monospace' }}>
+                    {formatCurrency(invoice.balance_due)}
+                  </Typography>
 
-                    {/* Due Date */}
-                    <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>
-                      {formatDate(invoice.due_date)}
-                    </Typography>
+                  {/* Due Date */}
+                  <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>
+                    {formatDate(invoice.due_date)}
+                  </Typography>
 
-                    {/* Days Outstanding */}
-                    <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>
-                      {invoice.days_outstanding} days
-                    </Typography>
-                  </DataTableRow>
-                ))}
+                  {/* Days Outstanding */}
+                  <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>
+                    {invoice.days_outstanding} days
+                  </Typography>
+                </DataTableRow>
+              ))}
             </DataTable>
           )}
         </DialogContent>

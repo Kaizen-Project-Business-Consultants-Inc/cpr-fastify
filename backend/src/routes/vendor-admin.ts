@@ -2,6 +2,8 @@ import { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { getPool } from '../config/database.js';
 import { requireRole } from '../plugins/auth.js';
+import { maybePaginate, paginatedResponse } from '../utils/pagination.js';
+import type { RowDataPacket, ResultSetHeader } from 'mysql2/promise';
 
 const approveSchema = z.object({
   action: z.enum(['approve', 'reject']),
@@ -16,44 +18,80 @@ const paymentSchema = z.object({
   notes: z.string().optional(),
 });
 
+
+/**
+ * Optional `status` / `search` filter shared by the vendor-invoice list endpoints.
+ * `status=paid` and `status=unpaid` are the two the UI needs (a "paid" screen and a
+ * "awaiting payment" screen); any other value is matched literally against the column.
+ * Returns a WHERE clause and its bind params so the data and COUNT queries stay in step.
+ */
+function invoiceFilter(query: Record<string, string>): { where: string; params: unknown[] } {
+  const conds: string[] = [];
+  const params: unknown[] = [];
+  const status = (query.status ?? '').trim();
+  const search = (query.search ?? '').trim();
+
+  if (status === 'paid') conds.push("vi.status = 'paid'");
+  else if (status === 'unpaid' || status === 'not_paid') conds.push("vi.status <> 'paid'");
+  else if (status) { conds.push('vi.status = ?'); params.push(status); }
+
+  if (search) {
+    conds.push('(vi.invoice_number LIKE ? OR v.name LIKE ?)');
+    params.push(`%${search}%`, `%${search}%`);
+  }
+
+  return { where: conds.length ? `WHERE ${conds.join(' AND ')}` : '', params };
+}
+
 export async function vendorAdminRoutes(app: FastifyInstance) {
   const pool = getPool();
   const adminRole = [requireRole('admin', 'sysadmin', 'courseadmin')];
   const acctRole = [requireRole('accountant', 'admin')];
 
   // ===== Admin: All vendor invoices =====
-  app.get('/admin/vendor-invoices', { preHandler: adminRole }, async () => {
-    const [rows] = await pool.query<any[]>(
+  app.get('/admin/vendor-invoices', { preHandler: adminRole }, async (request) => {
+    const { where, params } = invoiceFilter(request.query as Record<string, string>);
+    const fromClause = `FROM vendor_invoices vi
+       LEFT JOIN vendors v ON vi.vendor_id = v.id
+       LEFT JOIN users u_approved ON vi.approved_by = u_approved.id`;
+    const result = await maybePaginate(
       `SELECT vi.*, v.name as vendor_name, v.contact_email as vendor_email,
               u_approved.username as approved_by_name
-       FROM vendor_invoices vi
-       LEFT JOIN vendors v ON vi.vendor_id = v.id
-       LEFT JOIN users u_approved ON vi.approved_by = u_approved.id
-       ORDER BY vi.created_at DESC`
+       ${fromClause}
+       ${where}
+       ORDER BY vi.created_at DESC`,
+      `SELECT COUNT(*) as count ${fromClause} ${where}`,
+      params,
+      request.query as Record<string, string>,
     );
-    return { success: true, data: rows };
+    return paginatedResponse(result);
   });
 
   // ===== Admin: Ready for processing =====
-  app.get('/admin/vendor-invoices/ready-for-processing', { preHandler: adminRole }, async () => {
-    const [rows] = await pool.query<any[]>(
+  app.get('/admin/vendor-invoices/ready-for-processing', { preHandler: adminRole }, async (request) => {
+    const result = await maybePaginate(
       `SELECT vi.*, v.name as vendor_name, v.contact_email as vendor_email
        FROM vendor_invoices vi LEFT JOIN vendors v ON vi.vendor_id = v.id
-       WHERE vi.status = 'submitted_to_admin' ORDER BY vi.created_at ASC`
+       WHERE vi.status = 'submitted_to_admin' ORDER BY vi.created_at ASC`,
+      `SELECT COUNT(*) as count
+       FROM vendor_invoices vi LEFT JOIN vendors v ON vi.vendor_id = v.id
+       WHERE vi.status = 'submitted_to_admin'`,
+      [],
+      request.query as Record<string, string>,
     );
-    return { success: true, data: rows };
+    return paginatedResponse(result);
   });
 
   // ===== Admin: Update notes =====
   app.put('/admin/vendor-invoices/:id/notes', { preHandler: adminRole }, async (request, reply) => {
     const { id } = request.params as { id: string };
     const { notes } = z.object({ notes: z.string() }).parse(request.body);
-    const [result] = await pool.query<any>(
+    const [result] = await pool.query<ResultSetHeader>(
       'UPDATE vendor_invoices SET admin_notes = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
       [notes, id]
     );
     if (result.affectedRows === 0) return reply.status(404).send({ error: 'Vendor invoice not found' });
-    const [rows] = await pool.query<any[]>('SELECT * FROM vendor_invoices WHERE id = ?', [id]);
+    const [rows] = await pool.query<RowDataPacket[]>('SELECT * FROM vendor_invoices WHERE id = ?', [id]);
     return { success: true, message: 'Notes updated successfully', data: rows[0] };
   });
 
@@ -66,7 +104,7 @@ export async function vendorAdminRoutes(app: FastifyInstance) {
     const conn = await pool.getConnection();
     try {
       await conn.beginTransaction();
-      const [invoiceRows] = await conn.query<any[]>(
+      const [invoiceRows] = await conn.query<RowDataPacket[]>(
         `SELECT vi.* FROM vendor_invoices vi WHERE vi.id = ? AND vi.status = 'submitted_to_admin'`, [id]
       );
       if (invoiceRows.length === 0) { await conn.rollback(); return reply.status(404).send({ error: 'Invoice not found or not ready' }); }
@@ -90,26 +128,32 @@ export async function vendorAdminRoutes(app: FastifyInstance) {
   });
 
   // ===== Accounting: All vendor invoices =====
-  app.get('/accounting/vendor-invoices', { preHandler: acctRole }, async () => {
-    const [rows] = await pool.query<any[]>(
+  app.get('/accounting/vendor-invoices', { preHandler: acctRole }, async (request) => {
+    const fromClause = `FROM vendor_invoices vi
+       LEFT JOIN vendors v ON vi.vendor_id = v.id
+       LEFT JOIN users u_approved ON vi.approved_by = u_approved.id
+       LEFT JOIN (SELECT vendor_invoice_id, SUM(amount) as total_paid FROM vendor_payments WHERE status = 'processed' GROUP BY vendor_invoice_id) payments
+         ON payments.vendor_invoice_id = vi.id`;
+    const { where, params } = invoiceFilter(request.query as Record<string, string>);
+    const result = await maybePaginate(
       `SELECT vi.*, v.name as vendor_name, v.contact_email as vendor_email,
               u_approved.username as approved_by_name,
               COALESCE(payments.total_paid, 0) as total_paid,
               (vi.total - COALESCE(payments.total_paid, 0)) as balance_due
-       FROM vendor_invoices vi
-       LEFT JOIN vendors v ON vi.vendor_id = v.id
-       LEFT JOIN users u_approved ON vi.approved_by = u_approved.id
-       LEFT JOIN (SELECT vendor_invoice_id, SUM(amount) as total_paid FROM vendor_payments WHERE status = 'processed' GROUP BY vendor_invoice_id) payments
-         ON payments.vendor_invoice_id = vi.id
-       ORDER BY vi.created_at DESC`
+       ${fromClause}
+       ${where}
+       ORDER BY vi.created_at DESC`,
+      `SELECT COUNT(*) as count ${fromClause} ${where}`,
+      params,
+      request.query as Record<string, string>,
     );
-    return { success: true, data: rows };
+    return paginatedResponse(result);
   });
 
   // ===== Accounting: Invoice detail =====
   app.get('/accounting/vendor-invoices/:id', { preHandler: acctRole }, async (request, reply) => {
     const { id } = request.params as { id: string };
-    const [invoiceRows] = await pool.query<any[]>(
+    const [invoiceRows] = await pool.query<RowDataPacket[]>(
       `SELECT vi.*, v.name as vendor_name, v.contact_email as vendor_email, v.address as vendor_address,
               u_approved.username as approved_by_name,
               COALESCE(payments.total_paid, 0) as total_paid,
@@ -123,7 +167,7 @@ export async function vendorAdminRoutes(app: FastifyInstance) {
     );
     if (invoiceRows.length === 0) return reply.status(404).send({ error: 'Vendor invoice not found' });
 
-    const [paymentRows] = await pool.query<any[]>(
+    const [paymentRows] = await pool.query<RowDataPacket[]>(
       `SELECT vp.*, u_processed.username as processed_by_name FROM vendor_payments vp
        LEFT JOIN users u_processed ON vp.processed_by = u_processed.id
        WHERE vp.vendor_invoice_id = ? ORDER BY vp.payment_date DESC`,
@@ -140,7 +184,7 @@ export async function vendorAdminRoutes(app: FastifyInstance) {
     const conn = await pool.getConnection();
     try {
       await conn.beginTransaction();
-      const [invoiceRows] = await conn.query<any[]>(
+      const [invoiceRows] = await conn.query<RowDataPacket[]>(
         `SELECT vi.*, COALESCE(payments.total_paid, 0) as total_paid,
                 (vi.total - COALESCE(payments.total_paid, 0)) as balance_due
          FROM vendor_invoices vi
@@ -154,7 +198,7 @@ export async function vendorAdminRoutes(app: FastifyInstance) {
       const balance = Number(invoiceRows[0].balance_due);
       if (data.amount > balance) { await conn.rollback(); return reply.status(400).send({ error: `Payment ($${data.amount.toFixed(2)}) exceeds balance ($${balance.toFixed(2)})` }); }
 
-      const [payResult] = await conn.query<any>(
+      const [payResult] = await conn.query<ResultSetHeader>(
         `INSERT INTO vendor_payments (vendor_invoice_id, amount, payment_date, payment_method, reference_number, notes, status, processed_by, processed_at)
          VALUES (?, ?, ?, ?, ?, ?, 'processed', ?, CURRENT_TIMESTAMP)`,
         [id, data.amount, data.payment_date ?? new Date().toISOString().split('T')[0], data.payment_method ?? null,
@@ -183,7 +227,7 @@ export async function vendorAdminRoutes(app: FastifyInstance) {
     const conn = await pool.getConnection();
     try {
       await conn.beginTransaction();
-      const [invoiceRows] = await conn.query<any[]>(
+      const [invoiceRows] = await conn.query<RowDataPacket[]>(
         `SELECT * FROM vendor_invoices WHERE id = ? AND status = 'submitted_to_accounting'`, [id]
       );
       if (invoiceRows.length === 0) { await conn.rollback(); return reply.status(404).send({ error: 'Invoice not found or not ready' }); }
@@ -199,16 +243,20 @@ export async function vendorAdminRoutes(app: FastifyInstance) {
   });
 
   // ===== Accounting: Payment history =====
-  app.get('/accounting/vendor-payments', { preHandler: acctRole }, async () => {
-    const [rows] = await pool.query<any[]>(
-      `SELECT vp.*, vi.invoice_number, vi.amount as invoice_amount, v.name as vendor_name,
-              u_processed.username as processed_by_name
-       FROM vendor_payments vp
+  app.get('/accounting/vendor-payments', { preHandler: acctRole }, async (request) => {
+    const fromClause = `FROM vendor_payments vp
        JOIN vendor_invoices vi ON vp.vendor_invoice_id = vi.id
        JOIN vendors v ON vi.vendor_id = v.id
-       LEFT JOIN users u_processed ON vp.processed_by = u_processed.id
-       ORDER BY vp.payment_date DESC`
+       LEFT JOIN users u_processed ON vp.processed_by = u_processed.id`;
+    const result = await maybePaginate(
+      `SELECT vp.*, vi.invoice_number, vi.amount as invoice_amount, v.name as vendor_name,
+              u_processed.username as processed_by_name
+       ${fromClause}
+       ORDER BY vp.payment_date DESC`,
+      `SELECT COUNT(*) as count ${fromClause}`,
+      [],
+      request.query as Record<string, string>,
     );
-    return { success: true, data: rows };
+    return paginatedResponse(result);
   });
 }

@@ -2,6 +2,8 @@ import { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { getPool } from '../config/database.js';
 import { requireAuth, requireRole } from '../plugins/auth.js';
+import { maybePaginate, paginatedResponse } from '../utils/pagination.js';
+import type { RowDataPacket, ResultSetHeader } from 'mysql2/promise';
 
 const submitTimesheetSchema = z.object({
   weekStartDate: z.string(),
@@ -32,10 +34,10 @@ export async function timesheetRoutes(app: FastifyInstance) {
   // ===== Stats (HR) =====
   app.get('/stats', { preHandler: hrRole }, async () => {
     const [[pending], [approved], [hours], [instructors]] = await Promise.all([
-      pool.query<any[]>(`SELECT COUNT(*) as count FROM timesheets WHERE status = 'pending'`),
-      pool.query<any[]>(`SELECT COUNT(*) as count FROM timesheets WHERE status = 'approved' AND MONTH(created_at) = MONTH(CURRENT_DATE) AND YEAR(created_at) = YEAR(CURRENT_DATE)`),
-      pool.query<any[]>(`SELECT COALESCE(SUM(total_hours), 0) as total FROM timesheets WHERE status = 'approved' AND MONTH(created_at) = MONTH(CURRENT_DATE) AND YEAR(created_at) = YEAR(CURRENT_DATE)`),
-      pool.query<any[]>(`SELECT COUNT(DISTINCT instructor_id) as count FROM timesheets WHERE status = 'pending'`),
+      pool.query<RowDataPacket[]>(`SELECT COUNT(*) as count FROM timesheets WHERE status = 'pending'`),
+      pool.query<RowDataPacket[]>(`SELECT COUNT(*) as count FROM timesheets WHERE status = 'approved' AND MONTH(created_at) = MONTH(CURRENT_DATE) AND YEAR(created_at) = YEAR(CURRENT_DATE)`),
+      pool.query<RowDataPacket[]>(`SELECT COALESCE(SUM(total_hours), 0) as total FROM timesheets WHERE status = 'approved' AND MONTH(created_at) = MONTH(CURRENT_DATE) AND YEAR(created_at) = YEAR(CURRENT_DATE)`),
+      pool.query<RowDataPacket[]>(`SELECT COUNT(DISTINCT instructor_id) as count FROM timesheets WHERE status = 'pending'`),
     ]);
     return {
       success: true,
@@ -65,13 +67,13 @@ export async function timesheetRoutes(app: FastifyInstance) {
     if (instructor_id) { where += ' AND t.instructor_id = ?'; params.push(instructor_id); }
     if (month) { where += ' AND MONTH(t.week_start_date) = ?'; params.push(month); }
 
-    const [rows] = await pool.query<any[]>(
+    const [rows] = await pool.query<RowDataPacket[]>(
       `SELECT t.*, u.username as instructor_name, u.email as instructor_email
        FROM timesheets t JOIN users u ON t.instructor_id = u.id
        ${where} ORDER BY t.created_at DESC LIMIT ? OFFSET ?`,
       [...params, safeLimit, offset]
     );
-    const [countRows] = await pool.query<any[]>(
+    const [countRows] = await pool.query<RowDataPacket[]>(
       `SELECT COUNT(*) as total FROM timesheets t ${where}`, params
     );
     const total = Number(countRows[0]?.total ?? 0);
@@ -95,7 +97,7 @@ export async function timesheetRoutes(app: FastifyInstance) {
       params.push(request.userId);
     }
 
-    const [rows] = await pool.query<any[]>(
+    const [rows] = await pool.query<RowDataPacket[]>(
       `SELECT t.*, u.username as instructor_name, u.email as instructor_email
        FROM timesheets t JOIN users u ON t.instructor_id = u.id ${where}`,
       params
@@ -119,7 +121,7 @@ export async function timesheetRoutes(app: FastifyInstance) {
     if (today <= weekEnd) return reply.status(400).send({ error: 'Cannot submit timesheet until the week has ended' });
 
     // Check duplicate
-    const [existing] = await pool.query<any[]>(
+    const [existing] = await pool.query<RowDataPacket[]>(
       'SELECT id FROM timesheets WHERE instructor_id = ? AND week_start_date = ?',
       [request.userId, data.weekStartDate]
     );
@@ -127,7 +129,7 @@ export async function timesheetRoutes(app: FastifyInstance) {
 
     // Get courses for the week
     const endDateStr = new Date(startDate.getTime() + 6 * 86400000).toISOString().split('T')[0];
-    const [courses] = await pool.query<any[]>(
+    const [courses] = await pool.query<RowDataPacket[]>(
       `SELECT cr.id, cr.confirmed_date as date, cr.confirmed_start_time as start_time,
               cr.confirmed_end_time as end_time, cr.status, cr.location,
               ct.name as course_type, o.name as organization_name,
@@ -141,7 +143,7 @@ export async function timesheetRoutes(app: FastifyInstance) {
       [request.userId, data.weekStartDate, endDateStr]
     );
 
-    const [result] = await pool.query<any>(
+    const [result] = await pool.query<ResultSetHeader>(
       `INSERT INTO timesheets (
          instructor_id, week_start_date, total_hours, courses_taught, notes, status,
          course_details, travel_time, prep_time, teaching_hours, is_late
@@ -150,7 +152,7 @@ export async function timesheetRoutes(app: FastifyInstance) {
        JSON.stringify(courses), data.travelTime, data.prepTime, data.teachingHours, data.isLate]
     );
 
-    const [rows] = await pool.query<any[]>('SELECT * FROM timesheets WHERE id = ?', [result.insertId]);
+    const [rows] = await pool.query<RowDataPacket[]>('SELECT * FROM timesheets WHERE id = ?', [result.insertId]);
     return {
       success: true,
       message: data.isLate ? 'Late timesheet submitted successfully. HR will review.' : 'Timesheet submitted successfully.',
@@ -167,7 +169,7 @@ export async function timesheetRoutes(app: FastifyInstance) {
       notes: z.string().default(''),
     }).parse(request.body);
 
-    const [existing] = await pool.query<any[]>(
+    const [existing] = await pool.query<RowDataPacket[]>(
       'SELECT id, status FROM timesheets WHERE id = ? AND instructor_id = ?',
       [timesheetId, request.userId]
     );
@@ -178,7 +180,7 @@ export async function timesheetRoutes(app: FastifyInstance) {
       'UPDATE timesheets SET total_hours = ?, courses_taught = ?, notes = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND instructor_id = ?',
       [total_hours, courses_taught ?? 0, notes ?? '', timesheetId, request.userId]
     );
-    const [rows] = await pool.query<any[]>('SELECT * FROM timesheets WHERE id = ?', [timesheetId]);
+    const [rows] = await pool.query<RowDataPacket[]>('SELECT * FROM timesheets WHERE id = ?', [timesheetId]);
     return { success: true, message: 'Timesheet updated successfully.', data: rows[0] };
   });
 
@@ -191,7 +193,7 @@ export async function timesheetRoutes(app: FastifyInstance) {
     try {
       await conn.beginTransaction();
 
-      const [tsRows] = await conn.query<any[]>(
+      const [tsRows] = await conn.query<RowDataPacket[]>(
         `SELECT t.*, u.username as instructor_name, u.email as instructor_email
          FROM timesheets t JOIN users u ON t.instructor_id = u.id
          WHERE t.id = ? AND t.status = 'pending'`,
@@ -218,7 +220,7 @@ export async function timesheetRoutes(app: FastifyInstance) {
       return reply.status(403).send({ error: 'Access denied' });
     }
     const [[summary], [recent]] = await Promise.all([
-      pool.query<any[]>(
+      pool.query<RowDataPacket[]>(
         `SELECT COUNT(*) as total_timesheets,
                 COUNT(CASE WHEN status = 'approved' THEN 1 END) as approved_timesheets,
                 COUNT(CASE WHEN status = 'pending' THEN 1 END) as pending_timesheets,
@@ -229,7 +231,7 @@ export async function timesheetRoutes(app: FastifyInstance) {
          FROM timesheets WHERE instructor_id = ?`,
         [instructorId]
       ),
-      pool.query<any[]>(
+      pool.query<RowDataPacket[]>(
         'SELECT * FROM timesheets WHERE instructor_id = ? ORDER BY created_at DESC LIMIT 5',
         [instructorId]
       ),
@@ -247,7 +249,7 @@ export async function timesheetRoutes(app: FastifyInstance) {
     const endDate = new Date(startDate); endDate.setDate(startDate.getDate() + 6);
     const endDateStr = endDate.toISOString().split('T')[0];
 
-    const [rows] = await pool.query<any[]>(
+    const [rows] = await pool.query<RowDataPacket[]>(
       `SELECT cr.id, cr.confirmed_date as date, cr.confirmed_start_time as startTime,
               cr.confirmed_end_time as endTime, cr.status, cr.location,
               ct.name as courseType, o.name as organizationName,
@@ -272,16 +274,19 @@ export async function timesheetRoutes(app: FastifyInstance) {
     const { timesheetId } = request.params as { timesheetId: string };
     // Instructors may only read notes on their own timesheets
     const ownerClause = request.userRole === 'instructor' ? ' AND t.instructor_id = ?' : '';
-    const params: any[] = request.userRole === 'instructor' ? [timesheetId, request.userId] : [timesheetId];
-    const [rows] = await pool.query<any[]>(
-      `SELECT tn.*, u.username as added_by, u.email as added_by_email
-       FROM timesheet_notes tn
+    const params: unknown[] = request.userRole === 'instructor' ? [timesheetId, request.userId] : [timesheetId];
+    const fromClause = `FROM timesheet_notes tn
        JOIN users u ON tn.user_id = u.id
        JOIN timesheets t ON t.id = tn.timesheet_id
-       WHERE tn.timesheet_id = ?${ownerClause} ORDER BY tn.created_at ASC`,
-      params
+       WHERE tn.timesheet_id = ?${ownerClause}`;
+    const result = await maybePaginate(
+      `SELECT tn.*, u.username as added_by, u.email as added_by_email
+       ${fromClause} ORDER BY tn.created_at ASC`,
+      `SELECT COUNT(*) as count ${fromClause}`,
+      params,
+      request.query as Record<string, string>,
     );
-    return { success: true, data: rows };
+    return paginatedResponse(result);
   });
 
   app.post('/:timesheetId/notes', { preHandler: [requireAuth] }, async (request, reply) => {
@@ -297,14 +302,14 @@ export async function timesheetRoutes(app: FastifyInstance) {
     let where = 'WHERE t.id = ?';
     const params: unknown[] = [timesheetId];
     if (request.userRole === 'instructor') { where += ' AND t.instructor_id = ?'; params.push(request.userId); }
-    const [tsCheck] = await pool.query<any[]>(`SELECT t.id FROM timesheets t ${where}`, params);
+    const [tsCheck] = await pool.query<RowDataPacket[]>(`SELECT t.id FROM timesheets t ${where}`, params);
     if (tsCheck.length === 0) return reply.status(404).send({ error: 'Timesheet not found or access denied' });
 
-    const [result] = await pool.query<any>(
+    const [result] = await pool.query<ResultSetHeader>(
       `INSERT INTO timesheet_notes (timesheet_id, user_id, user_role, note_text, note_type) VALUES (?, ?, ?, ?, ?)`,
       [timesheetId, request.userId, request.userRole, note_text.trim(), note_type]
     );
-    const [rows] = await pool.query<any[]>(
+    const [rows] = await pool.query<RowDataPacket[]>(
       `SELECT tn.*, u.username as added_by, u.email as added_by_email
        FROM timesheet_notes tn JOIN users u ON tn.user_id = u.id WHERE tn.id = ?`,
       [result.insertId]
@@ -314,7 +319,7 @@ export async function timesheetRoutes(app: FastifyInstance) {
 
   app.delete('/:timesheetId/notes/:noteId', { preHandler: [requireAuth] }, async (request, reply) => {
     const { timesheetId, noteId } = request.params as { timesheetId: string; noteId: string };
-    const [noteRows] = await pool.query<any[]>(
+    const [noteRows] = await pool.query<RowDataPacket[]>(
       'SELECT * FROM timesheet_notes WHERE id = ? AND timesheet_id = ?',
       [noteId, timesheetId]
     );
@@ -335,7 +340,7 @@ export async function timesheetRoutes(app: FastifyInstance) {
     const previousMonday = new Date(thisMonday); previousMonday.setDate(thisMonday.getDate() - 7);
     const previousMondayStr = previousMonday.toISOString().split('T')[0];
 
-    const [rows] = await pool.query<any[]>(
+    const [rows] = await pool.query<RowDataPacket[]>(
       `SELECT u.id, u.username, u.email,
               (SELECT COUNT(*) FROM course_requests cr
                WHERE cr.instructor_id = u.id AND cr.confirmed_date >= ?

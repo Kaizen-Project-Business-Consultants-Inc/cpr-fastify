@@ -2,6 +2,7 @@ import { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { getPool } from '../config/database.js';
 import { requireRole } from '../plugins/auth.js';
+import type { RowDataPacket, ResultSetHeader } from 'mysql2/promise';
 
 const createPaymentSchema = z.object({
   instructor_id: z.number().int().positive(),
@@ -30,10 +31,10 @@ export async function payrollRoutes(app: FastifyInstance) {
   // ===== Stats =====
   app.get('/stats', { preHandler: hrRole }, async () => {
     const [[totalPayroll], [pending], [instructors], [avg]] = await Promise.all([
-      pool.query<any[]>(`SELECT COALESCE(SUM(amount), 0) as total FROM payroll_payments WHERE MONTH(payment_date) = MONTH(CURRENT_DATE) AND YEAR(payment_date) = YEAR(CURRENT_DATE)`),
-      pool.query<any[]>(`SELECT COUNT(*) as count FROM payroll_payments WHERE status = 'pending'`),
-      pool.query<any[]>(`SELECT COUNT(DISTINCT instructor_id) as count FROM payroll_payments WHERE status = 'pending'`),
-      pool.query<any[]>(`SELECT COALESCE(AVG(amount), 0) as average FROM payroll_payments WHERE status = 'completed'`),
+      pool.query<RowDataPacket[]>(`SELECT COALESCE(SUM(amount), 0) as total FROM payroll_payments WHERE MONTH(payment_date) = MONTH(CURRENT_DATE) AND YEAR(payment_date) = YEAR(CURRENT_DATE)`),
+      pool.query<RowDataPacket[]>(`SELECT COUNT(*) as count FROM payroll_payments WHERE status = 'pending'`),
+      pool.query<RowDataPacket[]>(`SELECT COUNT(DISTINCT instructor_id) as count FROM payroll_payments WHERE status = 'pending'`),
+      pool.query<RowDataPacket[]>(`SELECT COALESCE(AVG(amount), 0) as average FROM payroll_payments WHERE status = 'completed'`),
     ]);
     return {
       success: true,
@@ -58,13 +59,13 @@ export async function payrollRoutes(app: FastifyInstance) {
     if (instructor_id) { where += ' AND p.instructor_id = ?'; params.push(instructor_id); }
     if (month) { where += ' AND MONTH(p.payment_date) = ?'; params.push(month); }
 
-    const [rows] = await pool.query<any[]>(
+    const [rows] = await pool.query<RowDataPacket[]>(
       `SELECT p.*, u.username as instructor_name, u.email as instructor_email
        FROM payroll_payments p JOIN users u ON p.instructor_id = u.id
        ${where} ORDER BY p.payment_date DESC LIMIT ? OFFSET ?`,
       [...params, safeLimit, offset]
     );
-    const [countRows] = await pool.query<any[]>(
+    const [countRows] = await pool.query<RowDataPacket[]>(
       `SELECT COUNT(*) as total FROM payroll_payments p ${where}`, params
     );
     const total = Number(countRows[0]?.total ?? 0);
@@ -78,7 +79,7 @@ export async function payrollRoutes(app: FastifyInstance) {
   // ===== Payment detail =====
   app.get('/payments/:paymentId', { preHandler: hrRole }, async (request, reply) => {
     const { paymentId } = request.params as { paymentId: string };
-    const [rows] = await pool.query<any[]>(
+    const [rows] = await pool.query<RowDataPacket[]>(
       `SELECT p.*, u.username as instructor_name, u.email as instructor_email
        FROM payroll_payments p JOIN users u ON p.instructor_id = u.id WHERE p.id = ?`,
       [paymentId]
@@ -93,12 +94,12 @@ export async function payrollRoutes(app: FastifyInstance) {
     const { start_date, end_date, hourly_rate: overrideRate } = calculateSchema.parse(request.body);
 
     const [[timesheetData], [instructorRows]] = await Promise.all([
-      pool.query<any[]>(
+      pool.query<RowDataPacket[]>(
         `SELECT SUM(total_hours) as total_hours, SUM(courses_taught) as total_courses, COUNT(*) as timesheet_count
          FROM timesheets WHERE instructor_id = ? AND status = 'approved' AND week_start_date >= ? AND week_start_date <= ?`,
         [instructorId, start_date, end_date]
       ),
-      pool.query<any[]>('SELECT username, email FROM users WHERE id = ?', [instructorId]),
+      pool.query<RowDataPacket[]>('SELECT username, email FROM users WHERE id = ?', [instructorId]),
     ]);
 
     if (instructorRows.length === 0) return reply.status(404).send({ error: 'Instructor not found' });
@@ -113,7 +114,7 @@ export async function payrollRoutes(app: FastifyInstance) {
     let isDefaultRate = true;
 
     if (!overrideRate) {
-      const [rateRows] = await pool.query<any[]>(
+      const [rateRows] = await pool.query<RowDataPacket[]>(
         `SELECT ipr.hourly_rate, ipr.course_bonus, prt.name as tier_name
          FROM instructor_pay_rates ipr LEFT JOIN pay_rate_tiers prt ON ipr.tier_id = prt.id
          WHERE ipr.instructor_id = ? AND ipr.is_active = true AND ipr.effective_date <= ?
@@ -147,17 +148,17 @@ export async function payrollRoutes(app: FastifyInstance) {
   // ===== Create payment =====
   app.post('/payments', { preHandler: hrRole }, async (request, reply) => {
     const data = createPaymentSchema.parse(request.body);
-    const [instrCheck] = await pool.query<any[]>(
+    const [instrCheck] = await pool.query<RowDataPacket[]>(
       "SELECT id FROM users WHERE id = ? AND role = 'instructor'", [data.instructor_id]
     );
     if (instrCheck.length === 0) return reply.status(404).send({ error: 'Instructor not found' });
 
-    const [result] = await pool.query<any>(
+    const [result] = await pool.query<ResultSetHeader>(
       `INSERT INTO payroll_payments (instructor_id, amount, payment_date, payment_method, notes, status)
        VALUES (?, ?, ?, ?, ?, 'pending')`,
       [data.instructor_id, data.amount, data.payment_date, data.payment_method, data.notes]
     );
-    const [rows] = await pool.query<any[]>('SELECT * FROM payroll_payments WHERE id = ?', [result.insertId]);
+    const [rows] = await pool.query<RowDataPacket[]>('SELECT * FROM payroll_payments WHERE id = ?', [result.insertId]);
     return { success: true, message: 'Payment created successfully.', data: rows[0] };
   });
 
@@ -169,7 +170,7 @@ export async function payrollRoutes(app: FastifyInstance) {
     const conn = await pool.getConnection();
     try {
       await conn.beginTransaction();
-      const [payRows] = await conn.query<any[]>(
+      const [payRows] = await conn.query<RowDataPacket[]>(
         "SELECT * FROM payroll_payments WHERE id = ? AND status = 'pending'", [paymentId]
       );
       if (payRows.length === 0) { await conn.rollback(); return reply.status(404).send({ error: 'Payment not found or already processed' }); }
@@ -194,7 +195,7 @@ export async function payrollRoutes(app: FastifyInstance) {
     if (instructor_id) { where += ' AND p.instructor_id = ?'; params.push(instructor_id); }
 
     const [[summary], [byInstructor], [byMonth]] = await Promise.all([
-      pool.query<any[]>(
+      pool.query<RowDataPacket[]>(
         `SELECT COUNT(*) as total_payments,
                 COUNT(CASE WHEN status = 'completed' THEN 1 END) as completed_payments,
                 COUNT(CASE WHEN status = 'pending' THEN 1 END) as pending_payments,
@@ -204,7 +205,7 @@ export async function payrollRoutes(app: FastifyInstance) {
          FROM payroll_payments p ${where}`,
         params
       ),
-      pool.query<any[]>(
+      pool.query<RowDataPacket[]>(
         `SELECT p.instructor_id, u.username as instructor_name, COUNT(*) as payment_count,
                 COALESCE(SUM(CASE WHEN p.status = 'completed' THEN p.amount END), 0) as total_paid,
                 COALESCE(AVG(CASE WHEN p.status = 'completed' THEN p.amount END), 0) as average_payment
@@ -212,7 +213,7 @@ export async function payrollRoutes(app: FastifyInstance) {
          ${where} GROUP BY p.instructor_id, u.username ORDER BY total_paid DESC`,
         params
       ),
-      pool.query<any[]>(
+      pool.query<RowDataPacket[]>(
         `SELECT YEAR(payment_date) as year, MONTH(payment_date) as month,
                 COUNT(*) as payment_count,
                 COALESCE(SUM(CASE WHEN status = 'completed' THEN amount END), 0) as total_paid
@@ -229,8 +230,8 @@ export async function payrollRoutes(app: FastifyInstance) {
   app.get('/instructor/:instructorId/summary', { preHandler: hrRole }, async (request, reply) => {
     const { instructorId } = request.params as { instructorId: string };
     const [[instrRows], [summary], [recent]] = await Promise.all([
-      pool.query<any[]>('SELECT username, email FROM users WHERE id = ?', [instructorId]),
-      pool.query<any[]>(
+      pool.query<RowDataPacket[]>('SELECT username, email FROM users WHERE id = ?', [instructorId]),
+      pool.query<RowDataPacket[]>(
         `SELECT COUNT(*) as total_payments,
                 COUNT(CASE WHEN status = 'completed' THEN 1 END) as completed_payments,
                 COUNT(CASE WHEN status = 'pending' THEN 1 END) as pending_payments,
@@ -240,7 +241,7 @@ export async function payrollRoutes(app: FastifyInstance) {
          FROM payroll_payments WHERE instructor_id = ?`,
         [instructorId]
       ),
-      pool.query<any[]>(
+      pool.query<RowDataPacket[]>(
         'SELECT * FROM payroll_payments WHERE instructor_id = ? ORDER BY payment_date DESC LIMIT 5',
         [instructorId]
       ),

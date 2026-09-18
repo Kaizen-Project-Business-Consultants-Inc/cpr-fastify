@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { api } from '../services/api';
 import { useAuth } from './AuthContext';
 
@@ -185,6 +185,8 @@ export const NotificationProvider: React.FC<NotificationProviderProps> = ({ chil
   // Initial load - only when authenticated
   useEffect(() => {
     if (isAuthenticated) {
+      // Network fetch synchronizing with the backend on auth change, not derived state.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       fetchNotifications();
       fetchUnreadCount();
     } else {
@@ -235,7 +237,9 @@ export const NotificationProvider: React.FC<NotificationProviderProps> = ({ chil
     };
   }, [isAuthenticated, fetchUnreadCount]);
 
-  const value: NotificationContextType = {
+  // Memoised: without this every consumer re-rendered on each poll tick.
+  // All the functions above are useCallback-stable, so this only changes with real state.
+  const value = useMemo<NotificationContextType>(() => ({
     notifications,
     unreadCount,
     isLoading,
@@ -246,7 +250,18 @@ export const NotificationProvider: React.FC<NotificationProviderProps> = ({ chil
     markAllAsRead,
     deleteNotification,
     refreshNotifications,
-  };
+  }), [
+    notifications,
+    unreadCount,
+    isLoading,
+    error,
+    fetchNotifications,
+    fetchUnreadCount,
+    markAsRead,
+    markAllAsRead,
+    deleteNotification,
+    refreshNotifications,
+  ]);
 
   return (
     <NotificationContext.Provider value={value}>

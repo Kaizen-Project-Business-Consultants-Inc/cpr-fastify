@@ -4,6 +4,9 @@ import tseslint from 'typescript-eslint';
 
 export default tseslint.config(
   { ignores: ['dist/**', 'node_modules/**', 'load-test-results/**'] },
+  // Flag `eslint-disable` comments that no longer suppress anything, so the
+  // no-explicit-any ban above cannot be quietly opted out of and left behind.
+  { linterOptions: { reportUnusedDisableDirectives: 'error' } },
   {
     extends: [js.configs.recommended, ...tseslint.configs.recommended],
     files: ['src/**/*.ts'],
@@ -13,9 +16,10 @@ export default tseslint.config(
       globals: globals.node,
     },
     rules: {
-      // The codebase leans on `any` for mysql2 row types; flag as warnings, not errors,
-      // so lint can gate CI on real problems while the typing debt is paid down.
-      '@typescript-eslint/no-explicit-any': 'warn',
+      // `src/**` is `any`-free: mysql2 results use RowDataPacket/ResultSetHeader
+      // generics, caught errors stay `unknown` and are narrowed via utils/httpError.
+      // Kept at 'error' so the debt cannot creep back in. Tests are exempt below.
+      '@typescript-eslint/no-explicit-any': 'error',
       '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_', varsIgnorePattern: '^_', caughtErrors: 'none' }],
       'no-console': ['error', { allow: ['warn', 'error'] }],
     },

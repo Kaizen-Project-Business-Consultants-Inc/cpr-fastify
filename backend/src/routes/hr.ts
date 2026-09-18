@@ -1,4 +1,4 @@
-import { FastifyInstance } from 'fastify';
+import { FastifyInstance, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { HRService, HRError } from '../services/HRService.js';
 import { ProfileChangeRepository } from '../repositories/ProfileChangeRepository.js';
@@ -17,7 +17,7 @@ const processPaymentSchema = z.object({
   notes: z.string().min(1, 'Notes are required'),
 });
 
-function handleError(err: unknown, reply: any) {
+function handleError(err: unknown, reply: FastifyReply) {
   if (err instanceof HRError) return reply.status(err.statusCode).send({ error: err.message });
   throw err;
 }

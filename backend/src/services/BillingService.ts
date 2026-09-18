@@ -5,7 +5,8 @@ import { CoursePricingRepository, CoursePricing } from '../repositories/CoursePr
 import { InvoiceNumberService } from './InvoiceNumberService.js';
 import { getHSTRate } from '../utils/taxConfig.js';
 import { PaginationParams } from '../utils/pagination.js';
-import type { PaymentRow } from '../types/billing.js';
+import type { PaymentRow, BillingQueueRow } from '../types/billing.js';
+import type { RowDataPacket, ResultSetHeader } from 'mysql2/promise';
 
 const INVOICE_DUE_DAYS = 30;
 
@@ -63,7 +64,7 @@ export class BillingService {
 
   // --- Billing queue ---
 
-  async getBillingQueue(): Promise<any[]> {
+  async getBillingQueue(): Promise<BillingQueueRow[]> {
     return this.invoiceRepo.getBillingQueue();
   }
 
@@ -79,7 +80,7 @@ export class BillingService {
       await conn.beginTransaction();
 
       // Get course + pricing details
-      const [courseRows] = await conn.query<any[]>(
+      const [courseRows] = await conn.query<RowDataPacket[]>(
         `SELECT cr.id, cr.organization_id, cr.completed_at, cr.location,
                 o.name as organization_name, o.contact_email,
                 ct.name as course_type_name,
@@ -111,7 +112,7 @@ export class BillingService {
       const totalAmount = baseCost + taxAmount;
       const invoiceNumber = await this.invoiceNumberService.allocate(course.organization_id, conn);
 
-      const [result] = await conn.query<any>(
+      const [result] = await conn.query<ResultSetHeader>(
         `INSERT INTO invoices (
            invoice_number, organization_id, course_request_id, invoice_date,
            amount, base_cost, tax_amount, students_billed, status, due_date,
@@ -223,7 +224,7 @@ export class BillingService {
     try {
       await conn.beginTransaction();
 
-      const [invoiceRows] = await conn.query<any[]>(
+      const [invoiceRows] = await conn.query<RowDataPacket[]>(
         `SELECT i.*, o.name as organization_name, o.contact_email
          FROM invoices i JOIN organizations o ON i.organization_id = o.id
          WHERE i.id = ? AND i.posted_to_org = FALSE`,
@@ -272,7 +273,7 @@ export class BillingService {
     try {
       await conn.beginTransaction();
 
-      const [rows] = await conn.query<any[]>(
+      const [rows] = await conn.query<RowDataPacket[]>(
         `SELECT i.id, i.students_billed, i.amount, cp.price_per_student
          FROM invoices i
          LEFT JOIN course_requests cr ON i.course_request_id = cr.id
@@ -320,7 +321,7 @@ export class BillingService {
       await conn.beginTransaction();
 
       // Lock the invoice row and get current payment totals in one atomic query
-      const [locked] = await conn.query<any[]>(
+      const [locked] = await conn.query<RowDataPacket[]>(
         `SELECT i.id, i.amount, i.status,
                 COALESCE(SUM(CASE WHEN p.status = 'verified' AND p.deleted_at IS NULL THEN p.amount ELSE 0 END), 0) as total_paid
          FROM invoices i
@@ -352,7 +353,7 @@ export class BillingService {
         );
       }
 
-      const [result] = await conn.query<any>(
+      const [result] = await conn.query<ResultSetHeader>(
         `INSERT INTO payments (invoice_id, amount, payment_method, reference_number,
          payment_date, status) VALUES (?, ?, ?, ?, CURRENT_DATE, 'verified')`,
         [invoiceId, amount, paymentMethod, reference ?? null]

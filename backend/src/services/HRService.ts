@@ -1,6 +1,7 @@
 import { getPool } from '../config/database.js';
 import { ProfileChangeRepository, ProfileChange } from '../repositories/ProfileChangeRepository.js';
 import { UserRepository } from '../repositories/UserRepository.js';
+import type { RowDataPacket } from 'mysql2/promise';
 
 // Safe column mapping — prevents SQL injection even if profile_changes table is compromised
 const PROFILE_CHANGE_COLUMN_MAP: Record<string, string> = {
@@ -45,16 +46,16 @@ export class HRService {
     const pool = getPool();
 
     const [[pending], [activeInstructors], [orgs], [expiring], recentChanges, pendingList] = await Promise.all([
-      pool.query<any[]>(`SELECT COUNT(*) as count FROM profile_changes WHERE status = 'pending'`),
-      pool.query<any[]>(
+      pool.query<RowDataPacket[]>(`SELECT COUNT(*) as count FROM profile_changes WHERE status = 'pending'`),
+      pool.query<RowDataPacket[]>(
         `SELECT COUNT(*) as count FROM users WHERE role = 'instructor' AND id IN (
            SELECT DISTINCT instructor_id FROM course_requests
            WHERE status IN ('confirmed', 'completed')
            AND created_at >= NOW() - INTERVAL 30 DAY
          )`
       ),
-      pool.query<any[]>(`SELECT COUNT(*) as count FROM organizations`),
-      pool.query<any[]>(
+      pool.query<RowDataPacket[]>(`SELECT COUNT(*) as count FROM organizations`),
+      pool.query<RowDataPacket[]>(
         `SELECT COUNT(*) as count FROM certifications
          WHERE expiration_date BETWEEN NOW() AND NOW() + INTERVAL 30 DAY`
       ),
@@ -84,7 +85,7 @@ export class HRService {
       params.push(`%${options.search}%`, `%${options.search}%`);
     }
 
-    const [rows] = await pool.query<any[]>(
+    const [rows] = await pool.query<RowDataPacket[]>(
       `SELECT u.id, u.username, u.email, u.phone, u.created_at, u.updated_at,
               COUNT(DISTINCT cr.id) as total_courses,
               COUNT(DISTINCT CASE WHEN cr.status = 'completed' THEN cr.id END) as completed_courses,
@@ -99,7 +100,7 @@ export class HRService {
       [...params, safeLimit, offset]
     );
 
-    const [countRows] = await pool.query<any[]>(
+    const [countRows] = await pool.query<RowDataPacket[]>(
       `SELECT COUNT(*) as total FROM users WHERE role = 'instructor' AND status = 'active' ${searchClause}`,
       params
     );
@@ -126,7 +127,7 @@ export class HRService {
     try {
       await conn.beginTransaction();
 
-      const [changeRows] = await conn.query<any[]>(
+      const [changeRows] = await conn.query<RowDataPacket[]>(
         `SELECT * FROM profile_changes WHERE id = ? AND status = 'pending'`,
         [changeId]
       );
@@ -164,7 +165,7 @@ export class HRService {
   async getUserProfile(userId: number) {
     const pool = getPool();
 
-    const [userRows] = await pool.query<any[]>(
+    const [userRows] = await pool.query<RowDataPacket[]>(
       `SELECT u.*, o.name as organization_name
        FROM users u LEFT JOIN organizations o ON u.organization_id = o.id
        WHERE u.id = ?`,
@@ -176,9 +177,9 @@ export class HRService {
 
     const profileChanges = await this.profileChangeRepo.findByUserId(userId);
 
-    let courseHistory: any[] = [];
+    let courseHistory: RowDataPacket[] = [];
     if (user.role === 'instructor') {
-      const [courses] = await pool.query<any[]>(
+      const [courses] = await pool.query<RowDataPacket[]>(
         `SELECT cr.*, ct.name as course_type_name, o.name as organization_name
          FROM course_requests cr
          LEFT JOIN class_types ct ON cr.course_type_id = ct.id
@@ -198,7 +199,7 @@ export class HRService {
     const safeLimit = Math.min(options.limit, 100);
     const offset = (options.page - 1) * safeLimit;
 
-    const [rows] = await pool.query<any[]>(
+    const [rows] = await pool.query<RowDataPacket[]>(
       `SELECT pr.*, u.username as instructor_name, u.email as instructor_email,
               t.week_start_date, t.total_hours, t.courses_taught, t.hr_comment as timesheet_comment,
               COALESCE(ipr.hourly_rate, 25.00) as hourly_rate,
@@ -218,7 +219,7 @@ export class HRService {
       [safeLimit, offset]
     );
 
-    const [countRows] = await pool.query<any[]>(
+    const [countRows] = await pool.query<RowDataPacket[]>(
       `SELECT COUNT(*) as total FROM payment_requests WHERE status = 'returned_to_hr'`
     );
 
@@ -237,7 +238,7 @@ export class HRService {
     try {
       await conn.beginTransaction();
 
-      const [requestRows] = await conn.query<any[]>(
+      const [requestRows] = await conn.query<RowDataPacket[]>(
         `SELECT * FROM payment_requests WHERE id = ? AND status = 'returned_to_hr'`,
         [requestId]
       );

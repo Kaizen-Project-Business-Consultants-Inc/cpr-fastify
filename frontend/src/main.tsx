@@ -12,6 +12,7 @@ import ErrorBoundary from './components/common/ErrorBoundary';
 import ToastContainer from './components/common/ToastContainer';
 import TokenValidationProvider from './components/TokenValidationProvider';
 import App from './App';
+import { initTaxConfig } from './utils/formatters';
 import './index.css';
 
 // Global error handlers — capture unhandled errors in all environments
@@ -58,6 +59,10 @@ const handleRootError = (error: Error, errorInfo: React.ErrorInfo) => {
   console.error('[Root Error Boundary] Critical application error:', error, errorInfo);
 };
 
+// Fetch the authoritative tax rate from GET /config. Never rejects; the build-time
+// value stays if the request fails, so this must not block the first render.
+void initTaxConfig();
+
 try {
   const rootElement = document.getElementById('root');
   if (!rootElement) throw new Error('Root element not found');
@@ -91,7 +96,7 @@ try {
       </ErrorBoundary>
     </React.StrictMode>
   );
-} catch (error: any) {
+} catch (error) {
   console.error('[main.tsx] Fatal Error', error);
   document.body.innerHTML = `
     <div style="color: red; padding: 20px;">

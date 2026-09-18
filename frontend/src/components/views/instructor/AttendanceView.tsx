@@ -3,6 +3,7 @@ import {
   Box,
   Typography,
   Select,
+  SelectChangeEvent,
   MenuItem,
   FormControl,
   InputLabel,
@@ -15,8 +16,6 @@ import {
   DialogActions,
   TextField,
 } from '@mui/material';
-import { useAuth } from '../../../contexts/AuthContext';
-import { useNavigate } from 'react-router-dom';
 import { useTodayClasses, useClassStudents, useMarkAttendance } from '../../../services/instructorService';
 import { instructorApi } from '../../../services/api';
 import { handleError } from '../../../services/errorHandler';
@@ -31,36 +30,59 @@ const studentColumns = [
   { key: 'status', label: 'STATUS', width: '0.7fr' },
 ];
 
-const AttendanceView = ({ onAttendanceUpdate }: { onAttendanceUpdate: any }) => {
-  const { logout } = useAuth();
-  const navigate = useNavigate();
+interface TodayClass {
+  courseId: number;
+  name: string;
+  organizationName: string;
+  startTime?: string;
+  endTime?: string;
+  location?: string;
+}
 
-  const [selectedClass, setSelectedClass] = useState<any>(null);
-  const [students, setStudents] = useState<any[]>([]);
-  const [studentsLoading, setStudentsLoading] = useState(false);
+interface AttendanceStudent {
+  studentId: number;
+  firstName: string;
+  lastName: string;
+  email?: string;
+  attendance?: boolean;
+  attendanceMarked?: boolean;
+}
+
+const AttendanceView = ({ onAttendanceUpdate }: { onAttendanceUpdate?: () => void }) => {
+  const [selectedClass, setSelectedClass] = useState<TodayClass | null>(null);
+  const [students, setStudents] = useState<AttendanceStudent[]>([]);
   const [error, setError] = useState('');
   const [addStudentDialog, setAddStudentDialog] = useState(false);
   const [newStudent, setNewStudent] = useState({ firstName: '', lastName: '', email: '' });
 
-  const { data: todaysClasses = [], isLoading: loading, error: classesError } = useTodayClasses();
-  const { data: classStudents = [], isLoading: studentsQueryLoading } = useClassStudents(selectedClass?.courseId);
+  const { data: todaysClasses = [] as TodayClass[], isLoading: loading, error: classesError } = useTodayClasses();
+  const { data: classStudents = [] as AttendanceStudent[], isLoading: studentsLoading } = useClassStudents(selectedClass?.courseId as number);
   const markAttendanceMutation = useMarkAttendance();
 
+  // Seeds the locally-editable roster from the query result whenever the selected
+  // class (and therefore the fetched roster) changes; students are then mutated
+  // locally for optimistic UI updates independent of the query cache.
   useEffect(() => {
-    if (classStudents && selectedClass) setStudents(classStudents);
+    if (classStudents && selectedClass) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setStudents(classStudents as AttendanceStudent[]);
+    }
   }, [classStudents, selectedClass]);
 
   useEffect(() => {
-    if (classesError) setError('Failed to load today\'s classes');
+    if (classesError) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setError('Failed to load today\'s classes');
+    }
   }, [classesError]);
 
-  const handleClassChange = (event: any) => {
+  const handleClassChange = (event: SelectChangeEvent<number | string>) => {
     const classId = event.target.value;
-    const selected = todaysClasses.find((c: any) => c.courseId === classId);
-    setSelectedClass(selected);
+    const selected = (todaysClasses as TodayClass[]).find((c) => c.courseId === classId);
+    setSelectedClass(selected ?? null);
   };
 
-  const handleAttendanceChange = async (studentId: any, attended: any) => {
+  const handleAttendanceChange = async (studentId: number, attended: boolean) => {
     if (!selectedClass) return;
     try {
       setStudents(prev => prev.map(student =>
@@ -70,11 +92,11 @@ const AttendanceView = ({ onAttendanceUpdate }: { onAttendanceUpdate: any }) => 
         courseId: selectedClass.courseId,
         students: students.map(student => ({
           studentId: student.studentId,
-          attended: student.studentId === studentId ? attended : student.attendance,
+          attended: student.studentId === studentId ? attended : !!student.attendance,
         })),
       });
       if (onAttendanceUpdate) onAttendanceUpdate();
-    } catch (error: any) {
+    } catch (error) {
       handleError(error, { component: 'AttendanceView', action: 'update attendance' });
       setError('Failed to update attendance');
     }
@@ -92,13 +114,13 @@ const AttendanceView = ({ onAttendanceUpdate }: { onAttendanceUpdate: any }) => 
       setAddStudentDialog(false);
       setError('');
       if (onAttendanceUpdate) onAttendanceUpdate();
-    } catch (error: any) {
+    } catch (error) {
       handleError(error, { component: 'AttendanceView', action: 'add student' });
       setError('Failed to add student');
     }
   };
 
-  const formatTime = (timeString: any) => {
+  const formatTime = (timeString?: string) => {
     if (!timeString) return '';
     return timeString.slice(0, 5);
   };
@@ -128,7 +150,7 @@ const AttendanceView = ({ onAttendanceUpdate }: { onAttendanceUpdate: any }) => 
             <FormControl fullWidth>
               <InputLabel>Today's Classes</InputLabel>
               <Select value={selectedClass?.courseId || ''} label="Today's Classes" onChange={handleClassChange}>
-                {todaysClasses.map((course: any) => (
+                {(todaysClasses as TodayClass[]).map((course) => (
                   <MenuItem key={course.courseId} value={course.courseId}>
                     <Box>
                       <Typography sx={{ fontSize: 13.5, fontWeight: 600, color: (theme) => theme.palette.text.primary }}>{course.name} - {course.organizationName}</Typography>
@@ -154,7 +176,7 @@ const AttendanceView = ({ onAttendanceUpdate }: { onAttendanceUpdate: any }) => 
                 <Box sx={{ display: 'flex', gap: 1 }}>
                   <StatusChip kind="neutral" label={`${formatTime(selectedClass.startTime)} - ${formatTime(selectedClass.endTime)}`} />
                   <StatusChip kind="neutral" label={`${students.length} Students`} />
-                  <StatusChip kind="neutral" label={selectedClass.location} />
+                  <StatusChip kind="neutral" label={selectedClass.location || '—'} />
                 </Box>
               </Box>
 

@@ -4,6 +4,8 @@ import React, {
   useState,
   useEffect,
   useCallback,
+  useMemo,
+  useRef,
   ReactNode,
 } from 'react';
 import logger from '../utils/logger';
@@ -79,6 +81,22 @@ interface NetworkContextType {
 
 const NetworkContext = createContext<NetworkContextType | undefined>(undefined);
 
+// Pure: connection quality is derived only from the status passed in.
+const getConnectionQuality = (
+  status: NetworkStatus
+): 'excellent' | 'good' | 'fair' | 'poor' | 'offline' => {
+  if (!status.isOnline) return 'offline';
+
+  const { downlink, rtt, effectiveType } = status;
+
+  // Based on effective connection type
+  if (effectiveType === '4g' && downlink > 10 && rtt < 100) return 'excellent';
+  if (effectiveType === '4g' && downlink > 5 && rtt < 200) return 'good';
+  if (effectiveType === '3g' || (downlink > 1.5 && rtt < 500)) return 'fair';
+
+  return 'poor';
+};
+
 interface NetworkProviderProps {
   children: ReactNode;
   enableOfflineQueue?: boolean;
@@ -108,30 +126,24 @@ export const NetworkProvider: React.FC<NetworkProviderProps> = ({
   const [queuedRequests, setQueuedRequests] = useState<QueuedRequest[]>([]);
   const [isProcessingQueue, setIsProcessingQueue] = useState(false);
 
-  // Monitoring state
-  const [isMonitoring, setIsMonitoring] = useState(false);
-  const [syncTimer, setSyncTimer] = useState<NodeJS.Timeout | null>(null);
+  // Monitoring bookkeeping. These are refs, not state: as state they changed the identity of
+  // startNetworkMonitoring/stopNetworkMonitoring on every tick, which re-ran the mount effect
+  // (start -> setState -> new callbacks -> stop/start ...) and re-rendered every consumer.
+  const isMonitoringRef = useRef(false);
+  const syncTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // Get connection quality based on network metrics
-  const getConnectionQuality = useCallback(
-    (
-      status: NetworkStatus
-    ): 'excellent' | 'good' | 'fair' | 'poor' | 'offline' => {
-      if (!status.isOnline) return 'offline';
+  // Mirrors of state that the stable callbacks below read without depending on it.
+  const isOnlineRef = useRef(isOnline);
+  const isProcessingQueueRef = useRef(false);
+  const queuedRequestsRef = useRef<QueuedRequest[]>(queuedRequests);
 
-      const { downlink, rtt, effectiveType } = status;
+  useEffect(() => {
+    isOnlineRef.current = isOnline;
+  }, [isOnline]);
 
-      // Based on effective connection type
-      if (effectiveType === '4g' && downlink > 10 && rtt < 100)
-        return 'excellent';
-      if (effectiveType === '4g' && downlink > 5 && rtt < 200) return 'good';
-      if (effectiveType === '3g' || (downlink > 1.5 && rtt < 500))
-        return 'fair';
-
-      return 'poor';
-    },
-    []
-  );
+  useEffect(() => {
+    queuedRequestsRef.current = queuedRequests;
+  }, [queuedRequests]);
 
   // Update network status from Navigator API
   const updateNetworkStatus = useCallback(() => {
@@ -165,62 +177,6 @@ export const NetworkProvider: React.FC<NetworkProviderProps> = ({
 
     return newStatus;
   }, []);
-
-  // Handle online event
-  const handleOnline = useCallback(() => {
-    logger.info('[NetworkContext] Connection restored');
-    updateNetworkStatus();
-
-    // Track reconnection
-    analytics.trackInstructorAction('network_reconnected', {
-      timestamp: new Date().toISOString(),
-      queuedRequestsCount: queuedRequests.length,
-    });
-
-    // Process queued requests when coming back online
-    if (enableOfflineQueue && queuedRequests.length > 0) {
-      processQueue();
-    }
-  }, [queuedRequests.length, enableOfflineQueue]);
-
-  // Handle offline event
-  const handleOffline = useCallback(() => {
-    logger.warn('[NetworkContext] Connection lost');
-    updateNetworkStatus();
-
-    // Track disconnection
-    analytics.trackInstructorAction('network_disconnected', {
-      timestamp: new Date().toISOString(),
-    });
-  }, []);
-
-  // Handle connection change
-  const handleConnectionChange = useCallback(() => {
-    const newStatus = updateNetworkStatus();
-
-    // Track connection quality changes
-    const quality = getConnectionQuality(newStatus);
-    analytics.trackPerformance({
-      name: 'network_quality_change',
-      value:
-        quality === 'excellent'
-          ? 4
-          : quality === 'good'
-            ? 3
-            : quality === 'fair'
-              ? 2
-              : quality === 'poor'
-                ? 1
-                : 0,
-      timestamp: new Date().toISOString(),
-      metadata: {
-        connectionType: newStatus.connectionType,
-        effectiveType: newStatus.effectiveType,
-        downlink: newStatus.downlink,
-        rtt: newStatus.rtt,
-      },
-    });
-  }, [getConnectionQuality, updateNetworkStatus]);
 
   // Queue a request for later processing
   const queueRequest = useCallback(
@@ -261,13 +217,16 @@ export const NetworkProvider: React.FC<NetworkProviderProps> = ({
 
   // Process all queued requests
   const processQueue = useCallback(async () => {
-    if (!isOnline || isProcessingQueue || queuedRequests.length === 0) {
+    const pending = queuedRequestsRef.current;
+
+    if (!isOnlineRef.current || isProcessingQueueRef.current || pending.length === 0) {
       return;
     }
 
+    isProcessingQueueRef.current = true;
     setIsProcessingQueue(true);
     logger.info(
-      `[NetworkContext] Processing ${queuedRequests.length} queued requests`
+      `[NetworkContext] Processing ${pending.length} queued requests`
     );
 
     const results = {
@@ -276,7 +235,7 @@ export const NetworkProvider: React.FC<NetworkProviderProps> = ({
       retried: 0,
     };
 
-    for (const request of queuedRequests) {
+    for (const request of pending) {
       try {
         // Simulate API call (replace with actual fetch logic)
         const response = await fetch(request.url, {
@@ -297,7 +256,7 @@ export const NetworkProvider: React.FC<NetworkProviderProps> = ({
         } else {
           throw new Error(`HTTP ${response.status}: ${response.statusText}`);
         }
-      } catch (error: any) {
+      } catch (error) {
         logger.error(
           `[NetworkContext] Queued request failed: ${request.method} ${request.url}`,
           error
@@ -320,17 +279,18 @@ export const NetworkProvider: React.FC<NetworkProviderProps> = ({
       }
     }
 
+    isProcessingQueueRef.current = false;
     setIsProcessingQueue(false);
 
     // Track queue processing results
     analytics.trackInstructorAction('queue_processed', {
       ...results,
-      totalRequests: queuedRequests.length,
+      totalRequests: pending.length,
       timestamp: new Date().toISOString(),
     });
 
     logger.info('[NetworkContext] Queue processing completed:', results);
-  }, [isOnline, isProcessingQueue, queuedRequests, removeQueuedRequest]);
+  }, [removeQueuedRequest]);
 
   // Clear all queued requests
   const clearQueue = useCallback(() => {
@@ -338,9 +298,66 @@ export const NetworkProvider: React.FC<NetworkProviderProps> = ({
     logger.info('[NetworkContext] Queue cleared');
   }, []);
 
+  // Handle online event
+  const handleOnline = useCallback(() => {
+    logger.info('[NetworkContext] Connection restored');
+    updateNetworkStatus();
+
+    // Track reconnection
+    analytics.trackInstructorAction('network_reconnected', {
+      timestamp: new Date().toISOString(),
+      queuedRequestsCount: queuedRequestsRef.current.length,
+    });
+
+    // Process queued requests when coming back online
+    if (enableOfflineQueue && queuedRequestsRef.current.length > 0) {
+      processQueue();
+    }
+  }, [enableOfflineQueue, processQueue, updateNetworkStatus]);
+
+  // Handle offline event
+  const handleOffline = useCallback(() => {
+    logger.warn('[NetworkContext] Connection lost');
+    updateNetworkStatus();
+
+    // Track disconnection
+    analytics.trackInstructorAction('network_disconnected', {
+      timestamp: new Date().toISOString(),
+    });
+  }, [updateNetworkStatus]);
+
+  // Handle connection change
+  const handleConnectionChange = useCallback(() => {
+    const newStatus = updateNetworkStatus();
+
+    // Track connection quality changes
+    const quality = getConnectionQuality(newStatus);
+    analytics.trackPerformance({
+      name: 'network_quality_change',
+      value:
+        quality === 'excellent'
+          ? 4
+          : quality === 'good'
+            ? 3
+            : quality === 'fair'
+              ? 2
+              : quality === 'poor'
+                ? 1
+                : 0,
+      timestamp: new Date().toISOString(),
+      metadata: {
+        connectionType: newStatus.connectionType,
+        effectiveType: newStatus.effectiveType,
+        downlink: newStatus.downlink,
+        rtt: newStatus.rtt,
+      },
+    });
+  }, [updateNetworkStatus]);
+
   // Start network monitoring
   const startNetworkMonitoring = useCallback(() => {
-    if (isMonitoring) return;
+    if (isMonitoringRef.current) return;
+    isMonitoringRef.current = true;
 
     // Add event listeners
     window.addEventListener('online', handleOnline);
@@ -357,34 +374,30 @@ export const NetworkProvider: React.FC<NetworkProviderProps> = ({
 
     // Set up periodic sync
     if (enableOfflineQueue && syncInterval > 0) {
-      const timer = setInterval(() => {
-        if (isOnline && queuedRequests.length > 0) {
+      syncTimerRef.current = setInterval(() => {
+        if (isOnlineRef.current && queuedRequestsRef.current.length > 0) {
           processQueue();
         }
       }, syncInterval);
-      setSyncTimer(timer);
     }
 
-    setIsMonitoring(true);
     updateNetworkStatus();
 
     logger.info('[NetworkContext] Network monitoring started');
   }, [
-    isMonitoring,
     handleOnline,
     handleOffline,
     handleConnectionChange,
     enableOfflineQueue,
     syncInterval,
-    isOnline,
-    queuedRequests.length,
     processQueue,
     updateNetworkStatus,
   ]);
 
   // Stop network monitoring
   const stopNetworkMonitoring = useCallback(() => {
-    if (!isMonitoring) return;
+    if (!isMonitoringRef.current) return;
+    isMonitoringRef.current = false;
 
     // Remove event listeners
     window.removeEventListener('online', handleOnline);
@@ -399,20 +412,13 @@ export const NetworkProvider: React.FC<NetworkProviderProps> = ({
     }
 
     // Clear sync timer
-    if (syncTimer) {
-      clearInterval(syncTimer);
-      setSyncTimer(null);
+    if (syncTimerRef.current) {
+      clearInterval(syncTimerRef.current);
+      syncTimerRef.current = null;
     }
 
-    setIsMonitoring(false);
     logger.info('[NetworkContext] Network monitoring stopped');
-  }, [
-    isMonitoring,
-    handleOnline,
-    handleOffline,
-    handleConnectionChange,
-    syncTimer,
-  ]);
+  }, [handleOnline, handleOffline, handleConnectionChange]);
 
   // Utility functions
   const canMakeRequest = useCallback(() => {
@@ -440,7 +446,7 @@ export const NetworkProvider: React.FC<NetworkProviderProps> = ({
       default:
         return 'Connection status unknown.';
     }
-  }, [networkStatus, getConnectionQuality]);
+  }, [networkStatus]);
 
   // Auto-start monitoring on mount
   useEffect(() => {
@@ -457,12 +463,14 @@ export const NetworkProvider: React.FC<NetworkProviderProps> = ({
         const saved = localStorage.getItem('networkQueue');
         if (saved) {
           const parsed = JSON.parse(saved);
+          // Synchronizing with an external system (localStorage) on mount, not derived state.
+          // eslint-disable-next-line react-hooks/set-state-in-effect
           setQueuedRequests(parsed);
           logger.info(
             `[NetworkContext] Loaded ${parsed.length} requests from storage`
           );
         }
-      } catch (error: any) {
+      } catch (error) {
         logger.error(
           '[NetworkContext] Failed to load queue from storage:',
           error
@@ -476,7 +484,7 @@ export const NetworkProvider: React.FC<NetworkProviderProps> = ({
     if (enableOfflineQueue) {
       try {
         localStorage.setItem('networkQueue', JSON.stringify(queuedRequests));
-      } catch (error: any) {
+      } catch (error) {
         logger.error(
           '[NetworkContext] Failed to save queue to storage:',
           error
@@ -487,32 +495,53 @@ export const NetworkProvider: React.FC<NetworkProviderProps> = ({
 
   const connectionQuality = getConnectionQuality(networkStatus);
 
-  const value: NetworkContextType = {
-    // Network status
-    isOnline,
-    isSlowConnection,
-    networkStatus,
-    connectionQuality,
+  // Memoised: without this every consumer re-rendered whenever the provider ticked.
+  // Every function in here is useCallback-stable, so the identity only changes with real state.
+  const value = useMemo<NetworkContextType>(
+    () => ({
+      // Network status
+      isOnline,
+      isSlowConnection,
+      networkStatus,
+      connectionQuality,
 
-    // Offline capabilities
-    queuedRequests,
-    isProcessingQueue,
+      // Offline capabilities
+      queuedRequests,
+      isProcessingQueue,
 
-    // Actions
-    queueRequest,
-    removeQueuedRequest,
-    processQueue,
-    clearQueue,
+      // Actions
+      queueRequest,
+      removeQueuedRequest,
+      processQueue,
+      clearQueue,
 
-    // Network monitoring
-    startNetworkMonitoring,
-    stopNetworkMonitoring,
+      // Network monitoring
+      startNetworkMonitoring,
+      stopNetworkMonitoring,
 
-    // Utilities
-    canMakeRequest,
-    shouldQueueRequest,
-    getNetworkAdvice,
-  };
+      // Utilities
+      canMakeRequest,
+      shouldQueueRequest,
+      getNetworkAdvice,
+    }),
+    [
+      isOnline,
+      isSlowConnection,
+      networkStatus,
+      connectionQuality,
+      queuedRequests,
+      isProcessingQueue,
+      queueRequest,
+      removeQueuedRequest,
+      processQueue,
+      clearQueue,
+      startNetworkMonitoring,
+      stopNetworkMonitoring,
+      canMakeRequest,
+      shouldQueueRequest,
+      getNetworkAdvice,
+    ]
+  );
 
   return (
     <NetworkContext.Provider value={value}>{children}</NetworkContext.Provider>

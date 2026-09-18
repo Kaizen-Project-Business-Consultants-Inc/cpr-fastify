@@ -1,6 +1,5 @@
 import { api } from './api';
 import { tokenService } from './tokenService';
-import { AxiosError } from 'axios';
 
 const isDev = import.meta.env.DEV;
 // eslint-disable-next-line no-console
@@ -71,7 +70,7 @@ export const authService = {
         throw new Error(response.data.error?.message || 'Login failed');
       }
 
-      const { user, accessToken, sessionId } = response.data.data;
+      const { accessToken } = response.data.data;
 
       if (!accessToken) {
         throw new Error('No access token received from server');
@@ -84,7 +83,7 @@ export const authService = {
       // Token is stored in tokenService; interceptor adds Bearer header automatically
 
       return response.data.data;
-    } catch (error: any) {
+    } catch (error) {
       logError('[AUTH] Login error:', error instanceof Error ? error.message : 'Unknown error');
       throw error;
     }
@@ -148,7 +147,7 @@ export const authService = {
         });
 
       return refreshPromise;
-    } catch (error: any) {
+    } catch (error) {
       logError('[AUTH] Unexpected refresh error:', error);
       throw error;
     }
@@ -175,7 +174,7 @@ export const authService = {
         throw new Error(response.data.error?.message || 'Registration failed');
       }
 
-      const { user, accessToken } = response.data.data;
+      const { accessToken } = response.data.data;
 
       // Store the tokens
       if (accessToken) {
@@ -184,7 +183,7 @@ export const authService = {
       }
 
       return response.data.data;
-    } catch (error: any) {
+    } catch (error) {
       throw error;
     }
   },
@@ -260,7 +259,7 @@ export const authService = {
         });
 
       return authCheckPromise;
-    } catch (error: any) {
+    } catch (error) {
       logError('[AUTH] Unexpected error:', error);
       throw error;
     }

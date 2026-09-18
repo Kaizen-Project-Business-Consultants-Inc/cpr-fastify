@@ -1,4 +1,4 @@
-import { PoolConnection } from 'mysql2/promise';
+import { PoolConnection, RowDataPacket, ResultSetHeader } from 'mysql2/promise';
 import { getPool } from '../config/database.js';
 import { logger } from '../config/logger.js';
 
@@ -29,7 +29,7 @@ export class InvoiceNumberService {
    */
   async allocate(orgId: number, conn: PoolConnection): Promise<string> {
     // Lock the sequence row (or discover it doesn't exist)
-    const [rows] = await conn.query<any[]>(
+    const [rows] = await conn.query<(RowDataPacket & InvoiceSequence)[]>(
       'SELECT * FROM invoice_number_sequences WHERE organization_id = ? FOR UPDATE',
       [orgId]
     );
@@ -72,7 +72,7 @@ export class InvoiceNumberService {
    */
   async preview(orgId: number): Promise<string> {
     const pool = getPool();
-    const [rows] = await pool.query<any[]>(
+    const [rows] = await pool.query<(RowDataPacket & InvoiceSequence)[]>(
       'SELECT * FROM invoice_number_sequences WHERE organization_id = ?',
       [orgId]
     );
@@ -94,7 +94,7 @@ export class InvoiceNumberService {
    */
   async getSequence(orgId: number): Promise<InvoiceSequence | null> {
     const pool = getPool();
-    const [rows] = await pool.query<any[]>(
+    const [rows] = await pool.query<(RowDataPacket & InvoiceSequence)[]>(
       'SELECT * FROM invoice_number_sequences WHERE organization_id = ?',
       [orgId]
     );
@@ -104,9 +104,9 @@ export class InvoiceNumberService {
   /**
    * Get all configured sequences.
    */
-  async getAllSequences(): Promise<any[]> {
+  async getAllSequences(): Promise<(InvoiceSequence & { organization_name: string })[]> {
     const pool = getPool();
-    const [rows] = await pool.query<any[]>(
+    const [rows] = await pool.query<(RowDataPacket & InvoiceSequence & { organization_name: string })[]>(
       `SELECT s.*, o.name as organization_name
        FROM invoice_number_sequences s
        JOIN organizations o ON s.organization_id = o.id
@@ -150,7 +150,7 @@ export class InvoiceNumberService {
       ]
     );
 
-    const [rows] = await pool.query<any[]>(
+    const [rows] = await pool.query<(RowDataPacket & InvoiceSequence)[]>(
       'SELECT * FROM invoice_number_sequences WHERE organization_id = ?',
       [orgId]
     );
@@ -164,7 +164,7 @@ export class InvoiceNumberService {
    */
   async deleteSequence(orgId: number): Promise<boolean> {
     const pool = getPool();
-    const [result] = await pool.query<any>(
+    const [result] = await pool.query<ResultSetHeader>(
       'DELETE FROM invoice_number_sequences WHERE organization_id = ?',
       [orgId]
     );

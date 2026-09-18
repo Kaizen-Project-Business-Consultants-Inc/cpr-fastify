@@ -1,4 +1,5 @@
 import { BaseRepository } from './BaseRepository.js';
+import { paginatedQuery, type PaginationParams, type PaginatedResult } from '../utils/pagination.js';
 
 export interface CourseRequest {
   id: number;
@@ -43,83 +44,102 @@ export class CourseRequestRepository extends BaseRepository<CourseRequest> {
     super('course_requests');
   }
 
-  async findByStatus(status: string | string[]): Promise<CourseWithDetails[]> {
+  /**
+   * Shared FROM/JOIN block for the list queries. Kept in one place so a
+   * paginated count query can never drift from its data query.
+   */
+  private static readonly LIST_FROM = `
+       FROM course_requests cr
+       LEFT JOIN class_types ct ON cr.course_type_id = ct.id
+       LEFT JOIN organizations o ON cr.organization_id = o.id
+       LEFT JOIN users u ON cr.instructor_id = u.id`;
+
+  private static readonly LIST_COLS = `cr.*, cr.date_requested as request_submitted_date,
+              ct.name as course_type_name,
+              o.name as organization_name,
+              u.username as instructor_name,
+              (SELECT COUNT(*) FROM course_students cs
+               WHERE cs.course_request_id = cr.id AND cs.attended = true) AS students_attended`;
+
+  /**
+   * Run a list query either unbounded (no `pagination` — today's behaviour) or
+   * paginated. `where`/`params` are shared by the data and count queries.
+   */
+  private async listCourses(
+    where: string,
+    orderBy: string,
+    params: unknown[],
+    pagination?: PaginationParams,
+  ): Promise<CourseWithDetails[] | PaginatedResult<CourseWithDetails>> {
+    const dataSQL = `SELECT ${CourseRequestRepository.LIST_COLS}
+       ${CourseRequestRepository.LIST_FROM}
+       ${where}
+       ORDER BY ${orderBy}`;
+
+    if (pagination) {
+      return paginatedQuery<CourseWithDetails>(
+        dataSQL,
+        `SELECT COUNT(*) as count ${CourseRequestRepository.LIST_FROM} ${where}`,
+        params,
+        pagination,
+      );
+    }
+    return this.query<CourseWithDetails>(dataSQL, params);
+  }
+
+  async findByStatus(status: string | string[]): Promise<CourseWithDetails[]>;
+  async findByStatus(status: string | string[], pagination: PaginationParams): Promise<PaginatedResult<CourseWithDetails>>;
+  async findByStatus(
+    status: string | string[],
+    pagination?: PaginationParams,
+  ): Promise<CourseWithDetails[] | PaginatedResult<CourseWithDetails>> {
     const statuses = Array.isArray(status) ? status : [status];
     const placeholders = statuses.map(() => '?').join(', ');
 
-    return this.query<CourseWithDetails>(
-      `SELECT cr.*, cr.date_requested as request_submitted_date,
-              ct.name as course_type_name,
-              o.name as organization_name,
-              u.username as instructor_name,
-              (SELECT COUNT(*) FROM course_students cs
-               WHERE cs.course_request_id = cr.id AND cs.attended = true) AS students_attended
-       FROM course_requests cr
-       LEFT JOIN class_types ct ON cr.course_type_id = ct.id
-       LEFT JOIN organizations o ON cr.organization_id = o.id
-       LEFT JOIN users u ON cr.instructor_id = u.id
-       WHERE cr.status IN (${placeholders})
-       AND cr.deleted_at IS NULL
-       ORDER BY cr.scheduled_date ASC`,
-      statuses
+    return this.listCourses(
+      `WHERE cr.status IN (${placeholders}) AND cr.deleted_at IS NULL`,
+      'cr.scheduled_date ASC',
+      statuses,
+      pagination,
     );
   }
 
-  async findPending(): Promise<CourseWithDetails[]> {
-    return this.query<CourseWithDetails>(
-      `SELECT cr.*, cr.date_requested as request_submitted_date,
-              ct.name as course_type_name,
-              o.name as organization_name,
-              (SELECT COUNT(*) FROM course_students cs
-               WHERE cs.course_request_id = cr.id AND cs.attended = true) AS students_attended
-       FROM course_requests cr
-       LEFT JOIN class_types ct ON cr.course_type_id = ct.id
-       LEFT JOIN organizations o ON cr.organization_id = o.id
-       WHERE cr.status IN ('pending', 'past_due')
-       AND cr.deleted_at IS NULL
-       ORDER BY
-         CASE WHEN cr.status = 'past_due' THEN 0 ELSE 1 END,
-         cr.scheduled_date ASC`
+  async findPending(): Promise<CourseWithDetails[]>;
+  async findPending(pagination: PaginationParams): Promise<PaginatedResult<CourseWithDetails>>;
+  async findPending(pagination?: PaginationParams) {
+    return this.listCourses(
+      `WHERE cr.status IN ('pending', 'past_due') AND cr.deleted_at IS NULL`,
+      `CASE WHEN cr.status = 'past_due' THEN 0 ELSE 1 END, cr.scheduled_date ASC`,
+      [],
+      pagination,
     );
   }
 
-  async findConfirmed(): Promise<CourseWithDetails[]> {
-    return this.findByStatus('confirmed');
+  async findConfirmed(): Promise<CourseWithDetails[]>;
+  async findConfirmed(pagination: PaginationParams): Promise<PaginatedResult<CourseWithDetails>>;
+  async findConfirmed(pagination?: PaginationParams) {
+    return pagination ? this.findByStatus('confirmed', pagination) : this.findByStatus('confirmed');
   }
 
-  async findCompleted(): Promise<CourseWithDetails[]> {
-    return this.query<CourseWithDetails>(
-      `SELECT cr.*, cr.date_requested as request_submitted_date,
-              ct.name as course_type_name,
-              o.name as organization_name,
-              u.username as instructor_name,
-              (SELECT COUNT(*) FROM course_students cs
-               WHERE cs.course_request_id = cr.id AND cs.attended = true) AS students_attended
-       FROM course_requests cr
-       LEFT JOIN class_types ct ON cr.course_type_id = ct.id
-       LEFT JOIN organizations o ON cr.organization_id = o.id
-       LEFT JOIN users u ON cr.instructor_id = u.id
-       WHERE cr.status IN ('completed', 'invoiced')
-       AND cr.deleted_at IS NULL
-       ORDER BY cr.completed_at DESC`
+  async findCompleted(): Promise<CourseWithDetails[]>;
+  async findCompleted(pagination: PaginationParams): Promise<PaginatedResult<CourseWithDetails>>;
+  async findCompleted(pagination?: PaginationParams) {
+    return this.listCourses(
+      `WHERE cr.status IN ('completed', 'invoiced') AND cr.deleted_at IS NULL`,
+      'cr.completed_at DESC',
+      [],
+      pagination,
     );
   }
 
-  async findCancelled(): Promise<CourseWithDetails[]> {
-    return this.query<CourseWithDetails>(
-      `SELECT cr.*, cr.date_requested as request_submitted_date,
-              ct.name as course_type_name,
-              o.name as organization_name,
-              u.username as instructor_name,
-              (SELECT COUNT(*) FROM course_students cs
-               WHERE cs.course_request_id = cr.id AND cs.attended = true) AS students_attended
-       FROM course_requests cr
-       LEFT JOIN class_types ct ON cr.course_type_id = ct.id
-       LEFT JOIN organizations o ON cr.organization_id = o.id
-       LEFT JOIN users u ON cr.instructor_id = u.id
-       WHERE cr.status = 'cancelled'
-       AND cr.deleted_at IS NULL
-       ORDER BY cr.updated_at DESC`
+  async findCancelled(): Promise<CourseWithDetails[]>;
+  async findCancelled(pagination: PaginationParams): Promise<PaginatedResult<CourseWithDetails>>;
+  async findCancelled(pagination?: PaginationParams) {
+    return this.listCourses(
+      `WHERE cr.status = 'cancelled' AND cr.deleted_at IS NULL`,
+      'cr.updated_at DESC',
+      [],
+      pagination,
     );
   }
 

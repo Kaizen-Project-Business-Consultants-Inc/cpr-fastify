@@ -56,7 +56,7 @@ for (const [path, ops] of Object.entries(spec.paths)) {
     if (!op) continue;
     const tag = tagFor(path, op);
     const list = byTag.get(tag) ?? [];
-    const publicRoute = /\/auth\/(login|refresh|logout|forgot-password|recover-password|reset-password)$|\/health$|\/client-errors$/.test(path);
+    const publicRoute = /\/auth\/(login|refresh|logout|forgot-password|recover-password|reset-password)$|\/health$|\/client-errors$|\/config$/.test(path);
     list.push({
       method: method.toUpperCase(),
       path: path.replace(/^\/api\/v1/, ''),

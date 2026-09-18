@@ -4,6 +4,7 @@ import React, {
   useState,
   useCallback,
   useEffect,
+  useMemo,
   ReactNode,
 } from 'react';
 import logger from '../utils/logger';
@@ -40,7 +41,7 @@ export interface Toast {
   actions?: ToastAction[];
   dismissible?: boolean;
   showProgress?: boolean;
-  metadata?: Record<string, any>;
+  metadata?: Record<string, unknown>;
   timestamp: number;
   context?: string; // For analytics tracking
 }
@@ -77,6 +78,22 @@ interface ToastContextType {
   getToastsByPriority: (priority: ToastPriority) => Toast[];
 }
 
+// Priority order for toast management (module scope: pure, no need to re-create per render)
+const getPriorityOrder = (priority: ToastPriority): number => {
+  switch (priority) {
+    case 'critical':
+      return 4;
+    case 'high':
+      return 3;
+    case 'normal':
+      return 2;
+    case 'low':
+      return 1;
+    default:
+      return 2;
+  }
+};
+
 const ToastContext = createContext<ToastContextType | undefined>(undefined);
 
 interface ToastProviderProps {
@@ -107,21 +124,26 @@ export const ToastProvider: React.FC<ToastProviderProps> = ({
     return `toast_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
   }, []);
 
-  // Priority order for toast management
-  const getPriorityOrder = (priority: ToastPriority): number => {
-    switch (priority) {
-      case 'critical':
-        return 4;
-      case 'high':
-        return 3;
-      case 'normal':
-        return 2;
-      case 'low':
-        return 1;
-      default:
-        return 2;
-    }
-  };
+  // Dismiss a specific toast
+  const dismissToast = useCallback(
+    (id: string) => {
+      setToasts(prevToasts => {
+        const toast = prevToasts.find(t => t.id === id);
+        if (toast && enableAnalytics) {
+          analytics.trackInstructorAction('toast_dismissed', {
+            type: toast.type,
+            priority: toast.priority,
+            context: toast.context || 'unknown',
+            duration: Date.now() - toast.timestamp,
+            timestamp: new Date().toISOString(),
+          });
+        }
+
+        return prevToasts.filter(toast => toast.id !== id);
+      });
+    },
+    [enableAnalytics]
+  );
 
   // Show a new toast
   const showToast = useCallback(
@@ -194,28 +216,7 @@ export const ToastProvider: React.FC<ToastProviderProps> = ({
       );
       return id;
     },
-    [generateId, currentDefaultDuration, currentMaxToasts, enableAnalytics]
-  );
-
-  // Dismiss a specific toast
-  const dismissToast = useCallback(
-    (id: string) => {
-      setToasts(prevToasts => {
-        const toast = prevToasts.find(t => t.id === id);
-        if (toast && enableAnalytics) {
-          analytics.trackInstructorAction('toast_dismissed', {
-            type: toast.type,
-            priority: toast.priority,
-            context: toast.context || 'unknown',
-            duration: Date.now() - toast.timestamp,
-            timestamp: new Date().toISOString(),
-          });
-        }
-
-        return prevToasts.filter(toast => toast.id !== id);
-      });
-    },
-    [enableAnalytics]
+    [generateId, currentDefaultDuration, currentMaxToasts, enableAnalytics, dismissToast]
   );
 
   // Dismiss all toasts
@@ -354,7 +355,7 @@ export const ToastProvider: React.FC<ToastProviderProps> = ({
           toast => toast.priority === 'critical' || toast.type === 'error'
         );
         localStorage.setItem('toastQueue', JSON.stringify(persistentToasts));
-      } catch (error: any) {
+      } catch (error) {
         logger.error('[ToastContext] Failed to persist toasts:', error);
       }
     }
@@ -374,13 +375,15 @@ export const ToastProvider: React.FC<ToastProviderProps> = ({
           });
 
           if (validToasts.length > 0) {
+            // Synchronizing with an external system (localStorage) on mount, not derived state.
+            // eslint-disable-next-line react-hooks/set-state-in-effect
             setToasts(validToasts);
             logger.info(
               `[ToastContext] Restored ${validToasts.length} persisted toasts`
             );
           }
         }
-      } catch (error: any) {
+      } catch (error) {
         logger.error('[ToastContext] Failed to load persisted toasts:', error);
       }
     }
@@ -392,36 +395,61 @@ export const ToastProvider: React.FC<ToastProviderProps> = ({
     return () => clearInterval(interval);
   }, [clearExpired]);
 
-  const value: ToastContextType = {
-    // State
-    toasts,
-    maxToasts: currentMaxToasts,
-    defaultDuration: currentDefaultDuration,
-    position: currentPosition,
+  // Memoised: without this every consumer re-rendered whenever the provider ticked.
+  // Every function in here is useCallback-stable, so the identity only changes with real state.
+  const value = useMemo<ToastContextType>(
+    () => ({
+      // State
+      toasts,
+      maxToasts: currentMaxToasts,
+      defaultDuration: currentDefaultDuration,
+      position: currentPosition,
 
-    // Actions
-    showToast,
-    dismissToast,
-    dismissAll,
-    updateToast,
+      // Actions
+      showToast,
+      dismissToast,
+      dismissAll,
+      updateToast,
 
-    // Convenience methods
-    success,
-    error,
-    warning,
-    info,
-    loading,
+      // Convenience methods
+      success,
+      error,
+      warning,
+      info,
+      loading,
 
-    // Configuration
-    setPosition,
-    setMaxToasts,
-    setDefaultDuration,
+      // Configuration
+      setPosition,
+      setMaxToasts,
+      setDefaultDuration,
 
-    // Utilities
-    clearExpired,
-    getToastsByType,
-    getToastsByPriority,
-  };
+      // Utilities
+      clearExpired,
+      getToastsByType,
+      getToastsByPriority,
+    }),
+    [
+      toasts,
+      currentMaxToasts,
+      currentDefaultDuration,
+      currentPosition,
+      showToast,
+      dismissToast,
+      dismissAll,
+      updateToast,
+      success,
+      error,
+      warning,
+      info,
+      loading,
+      setPosition,
+      setMaxToasts,
+      setDefaultDuration,
+      clearExpired,
+      getToastsByType,
+      getToastsByPriority,
+    ]
+  );
 
   // Expose showToast to non-React code (services/errorHandler.ts)
   useEffect(() => {

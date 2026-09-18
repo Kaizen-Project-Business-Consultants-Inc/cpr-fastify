@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Box,
   Typography,
@@ -13,10 +13,12 @@ import {
   DialogActions,
   Grid,
 } from '@mui/material';
-import { formatDisplayDate, formatCurrency, applyTax, HST_LABEL } from '../../../../utils/formatters';
+import { formatDisplayDate, formatCurrency, applyTax, getHSTLabel } from '../../../../utils/formatters';
 import { api } from '../../../../services/api';
 import { useSnackbar } from '../../../../contexts/SnackbarContext';
 import logger from '../../../../utils/logger';
+import useServerPagination from '../../../../hooks/useServerPagination';
+import useDebounce from '../../../../hooks/useDebounce';
 import StatCard from '../../../gtacpr/StatCard';
 import DataTable, { DataTableRow } from '../../../gtacpr/DataTable';
 import StatusChip from '../../../gtacpr/StatusChip';
@@ -53,7 +55,12 @@ interface PaidInvoicesSummary {
 }
 
 interface OrganizationPaidInvoicesProps {
-  invoices: Invoice[];
+  /**
+   * Kept for compatibility with the portal: this screen loads its own page from
+   * `/organization/paid-invoices`. A new array identity (the parent refetching
+   * after a payment) refreshes the page on screen.
+   */
+  invoices?: Invoice[];
   paidInvoicesSummary: PaidInvoicesSummary | undefined;
 }
 
@@ -84,6 +91,40 @@ const getStatusKind = (status: string): 'success' | 'danger' | 'warning' | 'acti
   }
 };
 
+/**
+ * `/organization/paid-invoices` answers
+ * `{ success, data: { invoices, pagination: { current_page, total_pages, total_records, per_page } } }`,
+ * so unwrap the nested list and rename the pagination keys for the hook.
+ */
+interface PaidInvoicesApiEnvelope {
+  data?: {
+    invoices?: Invoice[];
+    pagination?: { current_page?: number; per_page?: number; total_records?: number; total_pages?: number };
+  } | Invoice[];
+}
+
+const toEnvelope = (body: PaidInvoicesApiEnvelope) => {
+  const payload = body?.data;
+  const rows: Invoice[] = Array.isArray(payload)
+    ? payload
+    : Array.isArray(payload?.invoices)
+      ? payload.invoices
+      : [];
+  const p = Array.isArray(payload) ? undefined : payload?.pagination;
+  if (!p) return { data: rows };
+  const limit = Number(p.per_page) || rows.length || 25;
+  const total = Number(p.total_records ?? 0);
+  return {
+    data: rows,
+    pagination: {
+      page: Number(p.current_page) || 1,
+      limit,
+      total,
+      pages: Number(p.total_pages) || (limit > 0 ? Math.ceil(total / limit) : 0),
+    },
+  };
+};
+
 const OrganizationPaidInvoices: React.FC<OrganizationPaidInvoicesProps> = ({
   invoices,
   paidInvoicesSummary,
@@ -95,16 +136,48 @@ const OrganizationPaidInvoices: React.FC<OrganizationPaidInvoicesProps> = ({
   const [courseTypeFilter, setCourseTypeFilter] = useState('');
   const [paymentDateFilter, setPaymentDateFilter] = useState<PaymentDateFilter>('');
 
-  const safeInvoices = useMemo(() => (Array.isArray(invoices) ? invoices : []), [invoices]);
+  const debouncedSearch = useDebounce(searchTerm, 300);
 
-  // Course types come from the loaded data, never a hard-coded list
+  const grid = useServerPagination<Invoice>({
+    pageSize: 25,
+    fetchFn: ({ page, limit }) =>
+      api.get('/organization/paid-invoices', { params: { page, limit } }).then((r) => toEnvelope(r.data)),
+    onError: (err) => {
+      logger.error('Error loading paid invoices:', err);
+      showError('Failed to load paid invoices');
+    },
+  });
+
+  const { load: gridLoad, reload: gridReload } = grid;
+
+  useEffect(() => {
+    gridLoad(1);
+  }, [gridLoad]);
+
+  // The parent invalidates its paid-invoice query after a payment; a new array
+  // identity is the signal to re-fetch the page on screen.
+  const didMount = useRef(false);
+  useEffect(() => {
+    if (!didMount.current) { didMount.current = true; return; }
+    gridReload();
+  }, [invoices, gridReload]);
+
+  const safeInvoices = grid.items;
+
+  // Course types come from the loaded page, never a hard-coded list
   const courseTypes = useMemo(
     () => Array.from(new Set(safeInvoices.map((i) => i.course_type_name).filter(Boolean))).sort(),
     [safeInvoices]
   );
 
+  // `/organization/paid-invoices` takes page/limit and sort only — no search,
+  // course-type or paid-date parameter — so these narrow the loaded page.
   const filteredInvoices = useMemo(() => {
-    const term = searchTerm.trim().toLowerCase();
+    const term = debouncedSearch.trim().toLowerCase();
+    // Date.now() is impure during render, but this filter needs "now" fresh on
+    // every recompute (a stale/frozen value would silently exclude invoices
+    // that age out of the last_30/last_90/last_year window as time passes).
+    // eslint-disable-next-line react-hooks/purity -- intentional: filter must reflect the current time, not a frozen one
     const now = Date.now();
     const windowDays: Record<Exclude<PaymentDateFilter, ''>, number> = { last_30: 30, last_90: 90, last_year: 365 };
 
@@ -125,7 +198,7 @@ const OrganizationPaidInvoices: React.FC<OrganizationPaidInvoicesProps> = ({
 
       return matchesSearch && matchesCourseType && matchesPaymentDate;
     });
-  }, [safeInvoices, searchTerm, courseTypeFilter, paymentDateFilter]);
+  }, [safeInvoices, debouncedSearch, courseTypeFilter, paymentDateFilter]);
 
   const handleInvoiceClick = (invoice: Invoice) => { setSelectedInvoice(invoice); setDialogOpen(true); };
   const handleDialogClose = () => { setDialogOpen(false); setSelectedInvoice(null); };
@@ -166,12 +239,12 @@ const OrganizationPaidInvoices: React.FC<OrganizationPaidInvoicesProps> = ({
       {/* Filters */}
       <Box sx={{ border: (theme) => `1px solid ${theme.palette.divider}`, borderRadius: '10px', bgcolor: (theme) => theme.palette.background.paper, p: 3 }}>
         <Typography sx={{ fontSize: 13, fontWeight: 700, color: (theme) => theme.palette.text.secondary, textTransform: 'uppercase', letterSpacing: '0.07em', mb: 2 }}>
-          Filters ({safeInvoices.length} paid invoices)
+          Filter this page ({filteredInvoices.length} of {safeInvoices.length} shown · {grid.totalCount} paid invoices)
         </Typography>
         <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, 1fr)', md: 'repeat(3, 1fr)' }, gap: 2 }}>
           <TextField
             fullWidth
-            label="Search paid invoices"
+            label="Search this page"
             size="small"
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
@@ -204,37 +277,42 @@ const OrganizationPaidInvoices: React.FC<OrganizationPaidInvoicesProps> = ({
             </Select>
           </FormControl>
         </Box>
+        <Typography sx={{ mt: 1.5, fontSize: 12, color: (theme) => theme.palette.text.secondary }}>
+          Search and filters apply to the paid invoices on this page. The totals above cover every paid invoice.
+        </Typography>
       </Box>
 
       {/* Table */}
-      {filteredInvoices.length === 0 ? (
-        <Box sx={{ bgcolor: (theme) => theme.palette.background.paper, border: (theme) => `1px solid ${theme.palette.divider}`, borderRadius: '10px', p: 6, textAlign: 'center' }}>
-          <Typography sx={{ fontSize: 14, fontWeight: 600, color: (theme) => theme.palette.text.secondary }}>
-            {safeInvoices.length === 0 ? 'No paid invoices found' : 'No paid invoices match your filters'}
-          </Typography>
-        </Box>
-      ) : (
-        <DataTable columns={columns} shownCount={filteredInvoices.length} totalCount={safeInvoices.length}>
-          {filteredInvoices.map((invoice) => (
-            <DataTableRow key={invoice.id} columns={columns}>
-              <LinkButton onClick={() => handleInvoiceClick(invoice)} aria-label={`View invoice ${invoice.invoice_number}`} sx={{ fontSize: 13 }}>
-                {invoice.invoice_number}
-              </LinkButton>
-              <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>{invoice.course_type_name}</Typography>
-              <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>{formatDisplayDate(invoice.course_date)}</Typography>
-              <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>{invoice.location}</Typography>
-              <Typography sx={{ fontSize: 13, fontWeight: 600, color: (theme) => theme.palette.text.primary, textAlign: 'right' }}>{invoice.students_billed}</Typography>
-              <Typography sx={{ fontSize: 13, fontWeight: 600, color: (theme) => theme.palette.text.primary, fontFamily: 'monospace', textAlign: 'right' }}>{formatCurrency(invoice.amount)}</Typography>
-              <Typography sx={{ fontSize: 13, fontWeight: 600, color: '#16A34A', fontFamily: 'monospace', textAlign: 'right' }}>{formatCurrency(invoice.amount_paid)}</Typography>
-              <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>{formatDisplayDate(invoice.paid_date, 'N/A')}</Typography>
-              <StatusChip kind={getStatusKind(invoice.payment_status || invoice.status)} label={invoice.payment_status || invoice.status} />
-              <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>
-                <LinkButton onClick={() => handleDownloadPDF(invoice)} aria-label={`Download PDF for invoice ${invoice.invoice_number}`}>PDF</LinkButton>
-              </Box>
-            </DataTableRow>
-          ))}
-        </DataTable>
-      )}
+      <DataTable
+        columns={columns}
+        shownCount={filteredInvoices.length}
+        totalCount={grid.totalCount}
+        page={grid.page}
+        hasNextPage={grid.hasNextPage}
+        onPrevPage={grid.onPrevPage}
+        onNextPage={grid.onNextPage}
+        loading={grid.loading}
+        emptyMessage={safeInvoices.length === 0 ? 'No paid invoices found' : 'No paid invoices on this page match your filters'}
+      >
+        {filteredInvoices.map((invoice) => (
+          <DataTableRow key={invoice.id} columns={columns}>
+            <LinkButton onClick={() => handleInvoiceClick(invoice)} aria-label={`View invoice ${invoice.invoice_number}`} sx={{ fontSize: 13 }}>
+              {invoice.invoice_number}
+            </LinkButton>
+            <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>{invoice.course_type_name}</Typography>
+            <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>{formatDisplayDate(invoice.course_date)}</Typography>
+            <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>{invoice.location}</Typography>
+            <Typography sx={{ fontSize: 13, fontWeight: 600, color: (theme) => theme.palette.text.primary, textAlign: 'right' }}>{invoice.students_billed}</Typography>
+            <Typography sx={{ fontSize: 13, fontWeight: 600, color: (theme) => theme.palette.text.primary, fontFamily: 'monospace', textAlign: 'right' }}>{formatCurrency(invoice.amount)}</Typography>
+            <Typography sx={{ fontSize: 13, fontWeight: 600, color: '#16A34A', fontFamily: 'monospace', textAlign: 'right' }}>{formatCurrency(invoice.amount_paid)}</Typography>
+            <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>{formatDisplayDate(invoice.paid_date, 'N/A')}</Typography>
+            <StatusChip kind={getStatusKind(invoice.payment_status || invoice.status)} label={invoice.payment_status || invoice.status} />
+            <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>
+              <LinkButton onClick={() => handleDownloadPDF(invoice)} aria-label={`Download PDF for invoice ${invoice.invoice_number}`}>PDF</LinkButton>
+            </Box>
+          </DataTableRow>
+        ))}
+      </DataTable>
 
       {/* Invoice Detail Dialog */}
       <Dialog open={dialogOpen} onClose={handleDialogClose} maxWidth="md" fullWidth aria-labelledby="paid-invoice-dialog-title">
@@ -281,7 +359,7 @@ const OrganizationPaidInvoices: React.FC<OrganizationPaidInvoicesProps> = ({
                       <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'repeat(2, 1fr)', md: 'repeat(5, 1fr)' }, gap: 2 }}>
                         {[
                           ['Base Cost', base == null ? 'N/A' : formatCurrency(base)],
-                          [HST_LABEL, tax == null ? 'N/A' : formatCurrency(tax)],
+                          [getHSTLabel(), tax == null ? 'N/A' : formatCurrency(tax)],
                           ['Total', formatCurrency(selectedInvoice.amount)],
                           ['Amount Paid', formatCurrency(selectedInvoice.amount_paid)],
                           ['Balance Due', formatCurrency(selectedInvoice.balance_due)],

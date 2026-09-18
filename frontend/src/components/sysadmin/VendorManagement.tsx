@@ -1,8 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Box,
   Typography,
-  CircularProgress,
   Dialog,
   DialogTitle,
   DialogContent,
@@ -18,13 +17,41 @@ import {
   Rating,
 } from '@mui/material';
 import { sysAdminApi } from '../../services/api';
+import api from '../../services/api';
 import logger from '../../utils/logger';
 import DataTable, { DataTableRow } from '../gtacpr/DataTable';
 import StatusChip from '../gtacpr/StatusChip';
 import StatCard from '../gtacpr/StatCard';
 import { PrimaryButton } from '../gtacpr/Buttons';
 import { useConfirm, LinkButton } from '../gtacpr';
+import { useServerPagination } from '../../hooks/useServerPagination';
 import { formatDisplayDate } from '../../utils/formatters';
+import { getErrorMessage } from '../../utils/errorMessage';
+import type { SelectChangeEvent } from '@mui/material';
+
+interface Vendor {
+  id: string;
+  vendorName: string;
+  contactFirstName?: string;
+  contactLastName?: string;
+  email?: string;
+  mobile?: string;
+  phone?: string;
+  addressStreet?: string;
+  addressCity?: string;
+  addressProvince?: string;
+  addressPostalCode?: string;
+  vendorType?: string;
+  services?: string[];
+  contractStartDate?: string;
+  contractEndDate?: string;
+  performanceRating?: number | null;
+  insuranceExpiry?: string;
+  certificationStatus?: string;
+  billingContactEmail?: string;
+  comments?: string;
+  status: string;
+}
 
 const columns = [
   { key: 'vendor', label: 'VENDOR', width: '1.5fr' },
@@ -51,19 +78,34 @@ function getCertKind(status: string): 'active' | 'warning' | 'danger' | 'neutral
   }
 }
 
-const VendorManagement = ({ onShowSnackbar }: { onShowSnackbar: any }) => {
-  const [vendors, setVendors] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
+const VendorManagement = ({ onShowSnackbar }: { onShowSnackbar?: (message: string, severity?: 'success' | 'error') => void }) => {
+  // `/sysadmin/vendors` supports page/limit but no search or filter params,
+  // and this screen has never had a search box, so there is nothing to filter.
+  const grid = useServerPagination<Vendor>({
+    pageSize: 25,
+    fetchFn: ({ page, limit }) =>
+      api.get('/sysadmin/vendors', { params: { page, limit } }).then(r => r.data),
+    onError: (err) => {
+      logger.error('Error loading vendors:', err);
+      onShowSnackbar?.('Failed to load vendors', 'error');
+    },
+  });
+  const vendors = grid.items;
+
+  // The stat cards summarise every vendor, not just the page on screen, and
+  // there is no aggregate endpoint — so they come from a separate unpaginated
+  // call (the same call this screen used to make for the whole table).
+  const [allVendors, setAllVendors] = useState<Vendor[]>([]);
   const [saving, setSaving] = useState(false);
   const { confirm, dialog: confirmDialog } = useConfirm();
 
   const [showDialog, setShowDialog] = useState(false);
-  const [editingVendor, setEditingVendor] = useState<any>(null);
+  const [editingVendor, setEditingVendor] = useState<Vendor | null>(null);
   const [formData, setFormData] = useState<{
     vendorName: string; contactFirstName: string; contactLastName: string;
     email: string; mobile: string; phone: string; addressStreet: string;
     addressCity: string; addressProvince: string; addressPostalCode: string;
-    vendorType: string; services: any[]; contractStartDate: string;
+    vendorType: string; services: string[]; contractStartDate: string;
     contractEndDate: string; performanceRating: number | null;
     insuranceExpiry: string; certificationStatus: string;
     billingContactEmail: string; comments: string; status: string;
@@ -77,20 +119,23 @@ const VendorManagement = ({ onShowSnackbar }: { onShowSnackbar: any }) => {
     billingContactEmail: '', comments: '', status: 'active',
   });
 
-  useEffect(() => { loadVendors(); }, []);
+  const loadVendors = grid.load;
+  useEffect(() => { loadVendors(1); }, [loadVendors]);
 
-  const loadVendors = async () => {
-    setLoading(true);
+  const loadStats = useCallback(async () => {
     try {
       const response = await sysAdminApi.getVendors();
-      setVendors(response.data || []);
-    } catch (err: any) {
-      logger.error('Error loading vendors:', err);
-      onShowSnackbar?.('Failed to load vendors', 'error');
-    } finally {
-      setLoading(false);
+      setAllVendors(response.data || []);
+    } catch (err) {
+      logger.error('Error loading vendor stats:', err);
     }
-  };
+  }, []);
+
+  // Mount-time fetch of the unpaginated vendor list for the stat cards
+  // (external API sync, not state derived from render data), so a direct
+  // setState inside is expected.
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => { loadStats(); }, [loadStats]);
 
   const handleAddNew = () => {
     setEditingVendor(null);
@@ -106,7 +151,7 @@ const VendorManagement = ({ onShowSnackbar }: { onShowSnackbar: any }) => {
     setShowDialog(true);
   };
 
-  const handleEdit = (vendor: any) => {
+  const handleEdit = (vendor: Vendor) => {
     setEditingVendor(vendor);
     setFormData({
       vendorName: vendor.vendorName || '', contactFirstName: vendor.contactFirstName || '',
@@ -126,7 +171,7 @@ const VendorManagement = ({ onShowSnackbar }: { onShowSnackbar: any }) => {
     setShowDialog(true);
   };
 
-  const handleDeactivate = async (vendor: any) => {
+  const handleDeactivate = async (vendor: Vendor) => {
     const ok = await confirm({
       title: 'Deactivate vendor?',
       message: `"${vendor.vendorName}" will be marked inactive and hidden from vendor selection. You can reactivate it by editing the vendor.`,
@@ -135,16 +180,17 @@ const VendorManagement = ({ onShowSnackbar }: { onShowSnackbar: any }) => {
     });
     if (!ok) return;
     try {
-      await sysAdminApi.deleteVendor(vendor.id);
+      await sysAdminApi.deleteVendor(Number(vendor.id));
       onShowSnackbar?.('Vendor deactivated successfully', 'success');
-      loadVendors();
-    } catch (err: any) {
+      grid.reload();
+      loadStats();
+    } catch (err) {
       logger.error('Error deactivating vendor:', err);
       onShowSnackbar?.('Failed to deactivate vendor', 'error');
     }
   };
 
-  const handleSubmit = async (e: any) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formData.vendorName.trim()) { onShowSnackbar?.('Vendor name is required', 'error'); return; }
     if (saving) return;
@@ -157,50 +203,44 @@ const VendorManagement = ({ onShowSnackbar }: { onShowSnackbar: any }) => {
         insuranceExpiry: formData.insuranceExpiry || null,
         performanceRating: formData.performanceRating || null,
       };
-      if (editingVendor) {
-        await sysAdminApi.updateVendor(editingVendor.id, submitData);
+      const isEdit = Boolean(editingVendor);
+      if (isEdit && editingVendor) {
+        await sysAdminApi.updateVendor(Number(editingVendor.id), submitData);
         onShowSnackbar?.('Vendor updated successfully', 'success');
       } else {
         await sysAdminApi.createVendor(submitData);
         onShowSnackbar?.('Vendor created successfully', 'success');
       }
       setShowDialog(false);
-      loadVendors();
-    } catch (err: any) {
+      if (isEdit) grid.reload(); else grid.load(1);
+      loadStats();
+    } catch (err) {
       logger.error('Error saving vendor:', err);
-      onShowSnackbar?.('Failed to save vendor', 'error');
+      onShowSnackbar?.(getErrorMessage(err, 'Failed to save vendor'), 'error');
     } finally {
       setSaving(false);
     }
   };
 
-  const handleChange = (e: any) => {
-    const { name, value, checked, type } = e.target;
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement> | SelectChangeEvent) => {
+    const { name, value, checked, type } = e.target as HTMLInputElement;
     setFormData(prev => ({ ...prev, [name]: type === 'checkbox' ? checked : value }));
   };
 
-  const handleServicesChange = (e: any) => {
+  const handleServicesChange = (e: SelectChangeEvent<string[]>) => {
     const { value } = e.target;
     setFormData(prev => ({ ...prev, services: typeof value === 'string' ? value.split(',') : value }));
   };
 
-  const activeVendors = vendors.filter(v => v.status === 'active');
-  const certified = vendors.filter(v => v.certificationStatus === 'Certified');
-  const avgRating = vendors.reduce((sum, v) => sum + (v.performanceRating || 0), 0) / (vendors.length || 1);
-
-  if (loading) {
-    return (
-      <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: 400 }}>
-        <CircularProgress size={48} />
-      </Box>
-    );
-  }
+  const activeVendors = allVendors.filter(v => v.status === 'active');
+  const certified = allVendors.filter(v => v.certificationStatus === 'Certified');
+  const avgRating = allVendors.reduce((sum, v) => sum + (v.performanceRating || 0), 0) / (allVendors.length || 1);
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
       {/* Stat cards */}
       <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'repeat(2, 1fr)', md: 'repeat(4, 1fr)' }, gap: '16px' }}>
-        <StatCard label="Total Vendors" value={vendors.length} sub="All records" dotColor="#4B5563" />
+        <StatCard label="Total Vendors" value={grid.totalCount} sub="All records" dotColor="#4B5563" />
         <StatCard label="Active Vendors" value={activeVendors.length} sub="Currently active" dotColor="#16A34A" />
         <StatCard label="Certified" value={certified.length} sub="Valid certification" dotColor="#CC1F1F" />
         <StatCard label="Avg Rating" value={avgRating.toFixed(1)} sub="Performance score" dotColor="#ED6C02" />
@@ -212,7 +252,17 @@ const VendorManagement = ({ onShowSnackbar }: { onShowSnackbar: any }) => {
       </Box>
 
       {/* Table */}
-      <DataTable columns={columns} shownCount={vendors.length} totalCount={vendors.length}>
+      <DataTable
+        columns={columns}
+        shownCount={grid.shownCount}
+        totalCount={grid.totalCount}
+        page={grid.page}
+        onPrevPage={grid.onPrevPage}
+        onNextPage={grid.onNextPage}
+        hasNextPage={grid.hasNextPage}
+        loading={grid.loading}
+        emptyMessage="No vendors found."
+      >
         {vendors.map(vendor => (
           <DataTableRow key={vendor.id} columns={columns}>
             {/* VENDOR */}
@@ -249,7 +299,7 @@ const VendorManagement = ({ onShowSnackbar }: { onShowSnackbar: any }) => {
               {vendor.performanceRating ? `${vendor.performanceRating}/5` : '—'}
             </Typography>
             {/* CERTIFICATION */}
-            <StatusChip kind={getCertKind(vendor.certificationStatus)} label={vendor.certificationStatus || 'Not Set'} />
+            <StatusChip kind={getCertKind(vendor.certificationStatus || '')} label={vendor.certificationStatus || 'Not Set'} />
             {/* CONTRACT */}
             <Box>
               <Typography sx={{ fontSize: 12, color: (theme) => theme.palette.text.secondary }}>{formatDisplayDate(vendor.contractStartDate)}</Typography>
@@ -301,9 +351,9 @@ const VendorManagement = ({ onShowSnackbar }: { onShowSnackbar: any }) => {
               <Grid item xs={12}>
                 <FormControl fullWidth><InputLabel>Services Provided</InputLabel>
                   <Select multiple name="services" value={formData.services} label="Services Provided" onChange={handleServicesChange}
-                    renderValue={(selected: any) => (
+                    renderValue={(selected: string[]) => (
                       <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
-                        {selected.map((v: any) => <Chip key={v} label={v} size="small" />)}
+                        {selected.map((v: string) => <Chip key={v} label={v} size="small" />)}
                       </Box>
                     )}
                   >

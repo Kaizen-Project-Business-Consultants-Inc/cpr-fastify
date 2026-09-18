@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Box,
   Typography,
@@ -13,12 +13,13 @@ import {
   CircularProgress,
   Grid,
 } from '@mui/material';
-import { hrDashboardService, InstructorProfile, OrganizationProfile } from '../../services/hrDashboardService';
+import { hrDashboardService, InstructorProfile, OrganizationProfile, UserProfileResponse } from '../../services/hrDashboardService';
 import DataTable, { DataTableRow } from '../gtacpr/DataTable';
 import StatusChip from '../gtacpr/StatusChip';
 import SearchBar from '../gtacpr/SearchBar';
 import UserAvatar from '../gtacpr/UserAvatar';
 import { GhostButton } from '../gtacpr/Buttons';
+import { getErrorMessage } from '../../utils/errorMessage';
 
 interface PersonnelManagementProps {
   onViewChange?: (view: string) => void;
@@ -42,7 +43,7 @@ const orgColumns = [
   { key: 'actions', label: '', width: '0.6fr', align: 'right' as const },
 ];
 
-const PersonnelManagement: React.FC<PersonnelManagementProps> = ({ onViewChange }) => {
+const PersonnelManagement: React.FC<PersonnelManagementProps> = ({ onViewChange: _onViewChange }) => {
   const [tabValue, setTabValue] = useState(0);
   const [instructors, setInstructors] = useState<InstructorProfile[]>([]);
   const [organizations, setOrganizations] = useState<OrganizationProfile[]>([]);
@@ -52,48 +53,47 @@ const PersonnelManagement: React.FC<PersonnelManagementProps> = ({ onViewChange 
   const [organizationPagination, setOrganizationPagination] = useState({ page: 1, limit: 10, total: 0, pages: 0 });
   const [instructorSearch, setInstructorSearch] = useState('');
   const [organizationSearch, setOrganizationSearch] = useState('');
-  const [selectedUser, setSelectedUser] = useState<any>(null);
+  const [selectedUser, setSelectedUser] = useState<UserProfileResponse['data'] | null>(null);
   const [userDetailsDialog, setUserDetailsDialog] = useState(false);
 
-  useEffect(() => { loadInstructors(); loadOrganizations(); }, []);
-  useEffect(() => { loadInstructors(); }, [instructorPagination.page, instructorSearch]);
-  useEffect(() => { loadOrganizations(); }, [organizationPagination.page, organizationSearch]);
-
-  const loadInstructors = async () => {
+  const loadInstructors = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
       const data = await hrDashboardService.getInstructors(instructorPagination.page, instructorPagination.limit, instructorSearch);
       setInstructors(data.instructors);
       setInstructorPagination(data.pagination);
-    } catch (err: any) {
-      setError(err instanceof Error ? err.message : 'Failed to load instructors');
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, 'Failed to load instructors'));
     } finally {
       setLoading(false);
     }
-  };
+  }, [instructorPagination.page, instructorPagination.limit, instructorSearch]);
 
-  const loadOrganizations = async () => {
+  const loadOrganizations = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
       const data = await hrDashboardService.getOrganizations(organizationPagination.page, organizationPagination.limit, organizationSearch);
       setOrganizations(data.organizations);
       setOrganizationPagination(data.pagination);
-    } catch (err: any) {
-      setError(err instanceof Error ? err.message : 'Failed to load organizations');
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, 'Failed to load organizations'));
     } finally {
       setLoading(false);
     }
-  };
+  }, [organizationPagination.page, organizationPagination.limit, organizationSearch]);
+
+  useEffect(() => { loadInstructors(); }, [loadInstructors]);
+  useEffect(() => { loadOrganizations(); }, [loadOrganizations]);
 
   const handleViewUserDetails = async (userId: number) => {
     try {
       const userData = await hrDashboardService.getUserProfile(userId);
       setSelectedUser(userData);
       setUserDetailsDialog(true);
-    } catch (err: any) {
-      setError(err instanceof Error ? err.message : 'Failed to load user details');
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, 'Failed to load user details'));
     }
   };
 
@@ -239,13 +239,13 @@ const PersonnelManagement: React.FC<PersonnelManagementProps> = ({ onViewChange 
               <Grid container spacing={3}>
                 <Grid item xs={12} md={6}>
                   <Typography sx={{ fontSize: 13, fontWeight: 700, color: (theme) => theme.palette.text.secondary, textTransform: 'uppercase', letterSpacing: '0.07em', mb: 1 }}>Basic Information</Typography>
-                  {[
+                  {([
                     ['Username', selectedUser.user.username],
                     ['Email', selectedUser.user.email],
                     ['Role', selectedUser.user.role],
-                    ...(selectedUser.user.phone ? [['Phone', selectedUser.user.phone]] : []),
+                    ...(selectedUser.user.phone ? [['Phone', String(selectedUser.user.phone)]] : []),
                     ['Created', formatDate(selectedUser.user.createdAt)],
-                  ].map(([label, value]) => (
+                  ] as [string, string][]).map(([label, value]) => (
                     <Box key={String(label)} sx={{ display: 'flex', borderBottom: (theme) => `1px solid ${theme.palette.divider}`, py: 0.75 }}>
                       <Typography sx={{ fontSize: 13, fontWeight: 600, color: (theme) => theme.palette.text.secondary, width: 100 }}>{label}</Typography>
                       <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.primary }}>{value}</Typography>

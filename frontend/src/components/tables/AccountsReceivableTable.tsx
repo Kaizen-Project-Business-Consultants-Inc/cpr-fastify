@@ -15,13 +15,10 @@ import {
   IconButton, // Added IconButton
   Collapse, // Added Collapse for expansion
   CircularProgress,
-  Link, // Add Link import from MUI (optional, for styling)
   Dialog,
   DialogTitle,
   DialogContent,
   DialogActions,
-  Grid,
-  Divider,
 } from '@mui/material';
 import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown'; // Expand icon
 import KeyboardArrowUpIcon from '@mui/icons-material/KeyboardArrowUp'; // Collapse icon
@@ -29,17 +26,58 @@ import api from '../../services/api'; // Import API service
 import logger from '../../utils/logger';
 // Add necessary icons
 import VisibilityIcon from '@mui/icons-material/Visibility';
-import ReceiptLongIcon from '@mui/icons-material/ReceiptLong'; // Used for Billing Queue
 import PaymentIcon from '@mui/icons-material/Payment'; // For Record Payment
-import EmailIcon from '@mui/icons-material/Email'; // For Email Invoice
-import PostAddIcon from '@mui/icons-material/PostAdd'; // For Post to Org
 import { CheckCircle as PresentIcon, Cancel as AbsentIcon, People as PeopleIcon } from '@mui/icons-material';
 // Import shared formatters
 import { formatDate, getStatusChipColor, formatCurrency } from '../../utils/formatters'; // Correct path
 import PaymentHistoryTable from '../common/PaymentHistoryTable';
+import { getErrorMessage } from '../../utils/errorMessage';
+
+interface StudentAttendance {
+  id: number | string;
+  firstName?: string;
+  first_name?: string;
+  lastName?: string;
+  last_name?: string;
+  email?: string;
+  attended?: boolean;
+}
+
+// Mirrors the (unexported) Payment shape expected by PaymentHistoryTable
+interface ReceivablePayment {
+  id: number;
+  invoiceId: number;
+  amount?: number;
+  amountPaid?: number;
+  paymentDate: string;
+  paymentMethod: string;
+  referenceNumber?: string;
+  notes?: string;
+  status: string;
+  createdAt: string;
+  submittedByOrgAt?: string;
+  verifiedByAccountingAt?: string;
+}
+
+export interface ReceivableInvoice {
+  invoiceid: number | string;
+  amount?: string | number;
+  invoicenumber?: string;
+  invoicedate?: string;
+  duedate?: string;
+  organizationname?: string;
+  base_cost?: string | number;
+  tax_amount?: string | number;
+  balancedue?: string | number;
+  paidtodate?: string | number;
+  paymentstatus?: string;
+  approval_status?: string;
+  agingbucket?: string;
+  coursenumber?: string | number;
+}
 
 // Helper function for approval status colors
-const getApprovalStatusChipColor = (status: any) => {
+const getApprovalStatusChipColor = (status: string | undefined) => {
   switch (status?.toLowerCase()) {
     case 'approved':
       return 'success';
@@ -58,9 +96,20 @@ const getApprovalStatusChipColor = (status: any) => {
 };
 
 // Student Attendance Dialog Component
-const StudentAttendanceDialog = ({ open, onClose, courseId, students, loadingStudents }: { open: any; onClose: any; courseId: any; students: any; loadingStudents: any }) => {
-  const presentCount = students.filter((s: any) => s.attended).length;
-  const absentCount = students.filter((s: any) => s.attended === false).length;
+const StudentAttendanceDialog = ({
+  open,
+  onClose,
+  students,
+  loadingStudents,
+}: {
+  open: boolean;
+  onClose: () => void;
+  courseId: number | string | null;
+  students: StudentAttendance[];
+  loadingStudents: boolean;
+}) => {
+  const presentCount = students.filter((s) => s.attended).length;
+  const absentCount = students.filter((s) => s.attended === false).length;
 
   return (
     <Dialog open={open} onClose={onClose} maxWidth="md" fullWidth>
@@ -87,7 +136,7 @@ const StudentAttendanceDialog = ({ open, onClose, courseId, students, loadingStu
                   </TableRow>
                 </TableHead>
                 <TableBody>
-                  {students.map((student: any) => (
+                  {students.map((student) => (
                     <TableRow key={student.id}>
                       <TableCell>
                         <Typography variant="body2" fontWeight="medium">
@@ -158,8 +207,8 @@ const StudentAttendanceDialog = ({ open, onClose, courseId, students, loadingStu
 };
 
 // Payment Details Component
-const PaymentDetails = ({ invoiceId, onViewDetailsClick }: { invoiceId: number; onViewDetailsClick?: (id: number) => void }) => {
-  const [payments, setPayments] = useState([]);
+const PaymentDetails = ({ invoiceId, onViewDetailsClick }: { invoiceId: number | string; onViewDetailsClick?: (id: number | string) => void }) => {
+  const [payments, setPayments] = useState<ReceivablePayment[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
 
@@ -170,9 +219,9 @@ const PaymentDetails = ({ invoiceId, onViewDetailsClick }: { invoiceId: number; 
       try {
         const response = await api.get(`/accounting/invoices/${invoiceId}/payments`);
         setPayments(response.data.data || []);
-      } catch (err: any) {
+      } catch (err) {
         logger.error('[PaymentDetails] Failed to load payments:', err);
-        setError(err.response?.data?.error?.message || 'Failed to load payments');
+        setError(getErrorMessage(err, 'Failed to load payments'));
         setPayments([]);
       } finally {
         setIsLoading(false);
@@ -228,17 +277,17 @@ const AccountsReceivableTable = ({
   onRecordPaymentClick,
   onViewDetailsClick,
 }: {
-  invoices: any;
-  onRecordPaymentClick: any;
-  onViewDetailsClick: any;
+  invoices: ReceivableInvoice[];
+  onRecordPaymentClick: (invoice: ReceivableInvoice) => void;
+  onViewDetailsClick: (invoiceId: number | string) => void;
 }) => {
-  const [expandedRowId, setExpandedRowId] = useState(null); // State to track expanded row
-  const [students, setStudents] = useState([]);
+  const [expandedRowId, setExpandedRowId] = useState<number | string | null>(null); // State to track expanded row
+  const [students, setStudents] = useState<StudentAttendance[]>([]);
   const [loadingStudents, setLoadingStudents] = useState(false);
   const [studentDialogOpen, setStudentDialogOpen] = useState(false);
-  const [selectedCourseId, setSelectedCourseId] = useState(null);
+  const [selectedCourseId, setSelectedCourseId] = useState<number | string | null>(null);
 
-  const handleExpandClick = (invoiceId: any) => {
+  const handleExpandClick = (invoiceId: number | string) => {
     setExpandedRowId(expandedRowId === invoiceId ? null : invoiceId); // Toggle expansion
   };
 
@@ -246,12 +295,12 @@ const AccountsReceivableTable = ({
    * Fetch student attendance data for a specific course
    * @param {string|number} courseId - The course request ID (from invoice.coursenumber)
    */
-  const fetchStudents = async (courseId: any) => {
+  const fetchStudents = async (courseId: number | string | undefined) => {
     setLoadingStudents(true);
     try {
       const response = await api.get(`/courses/${courseId}/students`);
       setStudents(response.data.data || []);
-    } catch (error: any) {
+    } catch (error) {
       console.error('Error fetching students:', error);
       setStudents([]);
     } finally {
@@ -263,8 +312,8 @@ const AccountsReceivableTable = ({
    * Handle opening the student attendance dialog
    * @param {string|number} courseId - The course request ID (from invoice.coursenumber)
    */
-  const handleViewStudents = (courseId: any) => {
-    setSelectedCourseId(courseId);
+  const handleViewStudents = (courseId: number | string | undefined) => {
+    setSelectedCourseId(courseId ?? null);
     setStudentDialogOpen(true);
     fetchStudents(courseId);
   };
@@ -276,12 +325,12 @@ const AccountsReceivableTable = ({
   };
 
   // Get invoice amounts from backend (no recalculation)
-  const getInvoiceAmounts = (invoice: any) => {
+  const getInvoiceAmounts = (invoice: ReceivableInvoice) => {
     try {
-      const baseCost = parseFloat(invoice.base_cost) || 0;
-      const taxAmount = parseFloat(invoice.tax_amount) || 0;
+      const baseCost = parseFloat(String(invoice.base_cost)) || 0;
+      const taxAmount = parseFloat(String(invoice.tax_amount)) || 0;
       const totalAmount = baseCost + taxAmount;
-      const balanceDue = parseFloat(invoice.balancedue) || 0;
+      const balanceDue = parseFloat(String(invoice.balancedue)) || 0;
 
       if (baseCost === 0 && taxAmount === 0) {
         return {
@@ -299,7 +348,7 @@ const AccountsReceivableTable = ({
         totalAmount: totalAmount.toFixed(2),
         balanceDue: balanceDue.toFixed(2)
       };
-    } catch (error: any) {
+    } catch (error) {
       console.error('Error getting invoice amounts:', error);
       return {
         error: 'Error reading amounts',
@@ -355,7 +404,7 @@ const AccountsReceivableTable = ({
             </TableRow>
           </TableHead>
           <TableBody>
-            {invoices.map((invoice: any, index: any) => {
+            {invoices.map((invoice, index) => {
               const amounts = getInvoiceAmounts(invoice);
               
               return (

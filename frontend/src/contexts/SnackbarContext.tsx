@@ -3,7 +3,7 @@ import { Snackbar, Alert, AlertColor } from '@mui/material';
 
 interface SnackbarContextType {
   showSuccess: (message: string) => void;
-  showError: (message: string | any) => void;
+  showError: (message: unknown) => void;
   showWarning: (message: string) => void;
   showInfo: (message: string) => void;
 }
@@ -36,7 +36,7 @@ export const SnackbarProvider: React.FC<{ children: React.ReactNode }> = ({
   });
 
   const showSnackbar = useCallback(
-    (message: string | any, severity: AlertColor) => {
+    (message: unknown, severity: AlertColor) => {
       // Handle different message formats
       // eslint-disable-next-line no-useless-assignment
       let displayMessage = '';
@@ -45,10 +45,11 @@ export const SnackbarProvider: React.FC<{ children: React.ReactNode }> = ({
         displayMessage = message;
       } else if (message && typeof message === 'object') {
         // Handle error object format
-        if (message.message) {
-          displayMessage = message.message;
-        } else if (message.error) {
-          displayMessage = message.error;
+        const obj = message as { message?: unknown; error?: unknown };
+        if (typeof obj.message === 'string') {
+          displayMessage = obj.message;
+        } else if (typeof obj.error === 'string') {
+          displayMessage = obj.error;
         } else {
           // Fallback to stringifying the object
           displayMessage = JSON.stringify(message);
@@ -74,7 +75,7 @@ export const SnackbarProvider: React.FC<{ children: React.ReactNode }> = ({
   );
 
   const showError = useCallback(
-    (message: string | any) => {
+    (message: unknown) => {
       showSnackbar(message, 'error');
     },
     [showSnackbar]

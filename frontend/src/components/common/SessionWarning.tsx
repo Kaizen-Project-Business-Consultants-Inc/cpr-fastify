@@ -9,7 +9,6 @@ import {
   LinearProgress,
 } from '@mui/material';
 import {
-  Warning as WarningIcon,
   Refresh as RefreshIcon,
   Schedule as ScheduleIcon,
 } from '@mui/icons-material';
@@ -19,46 +18,74 @@ interface SessionWarningProps {
   showAtMinutes?: number; // Show warning when this many minutes remain
 }
 
-const SessionWarning: React.FC<SessionWarningProps> = ({ 
-  showAtMinutes = 5 
+/** How often we re-read the clock while the warning is on screen. */
+const COUNTDOWN_TICK_MS = 30000;
+
+/** The countdown only ever shows whole minutes, so a 30 s tick is plenty. */
+const formatRemaining = (ms: number): string => {
+  if (ms >= 60000) {
+    const minutes = Math.ceil(ms / 60000);
+    return `${minutes} minute${minutes === 1 ? '' : 's'}`;
+  }
+  return 'less than a minute';
+};
+
+const SessionWarning: React.FC<SessionWarningProps> = ({
+  showAtMinutes = 5,
 }) => {
   const { sessionStatus, refreshSession } = useAuth();
   const [showWarning, setShowWarning] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
-  const [timeRemaining, setTimeRemaining] = useState<string>('');
+  const [remainingMs, setRemainingMs] = useState(0);
 
   useEffect(() => {
-    if (!sessionStatus?.hasToken || sessionStatus.isExpired) {
+    // This effect synchronizes local countdown state with the external wall-clock
+    // deadline derived from sessionStatus (an auth-context value, not render-derived
+    // data). The setState calls below run in response to sessionStatus changing or
+    // the timer firing, not on every render, so this is the intended
+    // "subscribe/sync with an external system" case the rule allows for.
+    if (
+      !sessionStatus?.hasToken ||
+      sessionStatus.isExpired ||
+      !sessionStatus.timeUntilExpiry
+    ) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setShowWarning(false);
+      setRemainingMs(0);
       return () => {};
     }
 
-    const checkSessionExpiry = () => {
-      if (sessionStatus.timeUntilExpiry) {
-        const minutesRemaining = Math.floor(sessionStatus.timeUntilExpiry / 60000);
-        
-        if (minutesRemaining <= showAtMinutes && minutesRemaining > 0) {
-          setShowWarning(true);
-          
-          // Format time remaining
-          const minutes = Math.floor(sessionStatus.timeUntilExpiry / 60000);
-          const seconds = Math.floor((sessionStatus.timeUntilExpiry % 60000) / 1000);
-          
-          if (minutes > 0) {
-            setTimeRemaining(`${minutes}m ${seconds}s`);
-          } else {
-            setTimeRemaining(`${seconds}s`);
-          }
-        } else {
-          setShowWarning(false);
-        }
+    // Anchor to a wall-clock deadline once, then sleep until something actually changes:
+    // one timeout until the warning is due, and only then a slow tick while it counts down.
+    const deadline = Date.now() + sessionStatus.timeUntilExpiry;
+    const warnAt = deadline - showAtMinutes * 60000;
+    let timer: ReturnType<typeof setTimeout>;
+
+    const tick = () => {
+      const now = Date.now();
+      const remaining = deadline - now;
+
+      if (remaining <= 0) {
+        setShowWarning(false);
+        setRemainingMs(0);
+        return;
       }
+
+      if (now < warnAt) {
+        // Nothing to display yet — no re-renders until the warning is due.
+        setShowWarning(false);
+        timer = setTimeout(tick, warnAt - now);
+        return;
+      }
+
+      setShowWarning(true);
+      setRemainingMs(remaining);
+      timer = setTimeout(tick, Math.min(COUNTDOWN_TICK_MS, remaining));
     };
 
-    checkSessionExpiry();
-    const interval = setInterval(checkSessionExpiry, 1000); // Check every second
+    tick();
 
-    return () => clearInterval(interval);
+    return () => clearTimeout(timer);
   }, [sessionStatus, showAtMinutes]);
 
   const handleRefresh = async () => {
@@ -66,7 +93,7 @@ const SessionWarning: React.FC<SessionWarningProps> = ({
       setRefreshing(true);
       await refreshSession();
       setShowWarning(false);
-    } catch (error: any) {
+    } catch (error) {
       console.error('Failed to refresh session:', error);
     } finally {
       setRefreshing(false);
@@ -80,20 +107,14 @@ const SessionWarning: React.FC<SessionWarningProps> = ({
   if (!showWarning) return null;
 
   const getProgressValue = () => {
-    if (!sessionStatus?.timeUntilExpiry) return 0;
-    
     // Assuming 15-minute session (900 seconds)
     const totalSessionTime = 15 * 60 * 1000;
-    const remaining = sessionStatus.timeUntilExpiry;
-    
-    return Math.max(0, Math.min(100, (remaining / totalSessionTime) * 100));
+    return Math.max(0, Math.min(100, (remainingMs / totalSessionTime) * 100));
   };
 
   const getSeverity = () => {
-    if (!sessionStatus?.timeUntilExpiry) return 'warning';
-    
-    const minutesRemaining = Math.floor(sessionStatus.timeUntilExpiry / 60000);
-    
+    const minutesRemaining = Math.floor(remainingMs / 60000);
+
     if (minutesRemaining <= 1) return 'error';
     if (minutesRemaining <= 2) return 'warning';
     return 'info';
@@ -103,13 +124,25 @@ const SessionWarning: React.FC<SessionWarningProps> = ({
     <Snackbar
       open={showWarning}
       anchorOrigin={{ vertical: 'top', horizontal: 'center' }}
-      sx={{ zIndex: 9999 }}
+      sx={{
+        zIndex: 9999,
+        // Full width (minus a gutter) on phones, natural width from the tablet breakpoint up.
+        left: { xs: 8, sm: 'auto' },
+        right: { xs: 8, sm: 'auto' },
+      }}
     >
       <Alert
         severity={getSeverity()}
         icon={<ScheduleIcon />}
         action={
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          <Box
+            sx={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 1,
+              flexWrap: 'wrap',
+            }}
+          >
             <Button
               color="inherit"
               size="small"
@@ -119,31 +152,31 @@ const SessionWarning: React.FC<SessionWarningProps> = ({
             >
               {refreshing ? 'Refreshing...' : 'Extend Session'}
             </Button>
-            <Button
-              color="inherit"
-              size="small"
-              onClick={handleClose}
-            >
+            <Button color="inherit" size="small" onClick={handleClose}>
               Dismiss
             </Button>
           </Box>
         }
         sx={{
-          minWidth: 400,
+          width: { xs: '100%', sm: 'auto' },
+          minWidth: { xs: 0, sm: 400 },
+          maxWidth: '100%',
           '& .MuiAlert-message': {
-            width: '100%'
-          }
+            width: '100%',
+          },
+          '& .MuiAlert-action': {
+            alignItems: 'flex-start',
+          },
         }}
       >
-        <AlertTitle>
-          Session Expiring Soon
-        </AlertTitle>
-        
+        <AlertTitle>Session Expiring Soon</AlertTitle>
+
         <Box sx={{ mt: 1 }}>
           <Typography variant="body2" gutterBottom>
-            Your session will expire in <strong>{timeRemaining}</strong>.
+            Your session will expire in{' '}
+            <strong>{formatRemaining(remainingMs)}</strong>.
           </Typography>
-          
+
           <Box sx={{ mt: 1, mb: 1 }}>
             <LinearProgress
               variant="determinate"
@@ -152,9 +185,10 @@ const SessionWarning: React.FC<SessionWarningProps> = ({
               sx={{ height: 6, borderRadius: 3 }}
             />
           </Box>
-          
+
           <Typography variant="caption" color="textSecondary">
-            Click "Extend Session" to continue working without interruption.
+            Click &quot;Extend Session&quot; to continue working without
+            interruption.
           </Typography>
         </Box>
       </Alert>
@@ -162,4 +196,4 @@ const SessionWarning: React.FC<SessionWarningProps> = ({
   );
 };
 
-export default SessionWarning; 
+export default SessionWarning;

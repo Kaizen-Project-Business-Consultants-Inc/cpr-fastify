@@ -9,8 +9,9 @@ import { PrimaryButton } from '../gtacpr/Buttons';
 import LinkButton from '../gtacpr/LinkButton';
 import { useConfirm } from '../gtacpr/ConfirmDialog';
 import { useSnackbar } from '../../contexts/SnackbarContext';
+import { getErrorMessage } from '../../utils/errorMessage';
 
-const formatPhone = (phoneString: any) => {
+const formatPhone = (phoneString: string | null | undefined) => {
   if (!phoneString) return '—';
   return formatPhoneNumber(phoneString) || phoneString;
 };
@@ -29,12 +30,23 @@ function getInitials(name?: string): string {
   return name.split(' ').map(p => p[0] || '').join('').slice(0, 2).toUpperCase();
 }
 
+interface Organization {
+  id: number;
+  organizationName?: string;
+  contactName?: string;
+  contactEmail?: string;
+  contactPhone?: string;
+  addressStreet?: string;
+  addressCity?: string;
+  addressProvince?: string;
+}
+
 function OrganizationManager() {
-  const [organizations, setOrganizations] = useState<any[]>([]);
+  const [organizations, setOrganizations] = useState<Organization[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [dialogOpen, setDialogOpen] = useState(false);
-  const [editingOrg, setEditingOrg] = useState(null);
+  const [editingOrg, setEditingOrg] = useState<Organization | null>(null);
   const { confirm, dialog: confirmDialog } = useConfirm();
   const { showSuccess, showError } = useSnackbar();
 
@@ -44,8 +56,8 @@ function OrganizationManager() {
     try {
       const data = await api.getOrganizations();
       setOrganizations(data || []);
-    } catch (err: any) {
-      setError(err.message || 'Failed to load organizations.');
+    } catch (err) {
+      setError(getErrorMessage(err, 'Failed to load organizations.'));
     } finally {
       setLoading(false);
     }
@@ -54,8 +66,8 @@ function OrganizationManager() {
   useEffect(() => { fetchOrganizations(); }, [fetchOrganizations]);
 
   const handleAddOpen = () => { setEditingOrg(null); setDialogOpen(true); };
-  const handleEditOpen = (org: any) => { setEditingOrg(org); setDialogOpen(true); };
-  const handleDelete = async (org: any) => {
+  const handleEditOpen = (org: Organization) => { setEditingOrg(org); setDialogOpen(true); };
+  const handleDelete = async (org: Organization) => {
     const name = org.organizationName || `organization #${org.id}`;
     const ok = await confirm({
       title: 'Delete organization?',
@@ -68,8 +80,8 @@ function OrganizationManager() {
       await api.api.delete(`/sysadmin/organizations/${org.id}`);
       showSuccess(`${name} deleted`);
       fetchOrganizations();
-    } catch (err: any) {
-      showError(err?.response?.data?.error?.message || err?.response?.data?.error || err?.message || 'Failed to delete organization');
+    } catch (err) {
+      showError(getErrorMessage(err, 'Failed to delete organization'));
     }
   };
   const handleDialogClose = () => { setDialogOpen(false); setEditingOrg(null); };
@@ -78,7 +90,7 @@ function OrganizationManager() {
     fetchOrganizations();
   };
 
-  const formatAddress = (org: any) => {
+  const formatAddress = (org: Organization) => {
     const parts = [org.addressStreet, org.addressCity, org.addressProvince].filter(Boolean);
     return parts.length > 0 ? parts.join(', ') : '—';
   };

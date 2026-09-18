@@ -7,6 +7,8 @@ interface ImportMetaEnv {
   readonly MODE: string;
 }
 
+// Declaration merging with vite/client's ImportMeta — ESLint can't see that usage textually.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 interface ImportMeta {
   readonly env: ImportMetaEnv;
 }

@@ -11,11 +11,12 @@ import {
   Alert,
   Tooltip,
   CircularProgress,
-  Snackbar,
   Divider,
 } from '@mui/material';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import api from '../../services/api';
+import { useSnackbar } from '../../contexts/SnackbarContext';
+import { useConfirm } from '../gtacpr/ConfirmDialog';
 import ServiceDetailsTable from '../common/ServiceDetailsTable';
 import PaymentHistoryTable from '../common/PaymentHistoryTable';
 import { formatCurrency, formatCurrencyOrDash, formatDisplayDate } from '../../utils/formatters';
@@ -23,6 +24,23 @@ import LinkButton from '../gtacpr/LinkButton';
 import DataTable, { DataTableRow } from '../gtacpr/DataTable';
 import StatusChip from '../gtacpr/StatusChip';
 import { PrimaryButton, GhostButton } from '../gtacpr/Buttons';
+import { getErrorMessage } from '../../utils/errorMessage';
+
+// Mirrors the (unexported) Payment shape expected by PaymentHistoryTable
+interface HistoryPayment {
+  id: number;
+  invoiceId: number;
+  amount?: number;
+  amountPaid?: number;
+  paymentDate: string;
+  paymentMethod: string;
+  referenceNumber?: string;
+  notes?: string;
+  status: string;
+  createdAt: string;
+  submittedByOrgAt?: string;
+  verifiedByAccountingAt?: string;
+}
 
 interface Payment {
   paymentId?: number;
@@ -82,10 +100,11 @@ const PaymentVerificationView = () => {
   const [dialogMode, setDialogMode] = useState('view'); // 'view' or 'action'
   const [verificationAction, setVerificationAction] = useState('approve'); // 'approve' or 'reject'
   const [verificationNotes, setVerificationNotes] = useState('');
-  const [errorMessage, setErrorMessage] = useState('');
-  const [successMessage, setSuccessMessage] = useState('');
-  // Which payment the successMessage refers to, so only that row shows the new status
+  // Which payment was just verified in this session, so only that row shows the new status
   const [verifiedPaymentId, setVerifiedPaymentId] = useState<string | null>(null);
+
+  const { showSuccess, showError } = useSnackbar();
+  const { confirm, dialog: confirmDialog } = useConfirm();
 
   // State for attendance data
   const [attendanceData, setAttendanceData] = useState<Array<{
@@ -97,7 +116,7 @@ const PaymentVerificationView = () => {
   const [loadingAttendance, setLoadingAttendance] = useState(false);
 
   // State for payment history
-  const [paymentHistory, setPaymentHistory] = useState<any[]>([]);
+  const [paymentHistory, setPaymentHistory] = useState<HistoryPayment[]>([]);
   const [loadingPaymentHistory, setLoadingPaymentHistory] = useState(false);
 
   // State for invoice viewing
@@ -114,7 +133,7 @@ const PaymentVerificationView = () => {
       const response = await api.get('/accounting/payment-verifications');
 
       // Filter to only show payments that are actually pending verification
-      const pendingPayments = response.data.data.payments?.filter((payment: any) =>
+      const pendingPayments = response.data.data.payments?.filter((payment: Payment) =>
         payment.status === 'pending_verification' ||
         payment.status === 'pending' ||
         !payment.verifiedByAccountingAt
@@ -142,7 +161,7 @@ const PaymentVerificationView = () => {
       } else {
         setAttendanceData([]);
       }
-    } catch (error: any) {
+    } catch (error) {
       console.error('Error loading attendance data:', error);
       setAttendanceData([]);
     } finally {
@@ -166,7 +185,7 @@ const PaymentVerificationView = () => {
         console.warn('Unexpected payment history response format:', response.data);
         setPaymentHistory([]);
       }
-    } catch (error: any) {
+    } catch (error) {
       console.error('Error loading payment history:', error);
       setPaymentHistory([]);
     } finally {
@@ -191,21 +210,36 @@ const PaymentVerificationView = () => {
       queryClient.invalidateQueries({ queryKey: ['pending-payment-verifications'] });
       queryClient.invalidateQueries({ queryKey: ['accounting-invoices'] });
       setVerificationNotes('');
-      setSuccessMessage(`Payment ${verificationAction === 'approve' ? 'approved' : 'rejected'} successfully!`);
-      setErrorMessage('');
+      showSuccess(`Payment ${variables.action === 'approve' ? 'approved' : 'rejected'} successfully!`);
 
-      // Delay closing the dialog so user can see the success message
+      // Delay closing the dialog so the user can see the row's new status
       setTimeout(() => {
         setPaymentDialogOpen(false);
       }, 2000);
     },
     onError: (error: unknown) => {
       console.error('🔍 [VERIFY PAYMENT] Error:', error);
-      const errObj = error as { response?: { data?: { message?: string } } };
-      setErrorMessage(errObj.response?.data?.message || 'Failed to verify payment. Please try again.');
-      setSuccessMessage('');
+      showError(getErrorMessage(error, 'Failed to verify payment. Please try again.'));
     },
   });
+
+  // Money actions always confirm, naming the organisation and the amount.
+  const confirmVerification = (payment: Payment, action: string) => {
+    const org = payment.organizationName || 'this organization';
+    const amount = formatCurrency(payment.amount);
+    return action === 'approve'
+      ? confirm({
+          title: 'Verify this payment?',
+          message: `${org} — ${amount}. The payment will be marked as verified and the invoice updated.`,
+          confirmLabel: 'Verify Payment',
+        })
+      : confirm({
+          title: 'Reject this payment?',
+          message: `${org} — ${amount}. The payment will be rejected and ${org} asked to resubmit.`,
+          confirmLabel: 'Reject Payment',
+          danger: true,
+        });
+  };
 
   const handleViewPayment = (payment: Payment) => {
     setSelectedPayment(payment);
@@ -223,24 +257,14 @@ const PaymentVerificationView = () => {
     }
   };
 
-  const handleActionPayment = (payment: Payment, action: string) => {
-    setSelectedPayment(payment);
-    setVerificationAction(action);
-    setDialogMode('action');
-    setPaymentDialogOpen(true);
-
-    // Load attendance data for this payment's course
-    if (payment.courseRequestId) {
-      loadAttendanceData(payment.courseRequestId);
-    }
-  };
-
-  const handleVerificationSubmit = () => {
+  const handleVerificationSubmit = async () => {
 
     if (!selectedPayment) {
       return;
     }
 
+    const ok = await confirmVerification(selectedPayment, verificationAction);
+    if (!ok) return;
 
     const paymentId = selectedPayment.paymentId || selectedPayment.id;
 
@@ -269,8 +293,9 @@ const PaymentVerificationView = () => {
       const response = await api.get(`/accounting/invoices/${invoiceId}`);
       setSelectedInvoice(response.data.data);
       setInvoiceDialogOpen(true);
-    } catch (error: any) {
+    } catch (error) {
       console.error('Error loading invoice:', error);
+      showError('Failed to load invoice details.');
     } finally {
       setLoadingInvoice(false);
     }
@@ -319,7 +344,7 @@ const PaymentVerificationView = () => {
 
     // If this payment was just verified in this session, show the updated status
     const thisId = String(payment.paymentId ?? payment.id ?? '');
-    if (successMessage && verifiedPaymentId != null && thisId === verifiedPaymentId) {
+    if (verifiedPaymentId != null && thisId === verifiedPaymentId) {
       if (verificationAction === 'approve') {
         return { kind: 'success', label: 'VERIFIED' };
       } else if (verificationAction === 'reject') {
@@ -657,19 +682,6 @@ const PaymentVerificationView = () => {
                 </Alert>
               )}
 
-              {/* Success message in dialog */}
-              {successMessage && (
-                <Alert severity="success" sx={{ mt: 2 }}>
-                  {successMessage}
-                </Alert>
-              )}
-
-              {/* Error message in dialog */}
-              {errorMessage && (
-                <Alert severity="error" sx={{ mt: 2 }}>
-                  {errorMessage}
-                </Alert>
-              )}
             </Box>
           )}
         </DialogContent>
@@ -692,16 +704,18 @@ const PaymentVerificationView = () => {
                 Reject Payment
               </GhostButton>
               <PrimaryButton
-                onClick={() => {
-                  // Directly approve without going to action mode (notes are optional for approval)
-                  if (selectedPayment) {
-                    const paymentId = selectedPayment.paymentId || selectedPayment.id;
-                    verifyPaymentMutation.mutate({
-                      paymentId: String(paymentId ?? ''),
-                      action: 'approve',
-                      notes: '',
-                    });
-                  }
+                onClick={async () => {
+                  // Approve without going to action mode (notes are optional for approval)
+                  if (!selectedPayment) return;
+                  const ok = await confirmVerification(selectedPayment, 'approve');
+                  if (!ok) return;
+                  const paymentId = selectedPayment.paymentId || selectedPayment.id;
+                  setVerificationAction('approve');
+                  verifyPaymentMutation.mutate({
+                    paymentId: String(paymentId ?? ''),
+                    action: 'approve',
+                    notes: '',
+                  });
                 }}
                 disabled={verifyPaymentMutation.isPending}
               >
@@ -717,13 +731,13 @@ const PaymentVerificationView = () => {
               disabled={
                 verifyPaymentMutation.isPending ||
                 (verificationAction === 'reject' && !verificationNotes.trim()) ||
-                !!successMessage
+                !!verifiedPaymentId
               }
               sx={verificationAction === 'reject' ? { bgcolor: '#CC1F1F', '&:hover': { bgcolor: '#991B1B' } } : {}}
             >
               {verifyPaymentMutation.isPending
                 ? 'Processing...'
-                : successMessage
+                : verifiedPaymentId
                   ? 'Completed!'
                   : verificationAction === 'approve'
                     ? 'Approve Payment'
@@ -833,27 +847,7 @@ const PaymentVerificationView = () => {
         </DialogActions>
       </Dialog>
 
-      {/* Success Snackbar */}
-      <Snackbar
-        open={!!successMessage}
-        autoHideDuration={6000}
-        onClose={() => setSuccessMessage('')}
-      >
-        <Alert severity="success" onClose={() => setSuccessMessage('')}>
-          {successMessage}
-        </Alert>
-      </Snackbar>
-
-      {/* Error Snackbar */}
-      <Snackbar
-        open={!!errorMessage}
-        autoHideDuration={6000}
-        onClose={() => setErrorMessage('')}
-      >
-        <Alert severity="error" onClose={() => setErrorMessage('')}>
-          {errorMessage}
-        </Alert>
-      </Snackbar>
+      {confirmDialog}
     </Box>
   );
 };

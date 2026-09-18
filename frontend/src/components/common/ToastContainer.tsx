@@ -6,7 +6,6 @@ import {
   IconButton,
   Button,
   LinearProgress,
-  Collapse,
   Slide,
   Fade,
   CircularProgress,
@@ -18,7 +17,6 @@ import {
   Error as ErrorIcon,
   Warning as WarningIcon,
   Info as InfoIcon,
-  Refresh as LoadingIcon,
 } from '@mui/icons-material';
 import { useToast, Toast, ToastPosition } from '../../contexts/ToastContext';
 
@@ -242,13 +240,6 @@ const ToastContainer: React.FC<ToastContainerProps> = ({ position }) => {
       default:
         return { ...base, top: 16, right: 16 };
     }
-  };
-
-  // Determine animation direction based on position
-  const getAnimationDirection = () => {
-    if (finalPosition.includes('left')) return 'right';
-    if (finalPosition.includes('right')) return 'left';
-    return 'down';
   };
 
   if (toasts.length === 0) {

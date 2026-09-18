@@ -1,3 +1,4 @@
+import type { RowDataPacket } from 'mysql2/promise';
 import { BaseRepository } from './BaseRepository.js';
 
 export interface Organization {
@@ -75,7 +76,7 @@ export class OrganizationRepository extends BaseRepository<Organization> {
     return this.findById(id);
   }
 
-  async getOrgCourses(orgId: number, options: { archived: boolean; limit: number; offset: number; from?: string; to?: string }): Promise<{ rows: any[]; total: number }> {
+  async getOrgCourses(orgId: number, options: { archived: boolean; limit: number; offset: number; from?: string; to?: string }): Promise<{ rows: RowDataPacket[]; total: number }> {
     let dateFilter = '';
     const dateParams: unknown[] = [];
     if (options.from) {
@@ -87,7 +88,7 @@ export class OrganizationRepository extends BaseRepository<Organization> {
       dateParams.push(options.to);
     }
 
-    const rows = await this.query(
+    const rows = await this.query<RowDataPacket>(
       `SELECT cr.*, cr.date_requested as request_submitted_date,
               ct.name as course_type_name, u.username as instructor,
               (SELECT COUNT(*) FROM course_students cs WHERE cs.course_request_id = cr.id AND cs.attended = true) AS students_attended

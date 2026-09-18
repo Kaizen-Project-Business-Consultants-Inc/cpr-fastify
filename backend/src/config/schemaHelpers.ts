@@ -5,10 +5,10 @@
  * (MariaDB does), so migrations check INFORMATION_SCHEMA first and only issue the
  * DDL when needed. Every helper is safe to re-run.
  */
-import type { Pool } from 'mysql2/promise';
+import type { Pool, RowDataPacket } from 'mysql2/promise';
 
 export async function tableExists(pool: Pool, table: string): Promise<boolean> {
-  const [rows] = await pool.query<any[]>(
+  const [rows] = await pool.query<RowDataPacket[]>(
     `SELECT 1 FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? LIMIT 1`,
     [table]
   );
@@ -16,7 +16,7 @@ export async function tableExists(pool: Pool, table: string): Promise<boolean> {
 }
 
 export async function columnExists(pool: Pool, table: string, column: string): Promise<boolean> {
-  const [rows] = await pool.query<any[]>(
+  const [rows] = await pool.query<RowDataPacket[]>(
     `SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
      WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ? LIMIT 1`,
     [table, column]
@@ -25,7 +25,7 @@ export async function columnExists(pool: Pool, table: string, column: string): P
 }
 
 export async function indexExists(pool: Pool, table: string, index: string): Promise<boolean> {
-  const [rows] = await pool.query<any[]>(
+  const [rows] = await pool.query<RowDataPacket[]>(
     `SELECT 1 FROM INFORMATION_SCHEMA.STATISTICS
      WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND INDEX_NAME = ? LIMIT 1`,
     [table, index]
@@ -34,7 +34,7 @@ export async function indexExists(pool: Pool, table: string, index: string): Pro
 }
 
 export async function constraintExists(pool: Pool, table: string, constraint: string): Promise<boolean> {
-  const [rows] = await pool.query<any[]>(
+  const [rows] = await pool.query<RowDataPacket[]>(
     `SELECT 1 FROM INFORMATION_SCHEMA.TABLE_CONSTRAINTS
      WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND CONSTRAINT_NAME = ? LIMIT 1`,
     [table, constraint]

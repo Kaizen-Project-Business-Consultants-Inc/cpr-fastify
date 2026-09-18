@@ -8,6 +8,16 @@ import DataTable, { DataTableRow } from '../gtacpr/DataTable';
 import { PrimaryButton } from '../gtacpr/Buttons';
 import LinkButton from '../gtacpr/LinkButton';
 import { useConfirm } from '../gtacpr/ConfirmDialog';
+import { getErrorMessage } from '../../utils/errorMessage';
+
+interface PricingRule {
+  pricingid: number;
+  organizationid?: number | null;
+  coursetypeid?: number | null;
+  organizationname?: string;
+  name?: string;
+  price: number | string;
+}
 
 const columns = [
   { key: 'org', label: 'ORGANIZATION', width: '1.5fr' },
@@ -17,12 +27,12 @@ const columns = [
 ];
 
 function PricingRuleManager() {
-  const [pricingRules, setPricingRules] = useState<any[]>([]);
+  const [pricingRules, setPricingRules] = useState<PricingRule[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' as 'success' | 'error' | 'warning' | 'info' });
   const [dialogOpen, setDialogOpen] = useState(false);
-  const [editingRule, setEditingRule] = useState(null);
+  const [editingRule, setEditingRule] = useState<PricingRule | null>(null);
   const { confirm, dialog: confirmDialog } = useConfirm();
 
   const fetchPricingRules = useCallback(async () => {
@@ -31,9 +41,9 @@ function PricingRuleManager() {
     try {
       const data = await api.getPricingRules();
       setPricingRules(data || []);
-    } catch (err: any) {
+    } catch (err) {
       logger.error('Error fetching pricing rules:', err);
-      setError(err.message || 'Failed to load pricing rules.');
+      setError(getErrorMessage(err, 'Failed to load pricing rules.'));
     } finally {
       setLoading(false);
     }
@@ -46,9 +56,9 @@ function PricingRuleManager() {
   };
 
   const handleAddOpen = () => { setEditingRule(null); setDialogOpen(true); };
-  const handleEditOpen = (rule: any) => { setEditingRule(rule); setDialogOpen(true); };
+  const handleEditOpen = (rule: PricingRule) => { setEditingRule(rule); setDialogOpen(true); };
 
-  const handleDelete = async (rule: any) => {
+  const handleDelete = async (rule: PricingRule) => {
     const id = rule.pricingid;
     const label = `${rule.organizationname || 'All organizations'} / ${rule.name || 'All course types'} (${formatCurrency(rule.price)})`;
     const ok = await confirm({
@@ -63,9 +73,9 @@ function PricingRuleManager() {
       await api.deletePricingRule(id);
       showSnackbar('Pricing rule deleted.', 'success');
       fetchPricingRules();
-    } catch (err: any) {
+    } catch (err) {
       logger.error(`Error deleting pricing rule ${id}:`, err);
-      showSnackbar(err.message || 'Failed to delete pricing rule.', 'error');
+      showSnackbar(getErrorMessage(err, 'Failed to delete pricing rule.'), 'error');
     }
   };
 

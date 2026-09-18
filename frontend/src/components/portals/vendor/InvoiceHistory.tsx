@@ -18,8 +18,10 @@ import {
   IconButton,
 } from '@mui/material';
 import { Close as CloseIcon } from '@mui/icons-material';
-import { vendorApi } from '../../../services/api';
+import api, { vendorApi } from '../../../services/api';
 import { useVendorInvoiceUpdates } from '../../../hooks/useVendorInvoiceUpdates';
+import useServerPagination from '../../../hooks/useServerPagination';
+import useDebounce from '../../../hooks/useDebounce';
 import StatCard from '../../gtacpr/StatCard';
 import SearchBar from '../../gtacpr/SearchBar';
 import DataTable, { DataTableRow } from '../../gtacpr/DataTable';
@@ -107,9 +109,52 @@ const tableColumns = [
   { key: 'actions', label: '', width: '0.6fr', align: 'right' as const },
 ];
 
+/** Coerce a value the API may send as a string (or omit) into a number. */
+const toNumber = (value: unknown): number => {
+  if (typeof value === 'string') return parseFloat(value) || 0;
+  if (typeof value === 'number') return value;
+  return 0;
+};
+
+const toIntOrNull = (value: unknown): number | null => {
+  if (typeof value === 'string') return parseInt(value, 10) || null;
+  if (typeof value === 'number') return value;
+  return null;
+};
+
+/** Normalise the numeric columns the API returns as strings. */
+const processInvoices = (raw: Record<string, unknown>[]): Invoice[] =>
+  raw.map((invoice) => ({
+    ...invoice,
+    rate: toNumber(invoice.rate),
+    amount: toNumber(invoice.amount),
+    subtotal: toNumber(invoice.subtotal),
+    hst: toNumber(invoice.hst),
+    total: toNumber(invoice.total),
+    quantity: toIntOrNull(invoice.quantity),
+  })) as Invoice[];
+
+/**
+ * Tab -> the single status GET /vendor/invoices can filter on server-side.
+ * Tab 4 ("All") needs no status. Tab 5 ("Non-Paid") is `status != 'paid'`,
+ * which the endpoint cannot express, so that one exclusion stays client-side
+ * and is called out in the UI.
+ */
+const TAB_STATUS: Record<number, string | undefined> = {
+  0: 'pending_submission',
+  1: 'submitted_to_admin',
+  2: 'submitted_to_accounting',
+  3: 'paid',
+  4: undefined,
+  5: undefined,
+};
+
 const InvoiceHistory: React.FC = () => {
-  const [invoices, setInvoices] = useState<Invoice[]>([]);
-  const [loading, setLoading] = useState(true);
+  // Full, unpaged list — used ONLY for the summary cards and the tab counts so
+  // those stay grand totals rather than per-page totals. Sent with no
+  // page/limit, which is how the endpoint opts out of pagination.
+  const [allInvoices, setAllInvoices] = useState<Invoice[]>([]);
+  const [statsLoading, setStatsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
@@ -121,51 +166,91 @@ const InvoiceHistory: React.FC = () => {
   const { confirm, dialog: confirmDialog } = useConfirm();
   const { showSuccess, showError } = useSnackbar();
 
-  useEffect(() => {
-    if (tabValue !== 5) setTabValue(5);
-    fetchInvoices();
+  const debouncedSearch = useDebounce(search, 300);
+
+  // The Status select and the tab both narrow by status; when they disagree the
+  // old client-side AND produced an empty list, so keep that.
+  const tabStatus = TAB_STATUS[tabValue];
+  const conflictingStatus = !!statusFilter && !!tabStatus && statusFilter !== tabStatus;
+  const serverStatus = statusFilter || tabStatus;
+
+  const grid = useServerPagination<Invoice>({
+    pageSize: 25,
+    fetchFn: ({ page, limit }) =>
+      api
+        .get('/vendor/invoices', {
+          params: {
+            page,
+            limit,
+            status: serverStatus || undefined,
+            search: debouncedSearch || undefined,
+          },
+        })
+        .then((r) => {
+          const body = r.data;
+          const rows = Array.isArray(body) ? body : body?.data ?? [];
+          return Array.isArray(body)
+            ? processInvoices(rows)
+            : { ...body, data: processInvoices(rows) };
+        }),
+    onError: (err) => {
+      console.error('Error fetching invoices:', err);
+      setError('Failed to fetch invoices');
+    },
+  });
+
+  /** Full list behind the summary cards and tab counts (never paged). */
+  const fetchAllInvoices = useCallback(async () => {
+    try {
+      setStatsLoading(true);
+      setError(null);
+      const response = await vendorApi.getInvoices();
+      const rawInvoices: Record<string, unknown>[] = Array.isArray(response)
+        ? response
+        : Array.isArray(response?.data)
+          ? response.data
+          : [];
+      setAllInvoices(processInvoices(rawInvoices));
+    } catch (err: unknown) {
+      console.error('Error fetching invoices:', err);
+      setError('Failed to fetch invoices');
+      setAllInvoices([]);
+    } finally {
+      setStatsLoading(false);
+    }
   }, []);
 
-  const fetchInvoices = async () => {
-    try {
-      setLoading(true);
-      setError('');
-      const response = await vendorApi.getInvoices();
-      let rawInvoices: any[] = [];
-      if (response && Array.isArray(response)) {
-        rawInvoices = response;
-      } else if (response && response.data && Array.isArray(response.data)) {
-        rawInvoices = response.data;
-      } else {
-        setInvoices([]);
-        return;
-      }
-      const processedInvoices = rawInvoices.map((invoice: any) => ({
-        ...invoice,
-        rate: typeof invoice.rate === 'string' ? parseFloat(invoice.rate) : invoice.rate || 0,
-        amount: typeof invoice.amount === 'string' ? parseFloat(invoice.amount) : invoice.amount || 0,
-        subtotal: typeof invoice.subtotal === 'string' ? parseFloat(invoice.subtotal) : invoice.subtotal || 0,
-        hst: typeof invoice.hst === 'string' ? parseFloat(invoice.hst) : invoice.hst || 0,
-        total: typeof invoice.total === 'string' ? parseFloat(invoice.total) : invoice.total || 0,
-        quantity: typeof invoice.quantity === 'string' ? parseInt(invoice.quantity) : invoice.quantity || null,
-      }));
-      setInvoices(processedInvoices);
-    } catch (error: any) {
-      console.error('Error fetching invoices:', error);
-      setError('Failed to fetch invoices');
-      setInvoices([]);
-    } finally {
-      setLoading(false);
-    }
-  };
+  /** After a mutation: refresh the totals and re-fetch the page on screen. */
+  const refreshAll = useCallback(() => {
+    fetchAllInvoices();
+    grid.reload();
+    // `grid` is a new object every render; useServerPagination keeps `grid.reload` itself
+    // stable, which is the intended dep (see the hook's own usage example).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fetchAllInvoices, grid.reload]);
+
+  useEffect(() => {
+    // tabValue's initial state is already 5 ("All"), so this is a no-op on mount; kept
+    // only to reset the tab if this effect ever gains real mount-time dependencies.
+    fetchAllInvoices();
+    // Intentionally mount-only: loads the summary totals once.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    grid.load(1);
+    // `grid` is a new object every render; useServerPagination keeps `grid.load` itself
+    // stable, which is the intended dep (see the hook's own usage example).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [grid.load, serverStatus, debouncedSearch]);
 
   const { isConnected } = useVendorInvoiceUpdates({
     onStatusUpdate: () => {},
     onNotesUpdate: () => {},
-    onRefresh: fetchInvoices,
+    onRefresh: refreshAll,
   });
 
-  if (loading) {
+  if (statsLoading && grid.items.length === 0) {
     return (
       <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: 400 }}>
         <CircularProgress size={48} />
@@ -246,7 +331,7 @@ const InvoiceHistory: React.FC = () => {
       await vendorApi.submitToAdmin(invoice.id);
       showSuccess(`Invoice ${invoice.invoiceNumber} submitted to admin`);
       handleCloseViewDialog();
-      fetchInvoices();
+      refreshAll();
     } catch (err: unknown) {
       const axiosErr = err as { response?: { data?: { error?: string } } };
       showError(axiosErr.response?.data?.error || 'Failed to submit invoice to admin');
@@ -257,46 +342,43 @@ const InvoiceHistory: React.FC = () => {
 
   const handleTabChange = (_event: React.SyntheticEvent, newValue: number) => { setTabValue(newValue); };
 
-  // Filter invoices based on tab and search
-  const getFilteredInvoices = () => {
-    let filtered = invoices;
-    if (search) {
-      filtered = filtered.filter(invoice =>
-        invoice.invoiceNumber.toLowerCase().includes(search.toLowerCase()) ||
-        (invoice.description && invoice.description.toLowerCase().includes(search.toLowerCase())) ||
-        (invoice.billingCompany && invoice.billingCompany.toLowerCase().includes(search.toLowerCase())) ||
-        (invoice.company && invoice.company.toLowerCase().includes(search.toLowerCase()))
-      );
-    }
-    if (statusFilter) {
-      filtered = filtered.filter(invoice => invoice.status === statusFilter);
-    }
-    switch (tabValue) {
-      case 0: filtered = filtered.filter(i => i.status === 'pending_submission'); break;
-      case 1: filtered = filtered.filter(i => i.status === 'submitted_to_admin'); break;
-      case 2: filtered = filtered.filter(i => i.status === 'submitted_to_accounting'); break;
-      case 3: filtered = filtered.filter(i => i.status === 'paid'); break;
-      case 4: break; // All
-      case 5: filtered = filtered.filter(i => i.status !== 'paid'); break;
-    }
-    return filtered;
-  };
+  // Search and status are applied by the server (GET /vendor/invoices accepts
+  // `search` and `status`), so the page that comes back is already narrowed.
+  // The only thing left client-side is the "Non-Paid" tab's `status != 'paid'`
+  // exclusion, which the endpoint cannot express — it therefore applies to the
+  // rows on the current page, and the tab says so.
+  const visibleInvoices = conflictingStatus
+    ? []
+    : tabValue === 5
+      ? grid.items.filter(i => i.status !== 'paid')
+      : grid.items;
 
-  const filteredInvoices = getFilteredInvoices();
-
-  // Compute summary stats
+  // Summary stats and tab counts come from the full, unpaged list so they stay
+  // grand totals and never shrink to the current page.
   const sumByStatus = (statuses: string[]) =>
-    invoices.filter(i => statuses.includes(i.status)).reduce((sum, i) => sum + ((i.total && !isNaN(i.total) && i.total > 0) ? i.total : 0), 0);
-  const countByStatus = (statuses: string[]) => invoices.filter(i => statuses.includes(i.status)).length;
+    allInvoices.filter(i => statuses.includes(i.status)).reduce((sum, i) => sum + ((i.total && !isNaN(i.total) && i.total > 0) ? i.total : 0), 0);
+  const countByStatus = (statuses: string[]) => allInvoices.filter(i => statuses.includes(i.status)).length;
 
   const renderInvoiceTable = () => (
-    filteredInvoices.length === 0 ? (
-      <Box sx={{ bgcolor: (theme) => theme.palette.background.paper, border: (theme) => `1px solid ${theme.palette.divider}`, borderRadius: '10px', p: 6, textAlign: 'center' }}>
-        <Typography sx={{ color: (theme) => theme.palette.text.secondary, fontSize: 14 }}>No invoices found for this view.</Typography>
-      </Box>
-    ) : (
-      <DataTable columns={tableColumns} shownCount={filteredInvoices.length} totalCount={invoices.length}>
-        {filteredInvoices.map(invoice => (
+    <>
+      {tabValue === 5 && (
+        <Typography sx={{ fontSize: 12, color: (theme) => theme.palette.text.secondary, mb: 1 }}>
+          This list is paged. &ldquo;Non-Paid&rdquo; hides paid invoices from the page currently loaded —
+          use the Paid tab or the Status filter for a server-side search across every invoice.
+        </Typography>
+      )}
+      <DataTable
+        columns={tableColumns}
+        shownCount={visibleInvoices.length}
+        totalCount={grid.totalCount}
+        page={grid.page}
+        hasNextPage={grid.hasNextPage}
+        onPrevPage={grid.onPrevPage}
+        onNextPage={grid.onNextPage}
+        loading={grid.loading}
+        emptyMessage="No invoices found for this view."
+      >
+        {visibleInvoices.map(invoice => (
           <DataTableRow key={invoice.id} columns={tableColumns}>
             <Typography sx={{ fontSize: 12.5, color: (theme) => theme.palette.text.secondary }}>{formatDate(invoice.createdAt)}</Typography>
             <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>{invoice.billingCompany || invoice.company || '—'}</Typography>
@@ -329,7 +411,7 @@ const InvoiceHistory: React.FC = () => {
           </DataTableRow>
         ))}
       </DataTable>
-    )
+    </>
   );
 
   return (
@@ -372,7 +454,7 @@ const InvoiceHistory: React.FC = () => {
         <StatCard label="To Accounting" value={countByStatus(['submitted_to_accounting'])} sub={formatCurrency(sumByStatus(['submitted_to_accounting']))} dotColor="#4B5563" />
         <StatCard label="Rejected" value={countByStatus(['rejected_by_admin', 'rejected_by_accountant'])} sub={formatCurrency(sumByStatus(['rejected_by_admin', 'rejected_by_accountant']))} dotColor="#CC1F1F" />
         <StatCard label="Paid" value={countByStatus(['paid'])} sub={formatCurrency(sumByStatus(['paid']))} dotColor="#16A34A" />
-        <StatCard label="Total" value={invoices.length} sub={formatCurrency(sumByStatus(invoices.map(i => i.status)))} dotColor="#111827" />
+        <StatCard label="Total" value={allInvoices.length} sub={formatCurrency(sumByStatus(allInvoices.map(i => i.status)))} dotColor="#111827" />
       </Box>
 
       {/* Search and Filter */}
@@ -410,8 +492,8 @@ const InvoiceHistory: React.FC = () => {
           <Tab label={`To Admin (${countByStatus(['submitted_to_admin'])})`} />
           <Tab label={`To Accounting (${countByStatus(['submitted_to_accounting'])})`} />
           <Tab label={`Paid (${countByStatus(['paid'])})`} />
-          <Tab label={`All (${invoices.length})`} />
-          <Tab label={`Non-Paid (${invoices.filter(i => i.status !== 'paid').length})`} />
+          <Tab label={`All (${allInvoices.length})`} />
+          <Tab label={`Non-Paid (${allInvoices.filter(i => i.status !== 'paid').length})`} />
         </Tabs>
       </Box>
 

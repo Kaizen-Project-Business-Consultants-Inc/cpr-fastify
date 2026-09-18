@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Box,
   Typography,
@@ -17,6 +17,7 @@ import {
   FormControlLabel,
   Switch,
   Button,
+  SelectChangeEvent,
 } from '@mui/material';
 import { Save as SaveIcon, Cancel as CancelIcon } from '@mui/icons-material';
 import { sysAdminApi } from '../../services/api';
@@ -24,16 +25,33 @@ import logger from '../../utils/logger';
 import StatusChip from '../gtacpr/StatusChip';
 import { PrimaryButton } from '../gtacpr/Buttons';
 import { useConfirm, LinkButton } from '../gtacpr';
+import { getErrorMessage } from '../../utils/errorMessage';
+import type { Theme } from '@mui/material/styles';
 
-const CourseManagement = ({ onShowSnackbar }: { onShowSnackbar: any }) => {
-  const [courses, setCourses] = useState<any[]>([]);
+interface Course {
+  id: string;
+  name: string;
+  description?: string;
+  durationMinutes?: number;
+  duration_minutes?: number;
+  prerequisites?: string[];
+  certificationType?: string;
+  certification_validity_months?: number;
+  validityPeriodMonths?: number | string;
+  courseCategory?: string;
+  regulatoryCompliance?: string[];
+  isActive?: boolean;
+}
+
+const CourseManagement = ({ onShowSnackbar }: { onShowSnackbar?: (message: string, severity?: 'success' | 'error') => void }) => {
+  const [courses, setCourses] = useState<Course[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const { confirm, dialog: confirmDialog } = useConfirm();
 
   // Dialog state
   const [showDialog, setShowDialog] = useState(false);
-  const [editingCourse, setEditingCourse] = useState<any>(null);
+  const [editingCourse, setEditingCourse] = useState<Course | null>(null);
   const [formData, setFormData] = useState({
     name: '',
     description: '',
@@ -57,20 +75,23 @@ const CourseManagement = ({ onShowSnackbar }: { onShowSnackbar: any }) => {
     'Refresher Course', 'Specialty Course',
   ];
 
-  useEffect(() => { loadCourses(); }, []);
-
-  const loadCourses = async () => {
+  const loadCourses = useCallback(async () => {
     setLoading(true);
     try {
       const response = await sysAdminApi.getCourses();
       setCourses(response.data || []);
-    } catch (err: any) {
+    } catch (err) {
       logger.error('Error loading courses:', err);
       onShowSnackbar?.('Failed to load courses', 'error');
     } finally {
       setLoading(false);
     }
-  };
+  }, [onShowSnackbar]);
+
+  // Mount-time fetch of the course catalog (external API sync, not state
+  // derived from render data), so a direct setState inside is expected.
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => { loadCourses(); }, [loadCourses]);
 
   const handleAddNew = () => {
     setEditingCourse(null);
@@ -82,7 +103,7 @@ const CourseManagement = ({ onShowSnackbar }: { onShowSnackbar: any }) => {
     setShowDialog(true);
   };
 
-  const handleEdit = (course: any) => {
+  const handleEdit = (course: Course) => {
     setEditingCourse(course);
     const dMin = course.durationMinutes || course.duration_minutes || 0;
     setFormData({
@@ -94,7 +115,7 @@ const CourseManagement = ({ onShowSnackbar }: { onShowSnackbar: any }) => {
       certificationType: course.certificationType || '',
       validityPeriodMonths: course.certification_validity_months
         ? course.certification_validity_months.toString()
-        : (course.validityPeriodMonths || ''),
+        : String(course.validityPeriodMonths ?? ''),
       courseCategory: course.courseCategory || '',
       regulatoryCompliance: course.regulatoryCompliance || [],
       isActive: course.isActive !== false,
@@ -116,7 +137,7 @@ const CourseManagement = ({ onShowSnackbar }: { onShowSnackbar: any }) => {
     setFormData(prev => ({ ...prev, isActive: checked }));
   };
 
-  const handleSubmit = async (e: any) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formData.name.trim()) { onShowSnackbar?.('Course name is required', 'error'); return; }
     const hours = formData.durationHours ? parseInt(formData.durationHours) : 0;
@@ -136,7 +157,7 @@ const CourseManagement = ({ onShowSnackbar }: { onShowSnackbar: any }) => {
         certification_validity_months: formData.validityPeriodMonths ? parseInt(formData.validityPeriodMonths) : null,
       };
       if (editingCourse) {
-        await sysAdminApi.updateCourse(editingCourse.id, submitData);
+        await sysAdminApi.updateCourse(Number(editingCourse.id), submitData);
         onShowSnackbar?.('Course updated successfully', 'success');
       } else {
         await sysAdminApi.createCourse(submitData);
@@ -144,16 +165,16 @@ const CourseManagement = ({ onShowSnackbar }: { onShowSnackbar: any }) => {
       }
       setShowDialog(false);
       loadCourses();
-    } catch (err: any) {
+    } catch (err) {
       logger.error('Error saving course:', err);
-      onShowSnackbar?.('Failed to save course', 'error');
+      onShowSnackbar?.(getErrorMessage(err, 'Failed to save course'), 'error');
     } finally {
       setSaving(false);
     }
   };
 
-  const handleChange = (e: any) => {
-    const { name, value, checked, type } = e.target;
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement> | SelectChangeEvent) => {
+    const { name, value, checked, type } = e.target as HTMLInputElement;
     setFormData(prev => ({ ...prev, [name]: type === 'checkbox' ? checked : value }));
   };
 
@@ -201,7 +222,7 @@ const CourseManagement = ({ onShowSnackbar }: { onShowSnackbar: any }) => {
                 key={course.id}
                 sx={{
                   borderRadius: '10px',
-                  border: (theme: any) => `1px solid ${theme.palette.divider}`,
+                  border: (theme: Theme) => `1px solid ${theme.palette.divider}`,
                   boxShadow: '0 1px 3px rgba(0,0,0,.05)',
                   overflow: 'hidden',
                   display: 'flex',
@@ -260,7 +281,7 @@ const CourseManagement = ({ onShowSnackbar }: { onShowSnackbar: any }) => {
                       width: '100%',
                       textAlign: 'center',
                       py: 1,
-                      border: (theme: any) => `1.5px solid ${theme.palette.divider}`,
+                      border: (theme: Theme) => `1.5px solid ${theme.palette.divider}`,
                       borderRadius: '8px',
                       fontSize: 13,
                       fontWeight: 700,

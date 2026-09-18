@@ -5,6 +5,8 @@ import { requireRole } from '../plugins/auth.js';
 import { logger } from '../config/logger.js';
 import { StudentRepository } from '../repositories/StudentRepository.js';
 import { emailService } from '../services/EmailService.js';
+import { maybePaginate, paginatedResponse } from '../utils/pagination.js';
+import type { RowDataPacket, ResultSetHeader } from 'mysql2/promise';
 
 const addStudentSchema = z.object({
   firstName: z.string().min(1),
@@ -35,7 +37,11 @@ const CLASS_QUERY_BASE = `
     COALESCE(o.name, 'Unassigned') as organizationname,
     COALESCE(cr.location, '') as notes,
     COALESCE(cs_counts.studentcount, 0) as studentcount,
-    COALESCE(cs_counts.studentsattendance, 0) as studentsattendance
+    COALESCE(cs_counts.studentsattendance, 0) as studentsattendance`;
+
+// Same FROM/JOINs as CLASS_QUERY_BASE — shared so the count query of a
+// paginated request can never drift from the data query.
+const CLASS_QUERY_FROM = `
   FROM course_requests cr
   JOIN class_types ct ON cr.course_type_id = ct.id
   LEFT JOIN organizations o ON cr.organization_id = o.id
@@ -46,7 +52,9 @@ const CLASS_QUERY_BASE = `
     FROM course_students GROUP BY course_request_id
   ) cs_counts ON cs_counts.course_request_id = cr.id`;
 
-function formatClassRows(rows: any[]) {
+const CLASS_QUERY_SELECT = `${CLASS_QUERY_BASE}${CLASS_QUERY_FROM}`;
+
+function formatClassRows(rows: RowDataPacket[]) {
   return rows.map(row => ({
     ...row,
     date: row.start_time ? new Date(row.start_time).toISOString().split('T')[0] : null,
@@ -59,7 +67,7 @@ export async function instructorRoutes(app: FastifyInstance) {
 
   // ===== Dashboard Stats =====
   app.get('/dashboard/stats', { preHandler: role }, async (request) => {
-    const [statsRows] = await pool.query<any[]>(
+    const [statsRows] = await pool.query<RowDataPacket[]>(
       `SELECT
          COUNT(*) as total_courses,
          SUM(CASE WHEN cr.status = 'confirmed' THEN 1 ELSE 0 END) as scheduled_courses,
@@ -73,7 +81,7 @@ export async function instructorRoutes(app: FastifyInstance) {
       [request.userId]
     );
 
-    const [recentRows] = await pool.query<any[]>(
+    const [recentRows] = await pool.query<RowDataPacket[]>(
       `SELECT cr.id, cr.confirmed_date as date, ct.name as type,
               COALESCE(sc.student_count, 0) as students
        FROM course_requests cr
@@ -106,19 +114,22 @@ export async function instructorRoutes(app: FastifyInstance) {
 
   // ===== Availability =====
   app.get('/availability', { preHandler: role }, async (request) => {
-    const [rows] = await pool.query<any[]>(
+    const result = await maybePaginate(
       `SELECT id, instructor_id, date, status, created_at, updated_at
        FROM instructor_availability WHERE instructor_id = ? ORDER BY date ASC`,
-      [request.userId]
+      'SELECT COUNT(*) as count FROM instructor_availability WHERE instructor_id = ?',
+      [request.userId],
+      request.query as Record<string, string>,
     );
-    return { success: true, data: rows.map(r => ({ ...r, date: r.date ? new Date(r.date).toISOString().split('T')[0] : null })) };
+    return paginatedResponse(result, (rows) =>
+      rows.map((r) => ({ ...r, date: r.date ? new Date(r.date).toISOString().split('T')[0] : null })));
   });
 
   app.post('/availability', { preHandler: role }, async (request, reply) => {
     const { date } = z.object({ date: z.string() }).parse(request.body);
     if (isNaN(new Date(date).getTime())) return reply.status(400).send({ error: 'Invalid date format' });
 
-    const [existing] = await pool.query<any[]>(
+    const [existing] = await pool.query<RowDataPacket[]>(
       'SELECT id FROM instructor_availability WHERE instructor_id = ? AND date = ?',
       [request.userId, date]
     );
@@ -128,7 +139,7 @@ export async function instructorRoutes(app: FastifyInstance) {
       `INSERT INTO instructor_availability (instructor_id, date, status) VALUES (?, ?, 'available')`,
       [request.userId, date]
     );
-    const [rows] = await pool.query<any[]>(
+    const [rows] = await pool.query<RowDataPacket[]>(
       'SELECT * FROM instructor_availability WHERE instructor_id = ? AND date = ?',
       [request.userId, date]
     );
@@ -137,7 +148,7 @@ export async function instructorRoutes(app: FastifyInstance) {
 
   app.delete('/availability/:date', { preHandler: role }, async (request, reply) => {
     const { date } = request.params as { date: string };
-    const [result] = await pool.query<any>(
+    const [result] = await pool.query<ResultSetHeader>(
       'DELETE FROM instructor_availability WHERE instructor_id = ? AND date = ?',
       [request.userId, date]
     );
@@ -162,7 +173,7 @@ export async function instructorRoutes(app: FastifyInstance) {
       await conn.commit();
     } catch (err) { await conn.rollback(); throw err; } finally { conn.release(); }
 
-    const [rows] = await pool.query<any[]>(
+    const [rows] = await pool.query<RowDataPacket[]>(
       'SELECT * FROM instructor_availability WHERE instructor_id = ? ORDER BY date ASC',
       [request.userId]
     );
@@ -170,28 +181,42 @@ export async function instructorRoutes(app: FastifyInstance) {
   });
 
   // ===== Classes =====
-  app.get('/classes', { preHandler: role }, async (request) => {
-    const [rows] = await pool.query<any[]>(
-      `${CLASS_QUERY_BASE} WHERE cr.instructor_id = ? AND cr.status = 'confirmed' ORDER BY cr.confirmed_date DESC`,
-      [request.userId]
+  /** One opt-in-paginated class list. `where` is shared by data and count. */
+  async function classList(query: Record<string, string>, where: string, orderBy: string, params: unknown[]) {
+    const result = await maybePaginate(
+      `${CLASS_QUERY_SELECT} ${where} ORDER BY ${orderBy}`,
+      `SELECT COUNT(*) as count ${CLASS_QUERY_FROM} ${where}`,
+      params,
+      query,
     );
-    return { success: true, data: formatClassRows(rows) };
+    return paginatedResponse(result, formatClassRows);
+  }
+
+  app.get('/classes', { preHandler: role }, async (request) => {
+    return classList(
+      request.query as Record<string, string>,
+      `WHERE cr.instructor_id = ? AND cr.status = 'confirmed'`,
+      'cr.confirmed_date DESC',
+      [request.userId],
+    );
   });
 
   app.get('/classes/active', { preHandler: role }, async (request) => {
-    const [rows] = await pool.query<any[]>(
-      `${CLASS_QUERY_BASE} WHERE cr.instructor_id = ? AND cr.status = 'confirmed' AND cr.status != 'completed' ORDER BY cr.confirmed_date ASC`,
-      [request.userId]
+    return classList(
+      request.query as Record<string, string>,
+      `WHERE cr.instructor_id = ? AND cr.status = 'confirmed' AND cr.status != 'completed'`,
+      'cr.confirmed_date ASC',
+      [request.userId],
     );
-    return { success: true, data: formatClassRows(rows) };
   });
 
   app.get('/classes/completed', { preHandler: role }, async (request) => {
-    const [rows] = await pool.query<any[]>(
-      `${CLASS_QUERY_BASE} WHERE cr.instructor_id = ? AND cr.status = 'completed' ORDER BY cr.confirmed_date DESC`,
-      [request.userId]
+    return classList(
+      request.query as Record<string, string>,
+      `WHERE cr.instructor_id = ? AND cr.status = 'completed'`,
+      'cr.confirmed_date DESC',
+      [request.userId],
     );
-    return { success: true, data: formatClassRows(rows) };
   });
 
   app.get('/classes/today', { preHandler: role }, async (request) => {
@@ -200,30 +225,32 @@ export async function instructorRoutes(app: FastifyInstance) {
     if (clientDate && /^\d{4}-\d{2}-\d{2}$/.test(clientDate)) {
       todayStr = clientDate;
     } else {
-      const [dateRows] = await pool.query<any[]>('SELECT CURRENT_DATE as today_date');
+      const [dateRows] = await pool.query<RowDataPacket[]>('SELECT CURRENT_DATE as today_date');
       todayStr = new Date(dateRows[0].today_date).toISOString().split('T')[0];
     }
 
-    const [rows] = await pool.query<any[]>(
-      `${CLASS_QUERY_BASE} WHERE cr.instructor_id = ? AND cr.status = 'confirmed' AND DATE(cr.confirmed_date) = ? ORDER BY cr.confirmed_date ASC`,
-      [request.userId, todayStr]
+    return classList(
+      request.query as Record<string, string>,
+      `WHERE cr.instructor_id = ? AND cr.status = 'confirmed' AND DATE(cr.confirmed_date) = ?`,
+      'cr.confirmed_date ASC',
+      [request.userId, todayStr],
     );
-    return { success: true, data: formatClassRows(rows) };
   });
 
   // ===== Schedule =====
   app.get('/schedule', { preHandler: role }, async (request) => {
-    const [rows] = await pool.query<any[]>(
-      `${CLASS_QUERY_BASE} WHERE cr.instructor_id = ? AND cr.status = 'confirmed' ORDER BY cr.confirmed_date ASC`,
-      [request.userId]
+    return classList(
+      request.query as Record<string, string>,
+      `WHERE cr.instructor_id = ? AND cr.status = 'confirmed'`,
+      'cr.confirmed_date ASC',
+      [request.userId],
     );
-    return { success: true, data: formatClassRows(rows) };
   });
 
   // ===== Class detail =====
   app.get('/classes/:classId', { preHandler: role }, async (request, reply) => {
     const { classId } = request.params as { classId: string };
-    const [rows] = await pool.query<any[]>(
+    const [rows] = await pool.query<RowDataPacket[]>(
       `SELECT c.id, c.class_type_id, c.instructor_id, c.start_time, c.end_time, c.status,
               c.location, c.max_students, CASE WHEN c.status = 'completed' THEN true ELSE false END as completed,
               c.created_at, c.updated_at, ct.name as course_name, ct.name as coursetypename,
@@ -241,13 +268,13 @@ export async function instructorRoutes(app: FastifyInstance) {
   // ===== Students for a class =====
   app.get('/classes/:classId/students', { preHandler: role }, async (request) => {
     const { classId } = request.params as { classId: string };
-    const [check] = await pool.query<any[]>(
+    const [check] = await pool.query<RowDataPacket[]>(
       'SELECT id FROM course_requests WHERE id = ? AND instructor_id = ?',
       [classId, request.userId]
     );
     if (check.length === 0) return { success: true, data: [] };
 
-    const [rows] = await pool.query<any[]>(
+    const [rows] = await pool.query<RowDataPacket[]>(
       `SELECT cs.id, cs.first_name, cs.last_name, cs.email, cs.attended, cs.attendance_marked
        FROM course_students cs WHERE cs.course_request_id = ? ORDER BY cs.first_name, cs.last_name`,
       [classId]
@@ -266,7 +293,7 @@ export async function instructorRoutes(app: FastifyInstance) {
     const { classId, studentId } = request.params as { classId: string; studentId: string };
     const { attended } = z.object({ attended: z.boolean() }).parse(request.body);
 
-    const [check] = await pool.query<any[]>(
+    const [check] = await pool.query<RowDataPacket[]>(
       'SELECT id FROM course_requests WHERE id = ? AND instructor_id = ?',
       [classId, request.userId]
     );
@@ -274,9 +301,9 @@ export async function instructorRoutes(app: FastifyInstance) {
 
     // If marking attended, auto-set certificate dates based on class type validity
     let certUpdate = '';
-    const certValues: any[] = [attended, studentId, classId];
+    const certValues: unknown[] = [attended, studentId, classId];
     if (attended) {
-      const [typeRows] = await pool.query<any[]>(
+      const [typeRows] = await pool.query<RowDataPacket[]>(
         `SELECT ct.certification_validity_months, cr.completed_at
          FROM course_requests cr JOIN class_types ct ON cr.course_type_id = ct.id
          WHERE cr.id = ?`,
@@ -291,14 +318,14 @@ export async function instructorRoutes(app: FastifyInstance) {
       certUpdate = ', certificate_issued_at = NULL, certificate_expires_at = NULL';
     }
 
-    const [result] = await pool.query<any>(
+    const [result] = await pool.query<ResultSetHeader>(
       `UPDATE course_students SET attended = ?, attendance_marked = true${certUpdate}, updated_at = CURRENT_TIMESTAMP
        WHERE id = ? AND course_request_id = ?`,
       certValues
     );
     if (result.affectedRows === 0) return reply.status(404).send({ error: 'Student not found' });
 
-    const [rows] = await pool.query<any[]>(
+    const [rows] = await pool.query<RowDataPacket[]>(
       'SELECT id, first_name, last_name, email, attended, attendance_marked, certificate_issued_at, certificate_expires_at FROM course_students WHERE id = ?',
       [studentId]
     );
@@ -317,37 +344,47 @@ export async function instructorRoutes(app: FastifyInstance) {
     const { classId } = request.params as { classId: string };
     const { firstName, lastName, email, phone, college } = addStudentSchema.parse(request.body);
 
-    const [check] = await pool.query<any[]>(
+    const [check] = await pool.query<RowDataPacket[]>(
       'SELECT id FROM course_requests WHERE id = ? AND instructor_id = ?',
       [classId, request.userId]
     );
     if (check.length === 0) return reply.status(403).send({ error: 'Not authorized or course request not found' });
 
-    const [existing] = await pool.query<any[]>(
+    const [existing] = await pool.query<RowDataPacket[]>(
       'SELECT id FROM course_students WHERE course_request_id = ? AND email = ?',
       [classId, email]
     );
     if (existing.length > 0) return reply.status(400).send({ error: 'Student with this email already exists for this course' });
 
-    // Write-through to students master table
+    // Two dependent writes: the students master row and the course roster row.
+    // A failure after the first would leave an orphan master student, so both
+    // run on one connection inside a transaction.
     const studentRepo = new StudentRepository();
-    const [courseRow] = await pool.query<any[]>(
-      'SELECT organization_id FROM course_requests WHERE id = ?', [classId]
-    );
-    const studentId = await studentRepo.findOrCreate({
-      email, firstName, lastName, phone,
-      organizationId: courseRow[0]?.organization_id ?? null,
-    });
+    const conn = await pool.getConnection();
+    let rows: RowDataPacket[];
+    try {
+      await conn.beginTransaction();
 
-    const [insertResult] = await pool.query<any>(
-      `INSERT INTO course_students (course_request_id, first_name, last_name, email, phone, college, student_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      [classId, firstName, lastName, email, phone, college ?? null, studentId]
-    );
+      const [courseRow] = await conn.query<RowDataPacket[]>(
+        'SELECT organization_id FROM course_requests WHERE id = ?', [classId]
+      );
+      const studentId = await studentRepo.findOrCreate({
+        email, firstName, lastName, phone,
+        organizationId: courseRow[0]?.organization_id ?? null,
+      }, conn);
 
-    const [rows] = await pool.query<any[]>(
-      'SELECT * FROM course_students WHERE id = ?', [insertResult.insertId]
-    );
+      const [insertResult] = await conn.query<ResultSetHeader>(
+        `INSERT INTO course_students (course_request_id, first_name, last_name, email, phone, college, student_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        [classId, firstName, lastName, email, phone, college ?? null, studentId]
+      );
+
+      [rows] = await conn.query<RowDataPacket[]>(
+        'SELECT * FROM course_students WHERE id = ?', [insertResult.insertId]
+      );
+      await conn.commit();
+    } catch (err) { await conn.rollback(); throw err; } finally { conn.release(); }
+
     const r = rows[0];
     return {
       success: true,
@@ -364,33 +401,38 @@ export async function instructorRoutes(app: FastifyInstance) {
     const { classId } = request.params as { classId: string };
     const { instructor_comments } = (request.body ?? {}) as { instructor_comments?: string };
 
-    const [check] = await pool.query<any[]>(
+    const [check] = await pool.query<RowDataPacket[]>(
       'SELECT id, status FROM course_requests WHERE id = ? AND instructor_id = ?',
       [classId, request.userId]
     );
     if (check.length === 0) return reply.status(404).send({ error: 'Course request not found or not authorized' });
     if (check[0].status === 'completed') return reply.status(400).send({ error: 'Class is already completed' });
 
-    await pool.query(
-      `UPDATE course_requests
-       SET status = 'completed', instructor_comments = COALESCE(?, instructor_comments),
-           completed_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
-       WHERE id = ? AND instructor_id = ?`,
-      [instructor_comments ?? null, classId, request.userId]
-    );
-
-    await pool.query(
-      `UPDATE classes SET status = 'completed', updated_at = CURRENT_TIMESTAMP
-       WHERE instructor_id = ? AND DATE(start_time) = (SELECT DATE(confirmed_date) FROM course_requests WHERE id = ?)`,
-      [request.userId, classId]
-    );
+    // course_requests and classes must flip to 'completed' together.
+    const completeConn = await pool.getConnection();
+    try {
+      await completeConn.beginTransaction();
+      await completeConn.query(
+        `UPDATE course_requests
+         SET status = 'completed', instructor_comments = COALESCE(?, instructor_comments),
+             completed_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+         WHERE id = ? AND instructor_id = ?`,
+        [instructor_comments ?? null, classId, request.userId]
+      );
+      await completeConn.query(
+        `UPDATE classes SET status = 'completed', updated_at = CURRENT_TIMESTAMP
+         WHERE instructor_id = ? AND DATE(start_time) = (SELECT DATE(confirmed_date) FROM course_requests WHERE id = ?)`,
+        [request.userId, classId]
+      );
+      await completeConn.commit();
+    } catch (err) { await completeConn.rollback(); throw err; } finally { completeConn.release(); }
 
     logger.info({ courseId: classId, instructorId: request.userId }, 'Course completed');
 
     // Fire-and-forget: send course completed email to org admins
     (async () => {
       try {
-        const [courseInfo] = await pool.query<any[]>(
+        const [courseInfo] = await pool.query<RowDataPacket[]>(
           `SELECT cr.organization_id, cr.registered_students, cr.location,
                   COALESCE(cr.confirmed_date, cr.scheduled_date) as course_date,
                   ct.name as course_name,
@@ -409,12 +451,12 @@ export async function instructorRoutes(app: FastifyInstance) {
           FROM users u
           ${withPrefs ? "LEFT JOIN notification_preferences np ON np.user_id = u.id AND np.notification_type = 'course_status_change'" : ''}
           WHERE u.organization_id = ? AND u.role IN ('org_admin', 'organization') AND u.status = 'active' AND u.email IS NOT NULL`;
-        let admins: any[] = [];
+        let admins: RowDataPacket[] = [];
         try {
-          [admins] = await pool.query<any[]>(adminsSql(true), [info.organization_id]);
+          [admins] = await pool.query<RowDataPacket[]>(adminsSql(true), [info.organization_id]);
         } catch {
           // notification_preferences table may not exist — send to everyone
-          [admins] = await pool.query<any[]>(adminsSql(false), [info.organization_id]);
+          [admins] = await pool.query<RowDataPacket[]>(adminsSql(false), [info.organization_id]);
         }
 
         for (const admin of admins) {
@@ -435,7 +477,7 @@ export async function instructorRoutes(app: FastifyInstance) {
       }
     })();
 
-    const [rows] = await pool.query<any[]>(
+    const [rows] = await pool.query<RowDataPacket[]>(
       'SELECT id, status, completed_at, updated_at FROM course_requests WHERE id = ?', [classId]
     );
     return { success: true, data: rows[0] };
@@ -443,7 +485,7 @@ export async function instructorRoutes(app: FastifyInstance) {
 
   // ===== Profile =====
   app.get('/profile', { preHandler: role }, async (request, reply) => {
-    const [rows] = await pool.query<any[]>(
+    const [rows] = await pool.query<RowDataPacket[]>(
       `SELECT u.id, u.username, u.email, u.phone, u.first_name, u.last_name, u.role,
               u.created_at, u.updated_at,
               COALESCE(stats.total_classes, 0) as total_classes,
@@ -476,7 +518,7 @@ export async function instructorRoutes(app: FastifyInstance) {
        phone = COALESCE(?, phone), updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
       [username ?? null, email ?? null, phone ?? null, request.userId]
     );
-    const [rows] = await pool.query<any[]>(
+    const [rows] = await pool.query<RowDataPacket[]>(
       'SELECT id, username, email, phone FROM users WHERE id = ?', [request.userId]
     );
     if (rows.length === 0) return reply.status(404).send({ error: 'User not found' });
@@ -485,7 +527,7 @@ export async function instructorRoutes(app: FastifyInstance) {
 
   // ===== Attendance data =====
   app.get('/attendance', { preHandler: role }, async (request) => {
-    const [rows] = await pool.query<any[]>(
+    const result = await maybePaginate(
       `SELECT c.id as class_id, c.start_time, c.end_time, c.status, ct.name as course_name,
               COUNT(cs.id) as total_students,
               COUNT(CASE WHEN cs.attended = true THEN 1 END) as attended_students,
@@ -497,8 +539,13 @@ export async function instructorRoutes(app: FastifyInstance) {
        WHERE c.instructor_id = ?
        GROUP BY c.id, c.start_time, c.end_time, c.status, ct.name
        ORDER BY c.start_time DESC`,
-      [request.userId]
+      // One row per class after the GROUP BY, so count classes over the same WHERE.
+      `SELECT COUNT(*) as count FROM classes c
+       JOIN class_types ct ON c.class_type_id = ct.id
+       WHERE c.instructor_id = ?`,
+      [request.userId],
+      request.query as Record<string, string>,
     );
-    return { success: true, data: rows };
+    return paginatedResponse(result);
   });
 }

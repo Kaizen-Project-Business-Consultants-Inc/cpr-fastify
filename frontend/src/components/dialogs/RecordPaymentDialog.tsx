@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import {
   Dialog,
   DialogTitle,
@@ -17,15 +17,31 @@ import {
   Divider,
 } from '@mui/material';
 import Typography from '@mui/material/Typography';
+import type { SelectChangeEvent } from '@mui/material';
 import * as api from '../../services/api'; // Adjust path as needed
 import logger from '../../utils/logger';
 import { recordPayment } from '../../services/paymentService';
+import { getErrorMessage } from '../../utils/errorMessage';
 
 // Helper function to format currency
-const formatCurrency = (amount: any) => {
-  if (amount == null || isNaN(amount)) return '$0.00'; // Default to 0 if null/NaN
-  return `$${parseFloat(amount).toFixed(2)}`;
+const formatCurrency = (amount: number | string | null | undefined) => {
+  if (amount == null || isNaN(Number(amount))) return '$0.00'; // Default to 0 if null/NaN
+  return `$${parseFloat(String(amount)).toFixed(2)}`;
 };
+
+export interface PaymentDialogInvoice {
+  invoiceid: number;
+  invoicenumber?: string;
+  amount?: number | string;
+}
+
+interface RecordPaymentDialogProps {
+  open: boolean;
+  onClose: () => void;
+  invoice: PaymentDialogInvoice | null;
+  onSuccess: (message: string) => void;
+  onError: (message: string) => void;
+}
 
 const RecordPaymentDialog = ({
   open,
@@ -33,13 +49,7 @@ const RecordPaymentDialog = ({
   invoice,
   onSuccess,
   onError,
-}: {
-  open: any;
-  onClose: any;
-  invoice: any;
-  onSuccess: any;
-  onError: any;
-}) => {
+}: RecordPaymentDialogProps) => {
   const [paymentData, setPaymentData] = useState({
     paymentDate: new Date().toISOString().split('T')[0], // Default to today
     amountPaid: '',
@@ -54,7 +64,9 @@ const RecordPaymentDialog = ({
   const [balanceDue, setBalanceDue] = useState(invoice?.amount || 0);
   const [isLoadingSummary, setIsLoadingSummary] = useState(false);
 
-  const handleChange = (event: any) => {
+  const handleChange = (
+    event: SelectChangeEvent<string> | React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>
+  ) => {
     const { name, value } = event.target;
     // Allow only numbers and one decimal for amount
     if (name === 'amountPaid' && value && !/^[0-9]*\.?[0-9]*$/.test(value)) {
@@ -85,6 +97,11 @@ const RecordPaymentDialog = ({
       setIsSubmitting(false);
       return;
     }
+    if (!invoice?.invoiceid) {
+      setError('No invoice selected.');
+      setIsSubmitting(false);
+      return;
+    }
 
     try {
       logger.info(`Recording payment for invoice: ${invoice?.invoiceid}`);
@@ -98,14 +115,14 @@ const RecordPaymentDialog = ({
       };
       
       
-      await recordPayment(invoice?.invoiceid, paymentPayload);
+      await recordPayment(invoice.invoiceid, paymentPayload);
       
       logger.info(`Payment recorded successfully for invoice: ${invoice?.invoiceid}`);
       onSuccess(paymentData.notes || 'Payment recorded successfully.'); // Notify parent
-    } catch (err: any) {
+    } catch (err) {
       console.error('❌ [RecordPaymentDialog] Payment recording failed:', err);
       logger.error('Failed to record payment:', err);
-      const errorMessage = err.message || 'Failed to record payment';
+      const errorMessage = getErrorMessage(err, 'Failed to record payment');
       setError(errorMessage);
       onError(errorMessage);
     } finally {
@@ -133,21 +150,21 @@ const RecordPaymentDialog = ({
         try {
           const payments = await api.getInvoicePayments(invoice.invoiceid);
           const totalPaid = payments.reduce(
-            (sum: number, p: any) => sum + parseFloat(p.amount_paid || 0),
+            (sum: number, p: { amount_paid?: number | string }) => sum + parseFloat(String(p.amount_paid || 0)),
             0
           );
-          const originalAmount = parseFloat(invoice.amount || 0);
+          const originalAmount = parseFloat(String(invoice.amount || 0));
           setPaidToDate(totalPaid);
           setBalanceDue(originalAmount - totalPaid);
           logger.debug(
             `[RecordPaymentDialog] Payment summary loaded: Paid=${totalPaid}, Balance=${originalAmount - totalPaid}`
           );
-        } catch (err: any) {
+        } catch (err) {
           logger.error('Error loading payment summary:', err);
           // Don't block the dialog, but maybe show a small error?
           // For now, just default to 0 paid / full balance
           setPaidToDate(0);
-          setBalanceDue(parseFloat(invoice.amount || 0));
+          setBalanceDue(parseFloat(String(invoice.amount || 0)));
         } finally {
           setIsLoadingSummary(false);
         }

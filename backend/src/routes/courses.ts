@@ -1,10 +1,11 @@
-import { FastifyInstance } from 'fastify';
+import { FastifyInstance, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { CourseService, CourseError } from '../services/CourseService.js';
 import { CourseRequestRepository } from '../repositories/CourseRequestRepository.js';
 import { CourseStudentRepository } from '../repositories/CourseStudentRepository.js';
 import { UserRepository } from '../repositories/UserRepository.js';
 import { requireAuth, requireRole } from '../plugins/auth.js';
+import { isPaginated, parsePagination, paginatedResponse } from '../utils/pagination.js';
 
 // --- Validation schemas ---
 
@@ -44,7 +45,7 @@ const addStudentsSchema = z.object({
 
 // --- Helper ---
 
-function handleCourseError(err: unknown, reply: any) {
+function handleCourseError(err: unknown, reply: FastifyReply) {
   if (err instanceof CourseError) {
     return reply.status(err.statusCode).send({ error: err.message });
   }
@@ -54,8 +55,9 @@ function handleCourseError(err: unknown, reply: any) {
 // --- Routes ---
 
 export async function courseRoutes(app: FastifyInstance) {
+  const courseRepo = new CourseRequestRepository();
   const service = new CourseService(
-    new CourseRequestRepository(),
+    courseRepo,
     new CourseStudentRepository(),
     new UserRepository(),
   );
@@ -104,23 +106,35 @@ export async function courseRoutes(app: FastifyInstance) {
 
   const adminPreHandler = [requireRole('admin', 'sysadmin', 'superadmin')];
 
+  // The four status lists are opt-in paginated: without `page`/`limit` they go
+  // through the service exactly as before; with them they run the same query
+  // through the repository with LIMIT/OFFSET plus a matching count.
+
   // GET /courses/pending
-  app.get('/pending', { preHandler: adminPreHandler }, async () => {
+  app.get('/pending', { preHandler: adminPreHandler }, async (request) => {
+    const query = request.query as Record<string, string>;
+    if (isPaginated(query)) return paginatedResponse(await courseRepo.findPending(parsePagination(query)));
     return { success: true, data: await service.getPending() };
   });
 
   // GET /courses/confirmed
-  app.get('/confirmed', { preHandler: adminPreHandler }, async () => {
+  app.get('/confirmed', { preHandler: adminPreHandler }, async (request) => {
+    const query = request.query as Record<string, string>;
+    if (isPaginated(query)) return paginatedResponse(await courseRepo.findConfirmed(parsePagination(query)));
     return { success: true, data: await service.getConfirmed() };
   });
 
   // GET /courses/completed
-  app.get('/completed', { preHandler: adminPreHandler }, async () => {
+  app.get('/completed', { preHandler: adminPreHandler }, async (request) => {
+    const query = request.query as Record<string, string>;
+    if (isPaginated(query)) return paginatedResponse(await courseRepo.findCompleted(parsePagination(query)));
     return { success: true, data: await service.getCompleted() };
   });
 
   // GET /courses/cancelled
-  app.get('/cancelled', { preHandler: adminPreHandler }, async () => {
+  app.get('/cancelled', { preHandler: adminPreHandler }, async (request) => {
+    const query = request.query as Record<string, string>;
+    if (isPaginated(query)) return paginatedResponse(await courseRepo.findCancelled(parsePagination(query)));
     return { success: true, data: await service.getCancelled() };
   });
 

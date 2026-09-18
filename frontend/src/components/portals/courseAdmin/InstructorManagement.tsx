@@ -235,7 +235,7 @@ const InstructorManagement: React.FC = () => {
   const [courseToEdit, setCourseToEdit] = useState<Course | null>(null);
   const [availabilityData, setAvailabilityData] = useState<AvailabilityFormData[]>([]);
   const [instructorSchedule, setInstructorSchedule] = useState<ScheduleItem[]>([]);
-  const [instructorAvailability, setInstructorAvailability] = useState<Record<string, unknown>[]>([]);
+  const [, setInstructorAvailability] = useState<Record<string, unknown>[]>([]);
   const [formData, setFormData] = useState<FormData>(EMPTY_FORM);
   const [formErrors, setFormErrors] = useState<FormErrors>({});
   const [savingInstructor, setSavingInstructor] = useState(false);
@@ -440,7 +440,7 @@ const InstructorManagement: React.FC = () => {
 
       setInstructorSchedule(combinedData);
       setInstructorAvailability(availabilityRes.data.data || []);
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('Error fetching instructor schedule:', err);
       setError('Failed to fetch instructor schedule data');
     }
@@ -562,7 +562,7 @@ const InstructorManagement: React.FC = () => {
           });
         }
         setAvailableInstructors(availableList);
-      } catch (err: any) {
+      } catch (err: unknown) {
         console.error('Error fetching available instructors:', err);
         setAvailableInstructors([]);
       }
@@ -776,7 +776,7 @@ The course status has been updated to "Confirmed" and moved to the confirmed cou
         }
 
         setAvailableInstructors(availableList);
-      } catch (err: any) {
+      } catch (err: unknown) {
         console.error('Error fetching available instructors:', err);
         setAvailableInstructors([]);
       }

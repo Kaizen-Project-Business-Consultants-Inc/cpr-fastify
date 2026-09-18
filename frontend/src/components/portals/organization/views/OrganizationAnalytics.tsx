@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import { Box, Typography, Grid } from '@mui/material';
 import { formatDisplayDate } from '../../../../utils/dateUtils';
 import StatCard from '../../../gtacpr/StatCard';
@@ -94,7 +94,7 @@ const OrganizationAnalytics: React.FC<OrganizationAnalyticsProps> = ({
     setDateTo(to);
   };
 
-  const filterByDate = (items: Course[]) => {
+  const filterByDate = useCallback((items: Course[]) => {
     if (!dateFrom && !dateTo) return items;
     return items.filter((c) => {
       const d = c.scheduledDate || c.requestSubmittedDate;
@@ -104,10 +104,10 @@ const OrganizationAnalytics: React.FC<OrganizationAnalyticsProps> = ({
       if (dateTo && dateStr > dateTo) return false;
       return true;
     });
-  };
+  }, [dateFrom, dateTo]);
 
-  const filteredCourses = useMemo(() => filterByDate(courses || []), [courses, dateFrom, dateTo]);
-  const filteredArchived = useMemo(() => filterByDate(archivedCourses || []), [archivedCourses, dateFrom, dateTo]);
+  const filteredCourses = useMemo(() => filterByDate(courses || []), [courses, filterByDate]);
+  const filteredArchived = useMemo(() => filterByDate(archivedCourses || []), [archivedCourses, filterByDate]);
 
   const totalBilled = Number(billingSummary?.total_amount || 0);
   const totalPaid = Number(billingSummary?.paid_amount || 0);

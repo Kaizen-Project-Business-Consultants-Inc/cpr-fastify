@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import { useAuth } from '../../../contexts/AuthContext';
-import { useNavigate, useLocation } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { api } from '../../../services/api';
 import logger from '../../../utils/logger';
 import analytics from '../../../services/analytics';
@@ -9,68 +9,12 @@ import ErrorBoundary from '../../common/ErrorBoundary';
 import OrganizationPortal from './OrganizationPortal';
 import { CircularProgress, Alert, Box } from '@mui/material';
 
-// TypeScript interfaces
-interface OrganizationData {
-  id: number;
-  name: string;
-  contact_email: string;
-  contact_phone: string;
-  address: string;
-  total_courses: number;
-  total_students: number;
-  active_instructors: number;
-}
-
-interface Course {
-  id: string | number;
-  requestSubmittedDate: string;
-  scheduledDate: string;
-  courseTypeName: string;
-  location: string;
-  registeredStudents: number;
-  status: string;
-  instructor: string;
-  notes?: string;
-}
-
-interface Invoice {
-  id: number;
-  invoiceNumber: string;
-  createdAt: string;
-  dueDate: string;
-  amount: number;
-  status: string;
-  studentsBilled: number;
-  paidDate?: string;
-  location: string;
-  courseTypeName: string;
-  courseDate: string;
-  courseRequestId: number;
-  amountPaid: number;
-  balanceDue: number;
-}
-
-interface BillingSummary {
-  total_invoices: number;
-  pending_invoices: number;
-  overdue_invoices: number;
-  paid_invoices: number;
-  payment_submitted: number;
-  total_amount: number;
-  pending_amount: number;
-  overdue_amount: number;
-  paid_amount: number;
-  recent_invoices: Invoice[];
-}
-
 const OrganizationPortalContainer: React.FC = () => {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
-  const location = useLocation();
-  const queryClient = useQueryClient();
-  
+
   // Navigation state
-  const [currentView, setCurrentView] = useState('dashboard');
+  const [currentView] = useState('dashboard');
   
   // Error handling
   const [error, setError] = useState<string | null>(null);
@@ -195,21 +139,8 @@ const OrganizationPortalContainer: React.FC = () => {
     enabled: !!user?.organizationId,
   });
 
-  // Handle view changes
-  const handleViewChange = useCallback((view: string) => {
-    setCurrentView(view);
-    analytics.trackOrganizationAction('navigation', {
-      from: currentView,
-      to: view,
-      organizationId: user?.organizationId,
-    });
-  }, [currentView, user?.organizationId]);
-
   // Handle logout
   const handleLogout = useCallback(() => {
-    const firstName = user?.username || 'Org User';
-    const logoutMessage = `Good Bye ${firstName}, Have a Pleasant Day!`;
-    
     analytics.trackOrganizationAction('logout', {
       organizationId: user?.organizationId,
     });

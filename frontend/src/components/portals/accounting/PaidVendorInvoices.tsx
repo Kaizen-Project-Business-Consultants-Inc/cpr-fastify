@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Box,
   Typography,
@@ -8,15 +8,17 @@ import {
   DialogActions,
   Grid,
   Alert,
-  CircularProgress,
   ButtonBase,
 } from '@mui/material';
-import { adminApi } from '../../../services/api';
+import { api, adminApi } from '../../../services/api';
 import { useSnackbar } from '../../../contexts/SnackbarContext';
 import { useVendorInvoiceUpdates } from '../../../hooks/useVendorInvoiceUpdates';
+import useServerPagination from '../../../hooks/useServerPagination';
+import useDebounce from '../../../hooks/useDebounce';
 import DataTable, { DataTableRow } from '../../gtacpr/DataTable';
 import StatusChip from '../../gtacpr/StatusChip';
 import StatCard from '../../gtacpr/StatCard';
+import SearchBar from '../../gtacpr/SearchBar';
 import { GhostButton } from '../../gtacpr/Buttons';
 import { formatCurrency, formatDisplayDate } from '../../../utils/formatters';
 
@@ -73,46 +75,93 @@ const paymentHistoryColumns = [
   { key: 'status', label: 'STATUS', width: '0.5fr' },
 ];
 
+const toNumber = (v: number | string | null | undefined) => {
+  const n = typeof v === 'string' ? parseFloat(v) : v;
+  return n == null || Number.isNaN(n) ? 0 : n;
+};
+
+interface PaidSummary {
+  totalAmount: number;
+  totalPaid: number;
+  mostRecentPayment: string;
+}
+
+const emptySummary: PaidSummary = { totalAmount: 0, totalPaid: 0, mostRecentPayment: '' };
+
 const PaidVendorInvoices: React.FC = () => {
-  const [invoices, setInvoices] = useState<PaidVendorInvoice[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
   const [selectedInvoice, setSelectedInvoice] = useState<PaidVendorInvoice | null>(null);
   const [viewDialog, setViewDialog] = useState(false);
   const [paymentHistory, setPaymentHistory] = useState<PaymentHistory[]>([]);
-  const { showSuccess, showError } = useSnackbar();
+  const [searchTerm, setSearchTerm] = useState('');
+  const [summary, setSummary] = useState<PaidSummary>(emptySummary);
+  const { showError } = useSnackbar();
 
-  const fetchPaidInvoices = async () => {
-    try {
-      setLoading(true);
-      setError('');
-      const response = await adminApi.getAccountingVendorInvoices();
-      const paidInvoices = (response.data || []).filter((invoice: { status: string }) =>
-        invoice.status === 'paid'
-      );
-      setInvoices(paidInvoices);
-    } catch (error: unknown) {
-      console.error('Error fetching paid vendor invoices:', error);
-      setError('Failed to load paid vendor invoices. Please try again.');
+  const debouncedSearch = useDebounce(searchTerm, 300);
+  const searchParam = debouncedSearch.trim();
+
+  // `GET /accounting/vendor-invoices` applies `status=paid` and `search`
+  // (invoice number or vendor name) in both the data query and the COUNT, so a
+  // page here is page N of the paid invoices, not "the paid rows of page N".
+  const grid = useServerPagination<PaidVendorInvoice>({
+    pageSize: 25,
+    fetchFn: ({ page, limit }) =>
+      api
+        .get('/accounting/vendor-invoices', {
+          params: { status: 'paid', page, limit, ...(searchParam ? { search: searchParam } : {}) },
+        })
+        .then((r) => r.data),
+    onError: (err: unknown) => {
+      console.error('Error fetching paid vendor invoices:', err);
       showError('Failed to load paid vendor invoices');
-    } finally {
-      setLoading(false);
+    },
+  });
+
+  /**
+   * Money totals for the summary cards. The endpoint has no aggregate route, so
+   * this is the same `status=paid` (+ search) query with NO `page`/`limit` —
+   * which still returns every matching row — instead of summing the page.
+   */
+  const loadSummary = useCallback(async () => {
+    try {
+      const response = await api.get('/accounting/vendor-invoices', {
+        params: { status: 'paid', ...(searchParam ? { search: searchParam } : {}) },
+      });
+      const rows: PaidVendorInvoice[] = response.data?.data ?? [];
+      setSummary({
+        totalAmount: rows.reduce((sum, inv) => sum + toNumber(inv.total), 0),
+        totalPaid: rows.reduce((sum, inv) => sum + toNumber(inv.totalPaid), 0),
+        mostRecentPayment: rows.reduce((latest: string, inv) => {
+          const candidate = inv.paidAt || inv.createdAt;
+          if (!candidate) return latest;
+          return !latest || new Date(candidate) > new Date(latest) ? candidate : latest;
+        }, ''),
+      });
+    } catch (error: unknown) {
+      console.error('Error loading paid vendor invoice totals:', error);
+      setSummary(emptySummary);
     }
-  };
+  }, [searchParam]);
+
+  const refresh = useCallback(() => {
+    grid.load(1);
+    loadSummary();
+  }, [grid.load, loadSummary]);
 
   const { isConnected } = useVendorInvoiceUpdates({
     onStatusUpdate: (update) => {
       if (update.newStatus === 'paid') {
-        fetchPaidInvoices();
+        refresh();
       }
     },
     onNotesUpdate: () => {},
-    onRefresh: fetchPaidInvoices
+    onRefresh: refresh
   });
 
   useEffect(() => {
-    fetchPaidInvoices();
-  }, []);
+    refresh();
+  }, [refresh]);
+
+  const invoices = grid.items;
 
   const handleView = async (invoice: PaidVendorInvoice) => {
     setSelectedInvoice(invoice);
@@ -136,18 +185,12 @@ const PaidVendorInvoices: React.FC = () => {
     setPaymentHistory([]);
   };
 
-  const toNumber = (v: number | string | null | undefined) => {
-    const n = typeof v === 'string' ? parseFloat(v) : v;
-    return n == null || Number.isNaN(n) ? 0 : n;
-  };
   /** total - totalPaid, never below zero (overpayments show as $0.00 due). */
   const balanceDue = (inv: { total: number | string; totalPaid: number | string }) =>
     Math.max(0, Math.round((toNumber(inv.total) - toNumber(inv.totalPaid)) * 100) / 100);
   const formatDate = (dateString: string) => formatDisplayDate(dateString, 'N/A');
 
-  if (loading) return <Box sx={{ display: 'flex', justifyContent: 'center', p: 4 }}><CircularProgress size={24} /></Box>;
-
-  if (error) return <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>;
+  if (grid.error) return <Alert severity="error" sx={{ mb: 2 }}>Failed to load paid vendor invoices. Please try again.</Alert>;
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
@@ -158,27 +201,37 @@ const PaidVendorInvoices: React.FC = () => {
 
       {/* Summary Cards */}
       <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'repeat(2, 1fr)', md: 'repeat(4, 1fr)' }, gap: 2 }}>
-        <StatCard label="Total Paid Invoices" value={invoices.length} dotColor="#16A34A" />
-        <StatCard label="Total Amount Paid" value={formatCurrency(invoices.reduce((sum, inv) => {
-          const total = typeof inv.total === 'number' ? inv.total : parseFloat(inv.total) || 0;
-          return sum + total;
-        }, 0))} dotColor="#16A34A" />
-        <StatCard label="Total Payments Processed" value={formatCurrency(invoices.reduce((sum, inv) => {
-          const totalPaid = Number(inv.totalPaid) || 0;
-          return sum + (isNaN(totalPaid) ? 0 : totalPaid);
-        }, 0))} dotColor="#0891B2" />
-        <StatCard label="Most Recent Payment" value={invoices.length > 0 ? formatDate(invoices[0].paidAt || invoices[0].createdAt) : 'N/A'} dotColor="#2563EB" />
+        <StatCard label="Total Paid Invoices" value={grid.totalCount} dotColor="#16A34A" />
+        <StatCard label="Total Amount Paid" value={formatCurrency(summary.totalAmount)} dotColor="#16A34A" />
+        <StatCard label="Total Payments Processed" value={formatCurrency(summary.totalPaid)} dotColor="#0891B2" />
+        <StatCard label="Most Recent Payment" value={summary.mostRecentPayment ? formatDate(summary.mostRecentPayment) : 'N/A'} dotColor="#2563EB" />
+      </Box>
+
+      {/* Search — matched on the server against invoice number and vendor name */}
+      <Box>
+        <SearchBar
+          placeholder="Search paid vendor invoices by invoice # or vendor"
+          value={searchTerm}
+          onChange={setSearchTerm}
+        />
+        <Typography sx={{ mt: 1, fontSize: 12, color: (theme) => theme.palette.text.secondary }}>
+          The search covers every paid vendor invoice, not just this page. The cards above reflect the same set.
+        </Typography>
       </Box>
 
       {/* Invoices Table */}
-      {invoices.length === 0 ? (
-        <Box sx={{ bgcolor: (theme) => theme.palette.background.paper, border: (theme) => `1px solid ${theme.palette.divider}`, borderRadius: '10px', p: 6, textAlign: 'center' }}>
-          <Typography sx={{ fontSize: 14, fontWeight: 600, color: (theme) => theme.palette.text.secondary, mb: 0.5 }}>No Paid Invoices Found</Typography>
-          <Typography sx={{ fontSize: 12, color: (theme) => theme.palette.text.secondary }}>Paid vendor invoices will appear here once they are fully processed.</Typography>
-        </Box>
-      ) : (
-        <DataTable columns={columns} shownCount={invoices.length} totalCount={invoices.length}>
-          {invoices.map((invoice) => (
+      <DataTable
+        columns={columns}
+        shownCount={grid.shownCount}
+        totalCount={grid.totalCount}
+        page={grid.page}
+        hasNextPage={grid.hasNextPage}
+        onPrevPage={grid.onPrevPage}
+        onNextPage={grid.onNextPage}
+        loading={grid.loading}
+        emptyMessage="No paid invoices found. Paid vendor invoices will appear here once they are fully processed."
+      >
+        {invoices.map((invoice) => (
             <DataTableRow key={invoice.id} columns={columns}>
               <Typography sx={{ fontSize: 13, fontWeight: 600, color: (theme) => theme.palette.text.primary }}>{invoice.invoiceNumber}</Typography>
               <Box>
@@ -193,10 +246,9 @@ const PaidVendorInvoices: React.FC = () => {
               <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>
                 <ButtonBase aria-label={`View invoice ${invoice.invoiceNumber}`} onClick={() => handleView(invoice)} sx={{ fontSize: 12, fontWeight: 600, color: '#CC1F1F', '&:hover': { textDecoration: 'underline' }, '&:focus-visible': { outline: '2px solid #CC1F1F', outlineOffset: '2px' } }}>View</ButtonBase>
               </Box>
-            </DataTableRow>
-          ))}
-        </DataTable>
-      )}
+          </DataTableRow>
+        ))}
+      </DataTable>
 
       {/* Invoice Detail Dialog */}
       <Dialog open={viewDialog} onClose={handleCloseDialog} maxWidth="md" fullWidth>
@@ -274,7 +326,7 @@ const PaidVendorInvoices: React.FC = () => {
                 <Box sx={{ p: 2, bgcolor: (theme) => theme.palette.background.default, borderRadius: '8px', border: (theme) => `1px solid ${theme.palette.divider}` }}>
                   <Grid container spacing={2}>
                     <Grid item xs={12} md={6}>
-                      {[['Approved By', selectedInvoice.approvedByName || 'Admin User'], ['Paid Date', formatDate(selectedInvoice.paidAt || selectedInvoice.sentToAccountingAt)]].map(([l, v]) => (
+                      {[['Approved By', selectedInvoice.approvedByName || '—'], ['Paid Date', formatDate(selectedInvoice.paidAt || selectedInvoice.sentToAccountingAt)]].map(([l, v]) => (
                         <Box key={String(l)} sx={{ display: 'flex', py: 0.5 }}>
                           <Typography sx={{ fontSize: 12, fontWeight: 600, color: (theme) => theme.palette.text.secondary, width: 120 }}>{l}</Typography>
                           <Typography sx={{ fontSize: 12, color: (theme) => theme.palette.text.primary }}>{v}</Typography>

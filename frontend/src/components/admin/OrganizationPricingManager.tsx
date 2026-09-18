@@ -58,8 +58,9 @@ function OrganizationPricingManager() {
 
   const [filterOrg, setFilterOrg] = useState('');
   const [filterClassType, setFilterClassType] = useState('');
-  const [order, setOrder] = useState<'asc' | 'desc'>('asc');
-  const [orderBy, setOrderBy] = useState('organizationName');
+  // Sort direction/column are currently fixed; no UI control toggles them yet.
+  const [order] = useState<'asc' | 'desc'>('asc');
+  const [orderBy] = useState('organizationName');
 
   const fetchData = useCallback(async () => {
     setLoading(true);

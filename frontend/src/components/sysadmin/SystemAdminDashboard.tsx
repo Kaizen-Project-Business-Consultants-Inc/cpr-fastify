@@ -7,6 +7,40 @@ import StatusChip from '../gtacpr/StatusChip';
 import DataTable, { DataTableRow } from '../gtacpr/DataTable';
 import RoleChip from '../gtacpr/RoleChip';
 import DateRangeFilter from '../gtacpr/DateRangeFilter';
+import { getErrorMessage } from '../../utils/errorMessage';
+
+interface DashboardSummary {
+  totalUsers?: number;
+  totalOrganizations?: number;
+  totalCourses?: number;
+  totalVendors?: number;
+  usersThisYear?: number;
+  usersLastYear?: number;
+  orgsThisYear?: number;
+  orgsLastYear?: number;
+  coursesThisYear?: number;
+  coursesLastYear?: number;
+}
+
+interface RecentUser {
+  username: string;
+  role: string;
+  createdAt: string;
+}
+
+interface RecentCourse {
+  name: string;
+  courseCode?: string;
+  createdAt: string;
+}
+
+interface DashboardData {
+  summary?: DashboardSummary;
+  recentActivity?: {
+    users?: RecentUser[];
+    courses?: RecentCourse[];
+  };
+}
 
 const userColumns = [
   { key: 'user', label: 'USERNAME', width: '1.2fr' },
@@ -20,8 +54,8 @@ const courseColumns = [
   { key: 'date', label: 'CREATED', width: '1fr', align: 'right' as const },
 ];
 
-const SystemAdminDashboard = ({ onShowSnackbar }: { onShowSnackbar: any }) => {
-  const [dashboardData, setDashboardData] = useState<any>(null);
+const SystemAdminDashboard = ({ onShowSnackbar }: { onShowSnackbar?: (message: string, severity?: 'success' | 'error') => void }) => {
+  const [dashboardData, setDashboardData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [dateFrom, setDateFrom] = useState('');
@@ -36,15 +70,18 @@ const SystemAdminDashboard = ({ onShowSnackbar }: { onShowSnackbar: any }) => {
       const response = await sysAdminApi.getDashboard(Object.keys(params).length > 0 ? params : undefined);
       setDashboardData(response.data);
       setError('');
-    } catch (err: any) {
+    } catch (err) {
       logger.error('Error loading dashboard data:', err);
-      setError('Failed to load dashboard data');
+      setError(getErrorMessage(err, 'Failed to load dashboard data'));
       onShowSnackbar?.('Failed to load dashboard data', 'error');
     } finally {
       setLoading(false);
     }
   }, [onShowSnackbar]);
 
+  // Mount-time fetch of the dashboard summary (external API sync, not state
+  // derived from render data), so a direct setState inside is expected.
+  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { loadDashboardData(); }, [loadDashboardData]);
 
   const handleDateChange = (from: string, to: string) => {
@@ -53,7 +90,7 @@ const SystemAdminDashboard = ({ onShowSnackbar }: { onShowSnackbar: any }) => {
     loadDashboardData(from, to);
   };
 
-  const formatDate = (dateString: any) => new Date(dateString).toLocaleDateString();
+  const formatDate = (dateString?: string) => dateString ? new Date(dateString).toLocaleDateString() : '';
 
   if (loading && !dashboardData) {
     return (
@@ -68,6 +105,8 @@ const SystemAdminDashboard = ({ onShowSnackbar }: { onShowSnackbar: any }) => {
   }
 
   const { summary, recentActivity } = dashboardData || {};
+  const recentUsers = recentActivity?.users ?? [];
+  const recentCourses = recentActivity?.courses ?? [];
 
   const getYoyLabel = (current: number, previous: number): { text: string; color: string } => {
     if (previous === 0) return current > 0 ? { text: 'New this year', color: '#16A34A' } : { text: '', color: '' };
@@ -101,9 +140,9 @@ const SystemAdminDashboard = ({ onShowSnackbar }: { onShowSnackbar: any }) => {
           <Typography sx={{ fontSize: 13, fontWeight: 700, color: (theme) => theme.palette.text.secondary, textTransform: 'uppercase', letterSpacing: '0.07em', mb: 1.5 }}>
             Recent Users
           </Typography>
-          {recentActivity?.users?.length > 0 ? (
-            <DataTable columns={userColumns} shownCount={recentActivity.users.length} totalCount={recentActivity.users.length}>
-              {recentActivity.users.map((user: any, i: number) => (
+          {recentUsers.length > 0 ? (
+            <DataTable columns={userColumns} shownCount={recentUsers.length} totalCount={recentUsers.length}>
+              {recentUsers.map((user: RecentUser, i: number) => (
                 <DataTableRow key={i} columns={userColumns}>
                   <Typography sx={{ fontSize: 13.5, fontWeight: 600, color: (theme) => theme.palette.text.primary }}>{user.username}</Typography>
                   <RoleChip role={user.role} />
@@ -123,9 +162,9 @@ const SystemAdminDashboard = ({ onShowSnackbar }: { onShowSnackbar: any }) => {
           <Typography sx={{ fontSize: 13, fontWeight: 700, color: (theme) => theme.palette.text.secondary, textTransform: 'uppercase', letterSpacing: '0.07em', mb: 1.5 }}>
             Recent Courses
           </Typography>
-          {recentActivity?.courses?.length > 0 ? (
-            <DataTable columns={courseColumns} shownCount={recentActivity.courses.length} totalCount={recentActivity.courses.length}>
-              {recentActivity.courses.map((course: any, i: number) => (
+          {recentCourses.length > 0 ? (
+            <DataTable columns={courseColumns} shownCount={recentCourses.length} totalCount={recentCourses.length}>
+              {recentCourses.map((course: RecentCourse, i: number) => (
                 <DataTableRow key={i} columns={courseColumns}>
                   <Typography sx={{ fontSize: 13.5, fontWeight: 600, color: (theme) => theme.palette.text.primary }}>{course.name}</Typography>
                   <Typography sx={{ fontSize: 12, fontFamily: 'monospace', color: (theme) => theme.palette.text.secondary }}>{course.courseCode || '\u2014'}</Typography>

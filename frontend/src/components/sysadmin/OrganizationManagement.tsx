@@ -10,7 +10,6 @@ import {
   TextField,
   Grid,
   MenuItem,
-  CircularProgress,
   Alert,
 } from '@mui/material';
 import { sysAdminApi } from '../../services/api';
@@ -20,11 +19,30 @@ import OrganizationWizard from './OrganizationWizard';
 import SearchBar from '../gtacpr/SearchBar';
 import DataTable, { DataTableRow } from '../gtacpr/DataTable';
 import UserAvatar from '../gtacpr/UserAvatar';
-import StatusChip from '../gtacpr/StatusChip';
 import { PrimaryButton, GhostButton } from '../gtacpr/Buttons';
 import { useConfirm, LinkButton } from '../gtacpr';
 import { useDebounce } from '../../hooks/useDebounce';
+import { useServerPagination } from '../../hooks/useServerPagination';
 import { getTodayDate } from '../../utils/formatters';
+import { getErrorMessage } from '../../utils/errorMessage';
+import type { Theme } from '@mui/material/styles';
+
+interface Organization {
+  id: number;
+  organizationName: string;
+  address?: string;
+  city?: string;
+  province?: string;
+  postalCode?: string;
+  country?: string;
+  contactPerson?: string;
+  contactPosition?: string;
+  contactEmail?: string;
+  contactPhone?: string;
+  organizationComments?: string;
+  userCount?: number;
+  courseCount?: number;
+}
 
 const columns = [
   { key: 'org', label: 'ORGANIZATION', width: '1.8fr' },
@@ -43,10 +61,6 @@ function getInitials(name?: string): string {
 }
 
 const OrganizationManagement = () => {
-  const [organizations, setOrganizations] = useState<any[]>([]);
-  const [totalCount, setTotalCount] = useState(0);
-  const [page, setPage] = useState(1);
-  const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
@@ -55,8 +69,8 @@ const OrganizationManagement = () => {
   const { confirm, dialog: confirmDialog } = useConfirm();
   const [openDialog, setOpenDialog] = useState(false);
   const [openWizard, setOpenWizard] = useState(false);
-  const [editingOrg, setEditingOrg] = useState<any>(null);
-  const [locationsDialogOrg, setLocationsDialogOrg] = useState<any>(null);
+  const [editingOrg, setEditingOrg] = useState<Organization | null>(null);
+  const [locationsDialogOrg, setLocationsDialogOrg] = useState<Organization | null>(null);
   const [formData, setFormData] = useState({
     name: '', address: '', city: '', province: '', postalCode: '',
     country: 'Canada', contactPerson: '', contactPosition: 'Manager',
@@ -66,26 +80,21 @@ const OrganizationManagement = () => {
   const PAGE_SIZE = 25;
   const positions = ['Owner', 'Manager', 'Director', 'Administrator', 'Other'];
 
-  const loadOrganizations = async (p = page, search = searchTerm) => {
-    try {
-      setLoading(true);
-      const response = await sysAdminApi.getOrganizations({ page: p, limit: PAGE_SIZE, search: search || undefined });
-      setOrganizations(response.data || []);
-      setTotalCount(response.pagination?.total ?? (response.data || []).length);
-    } catch (err: any) {
-      setError('Failed to load organizations');
-    } finally {
-      setLoading(false);
-    }
-  };
+  // `/sysadmin/organizations` filters on `search` server-side, so the search
+  // box narrows the whole directory rather than the page on screen.
+  const grid = useServerPagination<Organization>({
+    pageSize: PAGE_SIZE,
+    fetchFn: ({ page, limit }) =>
+      sysAdminApi.getOrganizations({ page, limit, search: debouncedSearch || undefined }),
+    onError: () => setError('Failed to load organizations'),
+  });
+  const organizations = grid.items;
+  const totalCount = grid.totalCount;
 
-  useEffect(() => { setPage(1); loadOrganizations(1, debouncedSearch); }, [debouncedSearch]);
+  const loadOrganizations = grid.load;
+  useEffect(() => { loadOrganizations(1); }, [loadOrganizations, debouncedSearch]);
 
-  const hasNextPage = page * PAGE_SIZE < totalCount;
-  const onPrevPage = () => { const p = Math.max(1, page - 1); setPage(p); loadOrganizations(p); };
-  const onNextPage = () => { const p = page + 1; setPage(p); loadOrganizations(p); };
-
-  const handleOpenDialog = (org: any = null) => {
+  const handleOpenDialog = (org: Organization | null = null) => {
     if (org) {
       setEditingOrg(org);
       setFormData({
@@ -104,22 +113,22 @@ const OrganizationManagement = () => {
 
   const handleCloseDialog = () => { setOpenDialog(false); setEditingOrg(null); };
 
-  const handleInputChange = (e: any) => {
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
     setFormData(prev => ({ ...prev, [name]: value }));
   };
 
   const handleSubmit = async () => {
-    if (saving) return;
+    if (saving || !editingOrg) return;
     try {
       setSaving(true);
       setError('');
       await sysAdminApi.updateOrganization(editingOrg.id, formData);
       setSuccess('Organization updated successfully');
       handleCloseDialog();
-      loadOrganizations();
-    } catch (err: any) {
-      setError(err.response?.data?.error?.message || 'Failed to save organization');
+      grid.reload();
+    } catch (err) {
+      setError(getErrorMessage(err, 'Failed to save organization'));
     } finally {
       setSaving(false);
     }
@@ -128,10 +137,10 @@ const OrganizationManagement = () => {
   const handleWizardComplete = () => {
     setOpenWizard(false);
     setSuccess('Organization and location created successfully');
-    loadOrganizations();
+    grid.load(1);
   };
 
-  const handleDelete = async (org: any) => {
+  const handleDelete = async (org: Organization) => {
     const ok = await confirm({
       title: 'Delete organization?',
       message: `"${org.organizationName}" and its locations will be permanently deleted. This cannot be undone.`,
@@ -143,16 +152,16 @@ const OrganizationManagement = () => {
       setError('');
       await sysAdminApi.deleteOrganization(org.id);
       setSuccess('Organization deleted successfully');
-      loadOrganizations();
-    } catch (err: any) {
-      setError(err.response?.data?.error?.message || err.response?.data?.error?.details || 'Failed to delete organization');
+      grid.reload();
+    } catch (err) {
+      setError(getErrorMessage(err, 'Failed to delete organization'));
     }
   };
 
   const handleExportCSV = async () => {
     try {
       const response = await api.get('/sysadmin/organizations/export/csv', {
-        params: searchTerm ? { search: searchTerm } : undefined,
+        params: debouncedSearch ? { search: debouncedSearch } : undefined,
         responseType: 'blob',
       });
       const url = window.URL.createObjectURL(new Blob([response.data]));
@@ -166,20 +175,12 @@ const OrganizationManagement = () => {
     }
   };
 
-  const formatPhone = (phone: any) => {
+  const formatPhone = (phone?: string) => {
     if (!phone) return '—';
     const cleaned = phone.replace(/\D/g, '');
     if (cleaned.length === 10) return `(${cleaned.slice(0, 3)}) ${cleaned.slice(3, 6)}-${cleaned.slice(6)}`;
     return phone;
   };
-
-  if (loading && organizations.length === 0) {
-    return (
-      <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: 400 }}>
-        <CircularProgress size={48} />
-      </Box>
-    );
-  }
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
@@ -203,7 +204,17 @@ const OrganizationManagement = () => {
       </Box>
 
       {/* Table */}
-      <DataTable columns={columns} shownCount={organizations.length} totalCount={totalCount} page={page - 1} onPrevPage={onPrevPage} onNextPage={onNextPage} hasNextPage={hasNextPage} loading={loading}>
+      <DataTable
+        columns={columns}
+        shownCount={grid.shownCount}
+        totalCount={grid.totalCount}
+        page={grid.page}
+        onPrevPage={grid.onPrevPage}
+        onNextPage={grid.onNextPage}
+        hasNextPage={grid.hasNextPage}
+        loading={grid.loading}
+        emptyMessage={searchTerm ? 'No organizations match your search.' : 'No organizations found.'}
+      >
         {organizations.map(org => (
           <DataTableRow key={org.id} columns={columns}>
             {/* ORGANIZATION */}
@@ -246,10 +257,10 @@ const OrganizationManagement = () => {
             {/* STATS */}
             <Box sx={{ display: 'flex', justifyContent: 'center', gap: 1 }}>
               <Typography sx={{ fontSize: 12, color: (theme) => theme.palette.text.secondary }}>
-                <Box component="span" sx={{ fontWeight: 700, color: (theme: any) => theme.palette.text.primary }}>{org.userCount || 0}</Box> users
+                <Box component="span" sx={{ fontWeight: 700, color: (theme: Theme) => theme.palette.text.primary }}>{org.userCount || 0}</Box> users
               </Typography>
               <Typography sx={{ fontSize: 12, color: (theme) => theme.palette.text.secondary }}>
-                <Box component="span" sx={{ fontWeight: 700, color: (theme: any) => theme.palette.text.primary }}>{org.courseCount || 0}</Box> courses
+                <Box component="span" sx={{ fontWeight: 700, color: (theme: Theme) => theme.palette.text.primary }}>{org.courseCount || 0}</Box> courses
               </Typography>
             </Box>
             {/* ACTIONS */}

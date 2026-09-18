@@ -41,11 +41,14 @@ const columns = [
 
 const MyClassesView: React.FC<MyClassesViewProps> = ({
   combinedSchedule = [],
-  onCompleteClass,
+  onCompleteClass: _onCompleteClass,
   onRemoveAvailability,
 }) => {
-  const [sortField, setSortField] = useState<SortField>(null);
-  const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
+  // No column-header sort UI is wired up yet; sortedSchedule below is therefore always
+  // a pass-through of combinedSchedule. The setters are kept (unused for now) so a future
+  // sort-header click handler can flip them without re-plumbing this state.
+  const [sortField, _setSortField] = useState<SortField>(null);
+  const [sortDirection, _setSortDirection] = useState<SortDirection>('asc');
   const [deleteDialog, setDeleteDialog] = useState<{ open: boolean; date: string }>({ open: false, date: '' });
   const [removing, setRemoving] = useState(false);
   const { showSuccess, showError } = useSnackbar();
@@ -55,15 +58,6 @@ const MyClassesView: React.FC<MyClassesViewProps> = ({
     const original = item.originalData as { date?: string } | undefined;
     if (original?.date) return String(original.date).slice(0, 10);
     return item.displayDate;
-  };
-
-  const handleSort = (field: SortField) => {
-    if (sortField === field) {
-      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
-    } else {
-      setSortField(field);
-      setSortDirection('asc');
-    }
   };
 
   const sortedSchedule = useMemo(() => {
@@ -99,7 +93,7 @@ const MyClassesView: React.FC<MyClassesViewProps> = ({
         showSuccess(`Availability removed for ${formatDisplayDate(deleteDialog.date)}`);
         setDeleteDialog({ open: false, date: '' });
       }
-    } catch (error: any) {
+    } catch (error) {
       handleError(error, { component: 'MyClassesView', action: 'remove availability' });
       showError(error instanceof Error ? error.message : 'Failed to remove availability');
     } finally {

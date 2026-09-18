@@ -5,6 +5,7 @@ import { connectDatabase, closeDatabaseConnections, getPool } from './config/dat
 import { runMigrations } from './config/migrations.js';
 import { initTaxConfig } from './utils/taxConfig.js';
 import { CertReminderService } from './services/CertReminderService.js';
+import { RetentionService } from './services/RetentionService.js';
 
 // Initialize Sentry (optional — gracefully skipped if package not installed)
 if (env.SENTRY_DSN) {
@@ -45,6 +46,12 @@ async function start() {
   // takes a MySQL named lock and claims each reminder before sending.
   const certReminders = new CertReminderService();
   schedule('cert-reminders', () => certReminders.sendReminders(), 24 * HOUR, 60_000);
+
+  // PIPEDA data retention: anonymise PII on accounts closed more than 2 years ago.
+  // Dry run (logs only) unless RETENTION_ENFORCE=true. First run 15 minutes after
+  // startup so it never competes with boot; the service takes a named lock.
+  const retention = new RetentionService();
+  schedule('data-retention', () => retention.run(), 24 * HOUR, 15 * 60_000);
 
   // Housekeeping: login_attempts only matter for the 15-minute lockout window.
   schedule(

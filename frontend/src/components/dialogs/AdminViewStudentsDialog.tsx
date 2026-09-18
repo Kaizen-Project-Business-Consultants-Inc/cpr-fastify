@@ -101,7 +101,7 @@ const AdminViewStudentsDialog: React.FC<AdminViewStudentsDialogProps> = ({
     if (!dateString) return '';
     try {
       return new Date(dateString).toLocaleDateString();
-    } catch (error: any) {
+    } catch {
       return dateString;
     }
   };

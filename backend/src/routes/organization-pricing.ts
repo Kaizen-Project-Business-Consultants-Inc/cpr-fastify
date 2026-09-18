@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { getPool } from '../config/database.js';
 import { requireAuth, requireRole } from '../plugins/auth.js';
 import { getHSTRate } from '../utils/taxConfig.js';
+import type { RowDataPacket, ResultSetHeader } from 'mysql2/promise';
 
 const createPricingSchema = z.object({
   organizationId: z.number().int().positive(),
@@ -35,7 +36,7 @@ export async function organizationPricingRoutes(app: FastifyInstance) {
       return reply.status(403).send({ error: 'Access denied to this organization' });
     }
 
-    const [rows] = await pool.query<any[]>(
+    const [rows] = await pool.query<RowDataPacket[]>(
       `SELECT op.*, ct.name as class_type_name, ct.duration_minutes, o.name as organization_name
        FROM organization_pricing op
        JOIN class_types ct ON op.class_type_id = ct.id
@@ -56,7 +57,7 @@ export async function organizationPricingRoutes(app: FastifyInstance) {
       return reply.status(403).send({ error: 'Access denied to this organization' });
     }
 
-    const [rows] = await pool.query<any[]>(
+    const [rows] = await pool.query<RowDataPacket[]>(
       `SELECT op.*, ct.name as class_type_name, o.name as organization_name
        FROM organization_pricing op
        JOIN class_types ct ON op.class_type_id = ct.id
@@ -75,7 +76,7 @@ export async function organizationPricingRoutes(app: FastifyInstance) {
       return reply.status(403).send({ error: 'Access denied to this organization' });
     }
 
-    const [rows] = await pool.query<any[]>(
+    const [rows] = await pool.query<RowDataPacket[]>(
       'SELECT price_per_student FROM organization_pricing WHERE organization_id = ? AND class_type_id = ? AND is_active = true',
       [organizationId, classTypeId]
     );
@@ -103,7 +104,7 @@ export async function organizationPricingRoutes(app: FastifyInstance) {
     if (isActive !== undefined) { conditions.push('op.is_active = ?'); params.push(isActive === 'true'); }
     if (conditions.length > 0) where = 'WHERE ' + conditions.join(' AND ');
 
-    const [rows] = await pool.query<any[]>(
+    const [rows] = await pool.query<RowDataPacket[]>(
       `SELECT op.*, ct.name as class_type_name, ct.duration_minutes, o.name as organization_name
        FROM organization_pricing op
        JOIN class_types ct ON op.class_type_id = ct.id
@@ -117,7 +118,7 @@ export async function organizationPricingRoutes(app: FastifyInstance) {
   // Get single pricing by id
   app.get('/admin/:id', { preHandler: sysadminRole }, async (request, reply) => {
     const { id } = request.params as { id: string };
-    const [rows] = await pool.query<any[]>(
+    const [rows] = await pool.query<RowDataPacket[]>(
       `SELECT op.*, ct.name as class_type_name, o.name as organization_name
        FROM organization_pricing op
        JOIN class_types ct ON op.class_type_id = ct.id
@@ -134,7 +135,7 @@ export async function organizationPricingRoutes(app: FastifyInstance) {
     const data = createPricingSchema.parse(request.body);
 
     // Check for duplicate
-    const [existing] = await pool.query<any[]>(
+    const [existing] = await pool.query<RowDataPacket[]>(
       'SELECT id FROM organization_pricing WHERE organization_id = ? AND class_type_id = ?',
       [data.organizationId, data.classTypeId]
     );
@@ -142,12 +143,12 @@ export async function organizationPricingRoutes(app: FastifyInstance) {
       return reply.status(400).send({ error: 'Pricing already exists for this organization and course type' });
     }
 
-    const [result] = await pool.query<any>(
+    const [result] = await pool.query<ResultSetHeader>(
       `INSERT INTO organization_pricing (organization_id, class_type_id, price_per_student, created_by)
        VALUES (?, ?, ?, ?)`,
       [data.organizationId, data.classTypeId, data.pricePerStudent, request.userId]
     );
-    const [rows] = await pool.query<any[]>('SELECT * FROM organization_pricing WHERE id = ?', [result.insertId]);
+    const [rows] = await pool.query<RowDataPacket[]>('SELECT * FROM organization_pricing WHERE id = ?', [result.insertId]);
     return { success: true, data: rows[0], message: 'Organization pricing created successfully' };
   });
 
@@ -156,7 +157,7 @@ export async function organizationPricingRoutes(app: FastifyInstance) {
     const { id } = request.params as { id: string };
     const data = updatePricingSchema.parse(request.body);
 
-    const [result] = await pool.query<any>(
+    const [result] = await pool.query<ResultSetHeader>(
       `UPDATE organization_pricing SET
        price_per_student = COALESCE(?, price_per_student),
        is_active = COALESCE(?, is_active),
@@ -166,14 +167,14 @@ export async function organizationPricingRoutes(app: FastifyInstance) {
       [data.pricePerStudent ?? null, data.isActive ?? null, request.userId, parseInt(id)]
     );
     if (result.affectedRows === 0) return reply.status(404).send({ error: 'Organization pricing not found' });
-    const [rows] = await pool.query<any[]>('SELECT * FROM organization_pricing WHERE id = ?', [parseInt(id)]);
+    const [rows] = await pool.query<RowDataPacket[]>('SELECT * FROM organization_pricing WHERE id = ?', [parseInt(id)]);
     return { success: true, data: rows[0], message: 'Organization pricing updated successfully' };
   });
 
   // Delete pricing
   app.delete('/admin/:id', { preHandler: sysadminRole }, async (request, reply) => {
     const { id } = request.params as { id: string };
-    const [result] = await pool.query<any>(
+    const [result] = await pool.query<ResultSetHeader>(
       'DELETE FROM organization_pricing WHERE id = ?', [parseInt(id)]
     );
     if (result.affectedRows === 0) return reply.status(404).send({ error: 'Organization pricing not found' });

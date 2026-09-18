@@ -29,19 +29,83 @@ export const formatCurrencyOrDash = (amount: number | string | null | undefined)
 };
 
 // -------------------------------------------------------------------- tax
+//
+// The rate is runtime-configurable. The build-time VITE_HST_RATE is only the
+// initial/fallback value; `initTaxConfig()` fetches GET /config at app start and
+// hands the authoritative rate to `setTaxConfig()`.
+//
+// Read it with getHSTRate()/getHSTLabel(). The HST_RATE/HST_LABEL constants are
+// frozen at build time and cannot see a runtime update — they are kept only for
+// call sites that have not migrated yet.
 
-/** HST rate as a fraction. Override at build time with VITE_HST_RATE (e.g. 0.13). */
-export const HST_RATE: number = (() => {
+const buildTimeRate: number = (() => {
   const raw = (import.meta as unknown as { env?: Record<string, string> }).env?.VITE_HST_RATE;
   const n = raw ? parseFloat(raw) : NaN;
   return Number.isFinite(n) && n >= 0 && n < 1 ? n : 0.13;
 })();
 
-export const HST_LABEL = `HST (${Math.round(HST_RATE * 1000) / 10}%)`;
+const makeTaxLabel = (rate: number): string => `HST (${Math.round(rate * 1000) / 10}%)`;
 
-/** Split a subtotal into { subtotal, tax, total } using HST_RATE, rounded to cents. */
+let currentTaxRate: number = buildTimeRate;
+let currentTaxLabel: string = makeTaxLabel(buildTimeRate);
+
+/** The tax rate as a fraction (e.g. 0.13). Always read this, never a literal. */
+export const getHSTRate = (): number => currentTaxRate;
+
+/** The display label for the tax line, e.g. "HST (13%)". */
+export const getHSTLabel = (): string => currentTaxLabel;
+
+/**
+ * Set the tax configuration at runtime. Invalid values are ignored so a bad
+ * response can never replace a working rate with NaN.
+ */
+export const setTaxConfig = (config: { taxRate?: number | string | null; taxLabel?: string | null }): void => {
+  const raw = config?.taxRate;
+  const n = typeof raw === 'string' ? parseFloat(raw) : raw;
+  if (typeof n === 'number' && Number.isFinite(n) && n >= 0 && n < 1) {
+    currentTaxRate = n;
+    currentTaxLabel = makeTaxLabel(n);
+  }
+  if (config?.taxLabel) currentTaxLabel = config.taxLabel;
+};
+
+/** Reset to the build-time value. Intended for tests. */
+export const resetTaxConfig = (): void => {
+  currentTaxRate = buildTimeRate;
+  currentTaxLabel = makeTaxLabel(buildTimeRate);
+};
+
+let taxConfigPromise: Promise<void> | null = null;
+
+/**
+ * Fetch GET /api/v1/config once and apply { taxRate, taxLabel }.
+ * Never throws and never rejects: on failure the build-time fallback stays.
+ * Call this at app start (main.tsx).
+ */
+export const initTaxConfig = (): Promise<void> => {
+  if (taxConfigPromise) return taxConfigPromise;
+  taxConfigPromise = (async () => {
+    try {
+      const { default: api } = await import('../services/api');
+      const response = await api.get('/config');
+      const data = response?.data?.data;
+      if (data) setTaxConfig({ taxRate: data.taxRate, taxLabel: data.taxLabel });
+    } catch (e) {
+      logger.warn('initTaxConfig: falling back to build-time tax rate', e);
+    }
+  })();
+  return taxConfigPromise;
+};
+
+/** @deprecated build-time snapshot; use getHSTRate() so runtime config is honoured. */
+export const HST_RATE: number = buildTimeRate;
+
+/** @deprecated build-time snapshot; use getHSTLabel() so runtime config is honoured. */
+export const HST_LABEL: string = makeTaxLabel(buildTimeRate);
+
+/** Split a subtotal into { subtotal, tax, total } using the current rate, rounded to cents. */
 export const applyTax = (subtotal: number) => {
-  const tax = Math.round(subtotal * HST_RATE * 100) / 100;
+  const tax = Math.round(subtotal * getHSTRate() * 100) / 100;
   return { subtotal, tax, total: Math.round((subtotal + tax) * 100) / 100 };
 };
 

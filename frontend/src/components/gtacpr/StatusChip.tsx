@@ -1,6 +1,6 @@
 import React from 'react';
 import { Chip } from '@mui/material';
-import { STATUS, RED } from './tokens';
+import { STATUS } from './tokens';
 
 type StatusKind = 'success' | 'active' | 'open' | 'warning' | 'pending' | 'danger' | 'overdue' | 'expired' | 'neutral' | 'inactive' | 'brand' | 'critical';
 

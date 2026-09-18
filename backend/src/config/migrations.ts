@@ -1,4 +1,4 @@
-import { Pool } from 'mysql2/promise';
+import { Pool, RowDataPacket, ResultSetHeader } from 'mysql2/promise';
 import { getPool } from './database.js';
 import { logger } from './logger.js';
 import { addColumnIfMissing, addIndexIfMissing, addForeignKeyIfMissing, tableExists } from './schemaHelpers.js';
@@ -95,7 +95,7 @@ const migrations: Migration[] = [
     name: 'backfill_students_master',
     up: async (pool: Pool) => {
       // Group existing course_students by email, create master records, link them
-      const [rows] = await pool.query<any[]>(`
+      const [rows] = await pool.query<RowDataPacket[]>(`
         SELECT email, MIN(first_name) as first_name, MIN(last_name) as last_name,
                MIN(phone) as phone,
                (SELECT cr.organization_id FROM course_requests cr
@@ -125,7 +125,7 @@ const migrations: Migration[] = [
         WHERE cs.student_id IS NULL AND cs.email IS NOT NULL AND TRIM(cs.email) != ''
       `);
 
-      const [count] = await pool.query<any[]>('SELECT COUNT(*) as c FROM students');
+      const [count] = await pool.query<RowDataPacket[]>('SELECT COUNT(*) as c FROM students');
       logger.info({ studentsMigrated: count[0].c }, 'Students master table backfilled');
     },
   },
@@ -152,7 +152,7 @@ const migrations: Migration[] = [
     up: async (pool: Pool) => {
       // For attended students in completed courses where the class type has a validity period,
       // set certificate_issued_at = course completed_at, and calculate expiry
-      const [result] = await pool.query<any>(`
+      const [result] = await pool.query<ResultSetHeader>(`
         UPDATE course_students cs
         JOIN course_requests cr ON cs.course_request_id = cr.id
         JOIN class_types ct ON cr.course_type_id = ct.id
@@ -325,7 +325,7 @@ export async function runMigrations(): Promise<void> {
   // GET_LOCK is per-connection, so hold a dedicated connection for the whole run.
   const conn = await pool.getConnection();
   try {
-    const [lockRows] = await conn.query<any[]>('SELECT GET_LOCK(?, 60) AS got', [MIGRATION_LOCK]);
+    const [lockRows] = await conn.query<RowDataPacket[]>('SELECT GET_LOCK(?, 60) AS got', [MIGRATION_LOCK]);
     if (Number(lockRows[0]?.got) !== 1) {
       throw new Error('Could not acquire migration lock within 60s');
     }
@@ -341,8 +341,8 @@ export async function runMigrations(): Promise<void> {
 
     // Get already-applied versions (re-read under the lock, so a worker that waited
     // sees what the first worker applied)
-    const [rows] = await conn.query<any[]>('SELECT version FROM schema_migrations');
-    const applied = new Set(rows.map((r: any) => r.version));
+    const [rows] = await conn.query<RowDataPacket[]>('SELECT version FROM schema_migrations');
+    const applied = new Set(rows.map((r) => r.version));
 
     // Run pending migrations in order
     let ran = 0;

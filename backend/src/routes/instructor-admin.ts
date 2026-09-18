@@ -5,6 +5,7 @@ import { getPool } from '../config/database.js';
 import { env } from '../config/env.js';
 import { requireRole } from '../plugins/auth.js';
 import { logAudit } from '../utils/auditLog.js';
+import type { RowDataPacket, ResultSetHeader } from 'mysql2/promise';
 
 /**
  * Admin-side instructor management, mounted at the API root (no prefix) because
@@ -88,7 +89,7 @@ export async function instructorAdminRoutes(app: FastifyInstance) {
   const manageRole = [requireRole('admin', 'sysadmin', 'superadmin', 'courseadmin')];
 
   async function findInstructor(id: number) {
-    const [rows] = await pool.query<any[]>(
+    const [rows] = await pool.query<RowDataPacket[]>(
       `SELECT ${INSTRUCTOR_COLUMNS} FROM users WHERE id = ? AND role = 'instructor'`, [id]
     );
     return rows[0] ?? null;
@@ -98,13 +99,13 @@ export async function instructorAdminRoutes(app: FastifyInstance) {
   app.post('/instructors', { preHandler: manageRole }, async (request, reply) => {
     const data = createInstructorSchema.parse(request.body);
 
-    const [dupes] = await pool.query<any[]>(
+    const [dupes] = await pool.query<RowDataPacket[]>(
       'SELECT id FROM users WHERE username = ? OR email = ?', [data.username, data.email]
     );
     if (dupes.length > 0) return reply.status(400).send({ error: 'Username or email already exists' });
 
     const hash = await bcrypt.hash(data.password, env.BCRYPT_SALT_ROUNDS);
-    const [result] = await pool.query<any>(
+    const [result] = await pool.query<ResultSetHeader>(
       `INSERT INTO users (username, email, password_hash, role, first_name, last_name, phone, mobile, status)
        VALUES (?, ?, ?, 'instructor', ?, ?, ?, ?, 'active')`,
       [data.username, data.email, hash, data.firstName ?? null, data.lastName ?? null,
@@ -124,7 +125,7 @@ export async function instructorAdminRoutes(app: FastifyInstance) {
     if (!existing) return reply.status(404).send({ error: 'Instructor not found' });
 
     if (data.username || data.email) {
-      const [dupes] = await pool.query<any[]>(
+      const [dupes] = await pool.query<RowDataPacket[]>(
         'SELECT id FROM users WHERE (username = ? OR email = ?) AND id != ?',
         [data.username ?? existing.username, data.email ?? existing.email, id]
       );
@@ -150,7 +151,7 @@ export async function instructorAdminRoutes(app: FastifyInstance) {
   // DELETE /instructors/:id — soft delete (status = inactive)
   app.delete('/instructors/:id', { preHandler: manageRole }, async (request, reply) => {
     const { id } = idParam.parse(request.params);
-    const [result] = await pool.query<any>(
+    const [result] = await pool.query<ResultSetHeader>(
       `UPDATE users SET status = 'inactive', updated_at = CURRENT_TIMESTAMP WHERE id = ? AND role = 'instructor'`,
       [id]
     );
@@ -163,7 +164,7 @@ export async function instructorAdminRoutes(app: FastifyInstance) {
   app.get('/instructors/:id/availability', { preHandler: manageRole }, async (request, reply) => {
     const { id } = idParam.parse(request.params);
     if (!(await findInstructor(id))) return reply.status(404).send({ error: 'Instructor not found' });
-    const [rows] = await pool.query<any[]>(
+    const [rows] = await pool.query<RowDataPacket[]>(
       `SELECT id, instructor_id, date, status, created_at, updated_at
        FROM instructor_availability WHERE instructor_id = ? ORDER BY date ASC`,
       [id]
@@ -191,7 +192,7 @@ export async function instructorAdminRoutes(app: FastifyInstance) {
         await conn.query('DELETE FROM instructor_availability WHERE instructor_id = ? AND date >= CURDATE()', [id]);
       }
       for (const date of dates) {
-        const [existing] = await conn.query<any[]>(
+        const [existing] = await conn.query<RowDataPacket[]>(
           'SELECT id FROM instructor_availability WHERE instructor_id = ? AND date = ?', [id, date]
         );
         if (existing.length === 0) {
@@ -209,7 +210,7 @@ export async function instructorAdminRoutes(app: FastifyInstance) {
       conn.release();
     }
 
-    const [rows] = await pool.query<any[]>(
+    const [rows] = await pool.query<RowDataPacket[]>(
       'SELECT id, instructor_id, date, status FROM instructor_availability WHERE instructor_id = ? ORDER BY date ASC',
       [id]
     );
@@ -227,7 +228,7 @@ export async function instructorAdminRoutes(app: FastifyInstance) {
 
     // Refuse when a confirmed course is already scheduled for that day — the
     // instructor must be unassigned first, otherwise the schedule silently lies.
-    const [confirmed] = await pool.query<any[]>(
+    const [confirmed] = await pool.query<RowDataPacket[]>(
       `SELECT id FROM course_requests
        WHERE instructor_id = ? AND status = 'confirmed' AND DATE(confirmed_date) = ? AND deleted_at IS NULL`,
       [id, date]
@@ -236,7 +237,7 @@ export async function instructorAdminRoutes(app: FastifyInstance) {
       return reply.status(409).send({ error: `Instructor has a confirmed course on ${date}; reassign it before removing availability` });
     }
 
-    const [result] = await pool.query<any>(
+    const [result] = await pool.query<ResultSetHeader>(
       'DELETE FROM instructor_availability WHERE instructor_id = ? AND date = ?', [id, date]
     );
     if (result.affectedRows === 0) return reply.status(404).send({ error: 'Availability not found' });
@@ -248,7 +249,7 @@ export async function instructorAdminRoutes(app: FastifyInstance) {
   app.get('/instructors/:id/schedule', { preHandler: manageRole }, async (request, reply) => {
     const { id } = idParam.parse(request.params);
     if (!(await findInstructor(id))) return reply.status(404).send({ error: 'Instructor not found' });
-    const [rows] = await pool.query<any[]>(
+    const [rows] = await pool.query<RowDataPacket[]>(
       `SELECT cr.id, cr.status, cr.confirmed_date, cr.scheduled_date,
               cr.confirmed_start_time, cr.confirmed_end_time,
               cr.location, cr.notes, cr.registered_students,
@@ -288,7 +289,7 @@ export async function instructorAdminRoutes(app: FastifyInstance) {
   // GET /instructors/available/:date — instructors marked available with no course that day
   app.get('/instructors/available/:date', { preHandler: manageRole }, async (request) => {
     const { date } = z.object({ date: isoDate }).parse(request.params);
-    const [rows] = await pool.query<any[]>(
+    const [rows] = await pool.query<RowDataPacket[]>(
       `SELECT u.id, u.username, u.email, u.first_name, u.last_name, ia.status AS availability_status
        FROM users u
        JOIN instructor_availability ia ON ia.instructor_id = u.id AND ia.date = ?

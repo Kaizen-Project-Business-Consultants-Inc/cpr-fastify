@@ -2,6 +2,7 @@ import { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { getPool } from '../config/database.js';
 import { requireRole } from '../plugins/auth.js';
+import type { RowDataPacket, ResultSetHeader } from 'mysql2/promise';
 
 const createTierSchema = z.object({
   name: z.string().min(1),
@@ -35,7 +36,7 @@ export async function payRateRoutes(app: FastifyInstance) {
 
   // ===== Tiers =====
   app.get('/tiers', { preHandler: hrRole }, async () => {
-    const [rows] = await pool.query<any[]>(
+    const [rows] = await pool.query<RowDataPacket[]>(
       'SELECT * FROM pay_rate_tiers WHERE is_active = true ORDER BY base_hourly_rate ASC'
     );
     return { success: true, data: rows };
@@ -43,11 +44,11 @@ export async function payRateRoutes(app: FastifyInstance) {
 
   app.post('/tiers', { preHandler: hrRole }, async (request) => {
     const data = createTierSchema.parse(request.body);
-    const [result] = await pool.query<any>(
+    const [result] = await pool.query<ResultSetHeader>(
       'INSERT INTO pay_rate_tiers (name, description, base_hourly_rate, course_bonus) VALUES (?, ?, ?, ?)',
       [data.name, data.description ?? null, data.base_hourly_rate, data.course_bonus]
     );
-    const [rows] = await pool.query<any[]>('SELECT * FROM pay_rate_tiers WHERE id = ?', [result.insertId]);
+    const [rows] = await pool.query<RowDataPacket[]>('SELECT * FROM pay_rate_tiers WHERE id = ?', [result.insertId]);
     return { success: true, message: 'Pay rate tier created successfully.', data: rows[0] };
   });
 
@@ -56,14 +57,14 @@ export async function payRateRoutes(app: FastifyInstance) {
     const { name, description, base_hourly_rate, course_bonus, is_active } = createTierSchema.extend({
       is_active: z.boolean().optional(),
     }).partial().parse(request.body);
-    const [result] = await pool.query<any>(
+    const [result] = await pool.query<ResultSetHeader>(
       `UPDATE pay_rate_tiers SET name = COALESCE(?, name), description = COALESCE(?, description),
        base_hourly_rate = COALESCE(?, base_hourly_rate), course_bonus = COALESCE(?, course_bonus),
        is_active = COALESCE(?, is_active), updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
       [name ?? null, description ?? null, base_hourly_rate ?? null, course_bonus ?? null, is_active ?? null, id]
     );
     if (result.affectedRows === 0) return reply.status(404).send({ error: 'Pay rate tier not found' });
-    const [rows] = await pool.query<any[]>('SELECT * FROM pay_rate_tiers WHERE id = ?', [id]);
+    const [rows] = await pool.query<RowDataPacket[]>('SELECT * FROM pay_rate_tiers WHERE id = ?', [id]);
     return { success: true, message: 'Pay rate tier updated successfully.', data: rows[0] };
   });
 
@@ -79,7 +80,7 @@ export async function payRateRoutes(app: FastifyInstance) {
     if (has_rate === 'true') where += ' AND ipr.id IS NOT NULL';
     else if (has_rate === 'false') where += ' AND ipr.id IS NULL';
 
-    const [rows] = await pool.query<any[]>(
+    const [rows] = await pool.query<RowDataPacket[]>(
       `SELECT u.id, u.username, u.email, u.phone,
               ipr.hourly_rate, ipr.course_bonus, ipr.effective_date, ipr.is_active as rate_active,
               prt.name as tier_name, prt.description as tier_description,
@@ -92,7 +93,7 @@ export async function payRateRoutes(app: FastifyInstance) {
       [...params, safeLimit, offset]
     );
 
-    const [countRows] = await pool.query<any[]>(
+    const [countRows] = await pool.query<RowDataPacket[]>(
       `SELECT COUNT(*) as total FROM users u
        LEFT JOIN instructor_pay_rates ipr ON u.id = ipr.instructor_id AND ipr.is_active = true
          AND (ipr.end_date IS NULL OR ipr.end_date >= CURRENT_DATE)
@@ -112,7 +113,7 @@ export async function payRateRoutes(app: FastifyInstance) {
     const { instructorId } = request.params as { instructorId: string };
 
     const [[currentRate], [history], [instructor]] = await Promise.all([
-      pool.query<any[]>(
+      pool.query<RowDataPacket[]>(
         `SELECT ipr.*, prt.name as tier_name, prt.description as tier_description,
                 u.username as instructor_name, u.email as instructor_email
          FROM instructor_pay_rates ipr
@@ -123,7 +124,7 @@ export async function payRateRoutes(app: FastifyInstance) {
          ORDER BY ipr.effective_date DESC LIMIT 1`,
         [instructorId]
       ),
-      pool.query<any[]>(
+      pool.query<RowDataPacket[]>(
         `SELECT prh.*, prt_old.name as old_tier_name, prt_new.name as new_tier_name,
                 u_changed.username as changed_by_name
          FROM pay_rate_history prh
@@ -133,7 +134,7 @@ export async function payRateRoutes(app: FastifyInstance) {
          WHERE prh.instructor_id = ? ORDER BY prh.effective_date DESC, prh.created_at DESC LIMIT 20`,
         [instructorId]
       ),
-      pool.query<any[]>('SELECT id, username, email, phone FROM users WHERE id = ?', [instructorId]),
+      pool.query<RowDataPacket[]>('SELECT id, username, email, phone FROM users WHERE id = ?', [instructorId]),
     ]);
 
     if (instructor.length === 0) return reply.status(404).send({ error: 'Instructor not found' });
@@ -150,7 +151,7 @@ export async function payRateRoutes(app: FastifyInstance) {
     try {
       await conn.beginTransaction();
 
-      const [instrCheck] = await conn.query<any[]>(
+      const [instrCheck] = await conn.query<RowDataPacket[]>(
         "SELECT id FROM users WHERE id = ? AND role = 'instructor'", [instructorId]
       );
       if (instrCheck.length === 0) { await conn.rollback(); return reply.status(404).send({ error: 'Instructor not found' }); }
@@ -163,7 +164,7 @@ export async function payRateRoutes(app: FastifyInstance) {
       );
 
       // Get old rate for history
-      const [oldRates] = await conn.query<any[]>(
+      const [oldRates] = await conn.query<RowDataPacket[]>(
         `SELECT hourly_rate, course_bonus, tier_id FROM instructor_pay_rates
          WHERE instructor_id = ? AND is_active = false ORDER BY effective_date DESC LIMIT 1`,
         [instructorId]
@@ -171,7 +172,7 @@ export async function payRateRoutes(app: FastifyInstance) {
       const old = oldRates[0];
 
       // Insert new rate
-      const [result] = await conn.query<any>(
+      const [result] = await conn.query<ResultSetHeader>(
         `INSERT INTO instructor_pay_rates (instructor_id, tier_id, hourly_rate, course_bonus, effective_date, notes, created_by)
          VALUES (?, ?, ?, ?, ?, ?, ?)`,
         [instructorId, data.tier_id ?? null, data.hourly_rate, data.course_bonus, effectiveDate, data.notes ?? null, request.userId]
@@ -187,7 +188,7 @@ export async function payRateRoutes(app: FastifyInstance) {
       );
 
       await conn.commit();
-      const [rows] = await pool.query<any[]>('SELECT * FROM instructor_pay_rates WHERE id = ?', [result.insertId]);
+      const [rows] = await pool.query<RowDataPacket[]>('SELECT * FROM instructor_pay_rates WHERE id = ?', [result.insertId]);
       return { success: true, message: 'Instructor pay rate set successfully.', data: rows[0] };
     } catch (err) { await conn.rollback(); throw err; } finally { conn.release(); }
   });
@@ -197,7 +198,7 @@ export async function payRateRoutes(app: FastifyInstance) {
     const { instructorId } = request.params as { instructorId: string };
     const { date = new Date().toISOString().split('T')[0] } = request.query as { date?: string };
 
-    const [rows] = await pool.query<any[]>(
+    const [rows] = await pool.query<RowDataPacket[]>(
       `SELECT ipr.hourly_rate, ipr.course_bonus, prt.name as tier_name
        FROM instructor_pay_rates ipr
        LEFT JOIN pay_rate_tiers prt ON ipr.tier_id = prt.id
@@ -224,7 +225,7 @@ export async function payRateRoutes(app: FastifyInstance) {
 
       // Get old rates
       const placeholders = data.instructor_ids.map(() => '?').join(', ');
-      const [oldRates] = await conn.query<any[]>(
+      const [oldRates] = await conn.query<RowDataPacket[]>(
         `SELECT ipr.instructor_id, ipr.hourly_rate, ipr.course_bonus, ipr.tier_id
          FROM instructor_pay_rates ipr
          INNER JOIN (
@@ -234,7 +235,7 @@ export async function payRateRoutes(app: FastifyInstance) {
          ) latest ON ipr.instructor_id = latest.instructor_id AND ipr.effective_date = latest.max_date AND ipr.is_active = true`,
         data.instructor_ids
       );
-      const oldMap = new Map(oldRates.map((r: any) => [r.instructor_id, r]));
+      const oldMap = new Map(oldRates.map((r) => [r.instructor_id, r]));
 
       // Deactivate current rates
       await conn.query(
@@ -262,7 +263,7 @@ export async function payRateRoutes(app: FastifyInstance) {
 
       await conn.commit();
 
-      const [newRates] = await pool.query<any[]>(
+      const [newRates] = await pool.query<RowDataPacket[]>(
         `SELECT * FROM instructor_pay_rates WHERE instructor_id IN (${placeholders}) AND is_active = true AND effective_date = ?`,
         [...data.instructor_ids, effectiveDate]
       );

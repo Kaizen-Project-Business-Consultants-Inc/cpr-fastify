@@ -10,6 +10,7 @@
 import { env } from '../config/env.js';
 import { getPool } from '../config/database.js';
 import { logger } from '../config/logger.js';
+import type { RowDataPacket } from 'mysql2/promise';
 
 let _rate: number = env.HST_RATE ?? 0.13;
 
@@ -26,7 +27,7 @@ export function getHSTLabel(): string {
 export async function initTaxConfig(): Promise<void> {
   try {
     const pool = getPool();
-    const [rows] = await pool.query<any[]>(
+    const [rows] = await pool.query<RowDataPacket[]>(
       `SELECT config_value FROM system_config WHERE config_key = 'tax_rate'`
     );
     if (rows.length > 0) {

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Box,
   Typography,
@@ -13,7 +13,8 @@ import {
   DialogActions,
   Alert,
   CircularProgress,
-  Pagination
+  Pagination,
+  Theme
 } from '@mui/material';
 import { paymentRequestService, PaymentRequest, PaymentRequestStats, PaymentRequestFilters } from '../../services/paymentRequestService';
 import StatCard from '../gtacpr/StatCard';
@@ -40,7 +41,7 @@ const statusToChipKind = (status: string): 'success' | 'active' | 'warning' | 'd
 const sectionHeader = {
   fontSize: 13,
   fontWeight: 700,
-  color: (theme: any) => theme.palette.text.secondary,
+  color: (theme: Theme) => theme.palette.text.secondary,
   textTransform: 'uppercase' as const,
   letterSpacing: '0.07em',
   mb: 1.5,
@@ -48,9 +49,9 @@ const sectionHeader = {
 
 const detailSection = {
   p: 2,
-  bgcolor: (theme: any) => theme.palette.background.default,
+  bgcolor: (theme: Theme) => theme.palette.background.default,
   borderRadius: '8px',
-  border: (theme: any) => `1px solid ${theme.palette.divider}`,
+  border: (theme: Theme) => `1px solid ${theme.palette.divider}`,
 };
 
 const labelValue = (label: string, value: React.ReactNode) => (
@@ -358,7 +359,7 @@ const PaymentRequestsDashboard: React.FC = () => {
     pages: 0
   });
 
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     setLoading(true);
     setError(null);
 
@@ -371,17 +372,20 @@ const PaymentRequestsDashboard: React.FC = () => {
       setStats(statsData);
       setRequests(requestsData.requests);
       setPagination(requestsData.pagination);
-    } catch (err: any) {
+    } catch (err) {
       setError('Failed to load payment requests data');
       console.error('Error loading payment requests:', err);
     } finally {
       setLoading(false);
     }
-  };
-
-  useEffect(() => {
-    loadData();
   }, [filters]);
+
+  // Data fetch on mount / whenever `filters` changes — the standard fetch-on-mount
+  // pattern, not state derived from render.
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    loadData();
+  }, [loadData]);
 
   /* ── Loading state ── */
   if (loading && !stats) {

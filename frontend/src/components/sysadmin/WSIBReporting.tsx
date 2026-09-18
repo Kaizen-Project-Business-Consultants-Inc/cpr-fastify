@@ -1,9 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   Box,
-  CircularProgress,
   Typography,
-  TextField,
   MenuItem,
   Select,
   FormControl,
@@ -17,6 +15,8 @@ import StatusChip from '../gtacpr/StatusChip';
 import DataTable, { DataTableRow } from '../gtacpr/DataTable';
 import SearchBar from '../gtacpr/SearchBar';
 import { GhostButton } from '../gtacpr/Buttons';
+import { useDebounce } from '../../hooks/useDebounce';
+import { useServerPagination } from '../../hooks/useServerPagination';
 
 interface WSIBReportingProps {
   onShowSnackbar: (message: string, severity: 'success' | 'error' | 'warning' | 'info') => void;
@@ -83,17 +83,32 @@ function getComplianceChip(status: string) {
 }
 
 const WSIBReporting = ({ onShowSnackbar }: WSIBReportingProps) => {
-  const [records, setRecords] = useState<TrainingRecord[]>([]);
   const [summary, setSummary] = useState<ComplianceSummary | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [page, setPage] = useState(1);
-  const [pagination, setPagination] = useState({ total: 0, pages: 0, limit: 25 });
 
-  // Filters
+  // Filters — all four are honoured server-side by
+  // `/sysadmin/wsib/training-history`, so they narrow the whole report.
   const [search, setSearch] = useState('');
+  const debouncedSearch = useDebounce(search, 300);
   const [orgId, setOrgId] = useState('');
   const [courseTypeId, setCourseTypeId] = useState('');
   const [complianceStatus, setComplianceStatus] = useState('');
+
+  const grid = useServerPagination<TrainingRecord>({
+    pageSize: 25,
+    fetchFn: ({ page, limit }) => {
+      const params: {
+        page: number; limit: number; search?: string;
+        org_id?: number; course_type_id?: number; compliance_status?: string;
+      } = { page, limit };
+      if (debouncedSearch) params.search = debouncedSearch;
+      if (orgId) params.org_id = Number(orgId);
+      if (courseTypeId) params.course_type_id = Number(courseTypeId);
+      if (complianceStatus) params.compliance_status = complianceStatus;
+      return sysAdminApi.getWSIBTrainingHistory(params);
+    },
+    onError: () => onShowSnackbar('Failed to load training history', 'error'),
+  });
+  const records = grid.items;
 
   // Dropdown options
   const [organizations, setOrganizations] = useState<OrgOption[]>([]);
@@ -107,8 +122,8 @@ const WSIBReporting = ({ onShowSnackbar }: WSIBReportingProps) => {
           sysAdminApi.getOrganizations({ limit: 200 }),
           sysAdminApi.getCourses(),
         ]);
-        setOrganizations((orgRes.data || []).map((o: any) => ({ id: o.id, name: o.name })));
-        setCourseTypes((courseRes.data || []).map((c: any) => ({ id: c.id, name: c.name })));
+        setOrganizations((orgRes.data || []).map((o: { id: number; name: string }) => ({ id: o.id, name: o.name })));
+        setCourseTypes((courseRes.data || []).map((c: { id: number; name: string }) => ({ id: c.id, name: c.name })));
       } catch {
         // Options are optional
       }
@@ -119,7 +134,7 @@ const WSIBReporting = ({ onShowSnackbar }: WSIBReportingProps) => {
   // Load summary
   const loadSummary = useCallback(async () => {
     try {
-      const params: Record<string, any> = {};
+      const params: { org_id?: number } = {};
       if (orgId) params.org_id = Number(orgId);
       const res = await sysAdminApi.getWSIBComplianceSummary(params);
       setSummary(res.data);
@@ -128,37 +143,22 @@ const WSIBReporting = ({ onShowSnackbar }: WSIBReportingProps) => {
     }
   }, [orgId]);
 
+  // Mount-time fetch of the compliance summary stat cards (external API
+  // sync, not state derived from render data), so a direct setState inside
+  // is expected.
+  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { loadSummary(); }, [loadSummary]);
 
-  // Load training history
-  const loadHistory = useCallback(async () => {
-    setLoading(true);
-    try {
-      const params: Record<string, any> = { page, limit: 25 };
-      if (search) params.search = search;
-      if (orgId) params.org_id = Number(orgId);
-      if (courseTypeId) params.course_type_id = Number(courseTypeId);
-      if (complianceStatus) params.compliance_status = complianceStatus;
-
-      const res = await sysAdminApi.getWSIBTrainingHistory(params);
-      setRecords(res.data || []);
-      setPagination(res.pagination || { total: 0, pages: 0, limit: 25 });
-    } catch {
-      onShowSnackbar('Failed to load training history', 'error');
-    } finally {
-      setLoading(false);
-    }
-  }, [page, search, orgId, courseTypeId, complianceStatus, onShowSnackbar]);
-
-  useEffect(() => { loadHistory(); }, [loadHistory]);
-
-  // Reset page when filters change
-  useEffect(() => { setPage(1); }, [search, orgId, courseTypeId, complianceStatus]);
+  // Any filter change resets to page 1; `load` has a stable identity.
+  const loadHistory = grid.load;
+  useEffect(() => {
+    loadHistory(1);
+  }, [loadHistory, debouncedSearch, orgId, courseTypeId, complianceStatus]);
 
   const handleExportCSV = async () => {
     try {
       const params: Record<string, string> = {};
-      if (search) params.search = search;
+      if (debouncedSearch) params.search = debouncedSearch;
       if (orgId) params.org_id = orgId;
       if (courseTypeId) params.course_type_id = courseTypeId;
       if (complianceStatus) params.compliance_status = complianceStatus;
@@ -182,8 +182,6 @@ const WSIBReporting = ({ onShowSnackbar }: WSIBReportingProps) => {
     if (!dateStr) return '\u2014';
     return new Date(dateStr).toLocaleDateString();
   };
-
-  const hasNextPage = page < pagination.pages;
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
@@ -250,26 +248,17 @@ const WSIBReporting = ({ onShowSnackbar }: WSIBReportingProps) => {
       </Box>
 
       {/* Table */}
-      {loading ? (
-        <Box sx={{ display: 'flex', justifyContent: 'center', py: 8 }}>
-          <CircularProgress />
-        </Box>
-      ) : records.length === 0 ? (
-        <Box sx={{ bgcolor: (theme) => theme.palette.background.paper, border: (theme) => `1px solid ${theme.palette.divider}`, borderRadius: '10px', p: 6, textAlign: 'center' }}>
-          <Typography sx={{ color: (theme) => theme.palette.text.secondary, fontSize: 14 }}>
-            No training records found. Adjust your filters and try again.
-          </Typography>
-        </Box>
-      ) : (
-        <DataTable
-          columns={columns}
-          shownCount={records.length}
-          totalCount={pagination.total}
-          page={page - 1}
-          onPrevPage={() => setPage(p => Math.max(1, p - 1))}
-          onNextPage={() => setPage(p => p + 1)}
-          hasNextPage={hasNextPage}
-        >
+      <DataTable
+        columns={columns}
+        shownCount={grid.shownCount}
+        totalCount={grid.totalCount}
+        page={grid.page}
+        onPrevPage={grid.onPrevPage}
+        onNextPage={grid.onNextPage}
+        hasNextPage={grid.hasNextPage}
+        loading={grid.loading}
+        emptyMessage="No training records found. Adjust your filters and try again."
+      >
           {records.map((rec, i) => (
             <DataTableRow key={`${rec.email}-${rec.course_date}-${i}`} columns={columns}>
               {/* STUDENT */}
@@ -305,10 +294,9 @@ const WSIBReporting = ({ onShowSnackbar }: WSIBReportingProps) => {
               <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>
                 {getComplianceChip(rec.compliance_status)}
               </Box>
-            </DataTableRow>
-          ))}
-        </DataTable>
-      )}
+          </DataTableRow>
+        ))}
+      </DataTable>
     </Box>
   );
 };

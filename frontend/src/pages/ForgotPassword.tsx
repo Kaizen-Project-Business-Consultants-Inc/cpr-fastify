@@ -44,7 +44,7 @@ const ForgotPassword = () => {
 
       await requestPasswordReset(email);
       setIsSuccess(true);
-    } catch (err: any) {
+    } catch (err) {
       console.error(
         '[Debug] ForgotPassword - Password reset request error:',
         err

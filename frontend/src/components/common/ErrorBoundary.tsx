@@ -14,7 +14,6 @@ import {
 } from '@mui/material';
 import {
   Refresh as RefreshIcon,
-  BugReport as BugIcon,
   ExpandMore as ExpandMoreIcon,
   ExpandLess as ExpandLessIcon,
   WifiOff as OfflineIcon,
@@ -135,10 +134,8 @@ class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
   /**
    * Categorizes and enhances error information
    */
-  private categorizeError(error: Error, errorInfo: ErrorInfo): EnhancedError {
+  private categorizeError(error: Error, _errorInfo: ErrorInfo): EnhancedError {
     const errorMessage = error.message.toLowerCase();
-    const stack = error.stack?.toLowerCase() || '';
-    const componentStack = errorInfo.componentStack?.toLowerCase() || '';
 
     // Network-related errors
     if (

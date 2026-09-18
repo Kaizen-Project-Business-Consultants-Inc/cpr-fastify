@@ -10,6 +10,7 @@ import {
 import { sysadminApi } from '../../services/api';
 import logger from '../../utils/logger';
 import { PrimaryButton, GhostButton } from '../gtacpr/Buttons';
+import type { Theme } from '@mui/material/styles';
 
 interface SystemConfig {
   id: number;
@@ -34,8 +35,6 @@ const SystemConfiguration: React.FC = () => {
   const [success, setSuccess] = useState<string | null>(null);
   const [editedValues, setEditedValues] = useState<Record<string, string>>({});
 
-  useEffect(() => { loadConfigurations(); }, []);
-
   const loadConfigurations = async () => {
     try {
       setLoading(true);
@@ -51,13 +50,19 @@ const SystemConfiguration: React.FC = () => {
       } else {
         setError('Failed to load configurations');
       }
-    } catch (err: any) {
+    } catch (err) {
       logger.error('Error loading configurations:', err);
       setError('Failed to load system configurations');
     } finally {
       setLoading(false);
     }
   };
+
+  // Mount-time fetch of the configuration list (external API sync, not
+  // state derived from render data), so a direct setState inside is
+  // expected.
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => { loadConfigurations(); }, []);
 
   const handleValueChange = (key: string, value: string) => {
     setEditedValues(prev => ({ ...prev, [key]: value }));
@@ -75,7 +80,7 @@ const SystemConfiguration: React.FC = () => {
       } else {
         setError(`Failed to update ${key}`);
       }
-    } catch (err: any) {
+    } catch (err) {
       logger.error(`Error updating configuration ${key}:`, err);
       setError(`Failed to update ${key}`);
     } finally {
@@ -94,7 +99,7 @@ const SystemConfiguration: React.FC = () => {
       await Promise.all(updatePromises);
       setSuccess('All configurations updated successfully');
       await loadConfigurations();
-    } catch (err: any) {
+    } catch (err) {
       logger.error('Error updating configurations:', err);
       setError('Failed to update some configurations');
     } finally {
@@ -148,7 +153,7 @@ const SystemConfiguration: React.FC = () => {
                   gap: 3,
                   px: 3,
                   py: 2,
-                  borderBottom: i < configs.length - 1 ? (theme: any) => `1px solid ${theme.palette.divider}` : 'none',
+                  borderBottom: i < configs.length - 1 ? (theme: Theme) => `1px solid ${theme.palette.divider}` : 'none',
                 }}
               >
                 {/* Label + description */}
@@ -171,8 +176,8 @@ const SystemConfiguration: React.FC = () => {
                     '& .MuiOutlinedInput-root': {
                       borderRadius: '8px',
                       fontSize: 13,
-                      '& fieldset': { borderColor: (theme: any) => theme.palette.divider },
-                      '&:hover fieldset': { borderColor: (theme: any) => theme.palette.text.secondary },
+                      '& fieldset': { borderColor: (theme: Theme) => theme.palette.divider },
+                      '&:hover fieldset': { borderColor: (theme: Theme) => theme.palette.text.secondary },
                       '&.Mui-focused fieldset': { borderColor: '#CC1F1F' },
                     },
                   }}

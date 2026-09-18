@@ -18,6 +18,7 @@ import {
 import { sysAdminApi } from '../../services/api';
 import { useConfirm } from '../gtacpr';
 import { useSnackbar } from '../../contexts/SnackbarContext';
+import { getErrorMessage } from '../../utils/errorMessage';
 
 interface OrganizationWizardProps {
   open: boolean;
@@ -112,8 +113,8 @@ const OrganizationWizard: React.FC<OrganizationWizardProps> = ({
         }
 
         setActiveStep(1);
-      } catch (err: any) {
-        setError(err.response?.data?.error?.message || 'Failed to create organization');
+      } catch (err) {
+        setError(getErrorMessage(err, 'Failed to create organization'));
       } finally {
         setSaving(false);
       }
@@ -133,8 +134,8 @@ const OrganizationWizard: React.FC<OrganizationWizardProps> = ({
         setSaving(true);
         await sysAdminApi.createOrganizationLocation(createdOrgId, locationData);
         handleComplete();
-      } catch (err: any) {
-        setError(err.response?.data?.message || 'Failed to create location');
+      } catch (err) {
+        setError(getErrorMessage(err, 'Failed to create location'));
       } finally {
         setSaving(false);
       }
@@ -207,9 +208,9 @@ const OrganizationWizard: React.FC<OrganizationWizardProps> = ({
       if (discard) {
         try {
           await sysAdminApi.deleteOrganization(createdOrgId);
-        } catch (err: any) {
+        } catch (err) {
           console.error('Failed to cleanup org:', err);
-          setError(err.response?.data?.error?.message || 'Failed to discard the organization');
+          setError(getErrorMessage(err, 'Failed to discard the organization'));
           return;
         }
       } else {

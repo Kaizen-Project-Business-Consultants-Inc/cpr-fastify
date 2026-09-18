@@ -23,18 +23,43 @@ Legend: 🔴 before taking paying customers · 🟡 soon · 🟢 when convenient
 
 ## 🟡 Engineering debt (from the audit)
 
-- [ ] **Server-side pagination on every list endpoint (4.9)**: `paginatedQuery` is used in 7 places; users, vendors, students, org courses/invoices, vendor invoices, AR and history still return every row. Frontend `DataTable` already supports paging.
-- [ ] **`admin.ts` multi-statement writes without transactions (4.10)**; wrap org create + locations, config updates.
-- [ ] **Promote lint warnings to errors as counts fall**: backend 411 warnings (`no-explicit-any`), frontend ~720 (`no-explicit-any`, `no-unused-vars`, react-hooks rules incl. hooks inside try/catch in `InvoiceUpload.tsx` / `AccountingDashboard.tsx`).
-- [ ] **Remaining native `alert()`/local Snackbars** in `PaymentVerificationView.tsx`; vendor `InvoiceHistory` fabricated approver name.
-- [ ] **Memoise the other context providers** (Notification, Toast, Network) and replace `SessionWarning`'s 1-second interval with a scheduled timeout.
-- [ ] **Move remaining `import * as api` (9 files) to named imports** for tree-shaking.
-- [ ] **Bundle more backend packages**: `backend/build.mjs` still treats long-installed packages as external (host `node_modules` is stale). Shrink `EXTERNAL` once each is verified to bundle cleanly, then the host needs no `node_modules` at all.
-- [ ] **E2E flakiness on the shared host**: one dashboard check occasionally needs a retry; consider a second `retries` only for the "dashboard loads" tests.
-- [ ] **Test coverage**: route tests exist only for guards; add `app.inject` tests for billing lifecycle, org-billing, vendors; portal tests exist for 5 of 8 portals.
-- [ ] **Tax rate at runtime**: backend reads `system_config`; frontend uses build-time `VITE_HST_RATE` (default 0.13). Expose the rate via an endpoint so both agree if it ever changes.
-- [ ] **Data retention enforcement**: policy is documented; scheduled anonymisation of accounts closed 2+ years is not implemented.
-- [ ] **CI action Node runtime**: `SamKirkland/FTP-Deploy-Action@v4.3.5` and `actions/*-artifact@v5` still target Node 20 (GitHub forces 24); update when new releases target 22+.
+Most of this section was cleared on 2026-09-18. What remains is listed first; the
+completed items are kept at the bottom of the section for traceability.
+
+- [ ] **Vendor-invoice summary endpoint (new, found 2026-09-18)**: the four vendor-invoice
+  screens are paginated, but three of them fetch the full matching list a second time just
+  to sum money, and the approvals screen issues six `limit=1` probes to count by status —
+  because no aggregate endpoint exists. Add `GET /admin/vendor-invoices/summary` and
+  `GET /accounting/vendor-invoices/summary` returning counts by status plus total/paid/
+  outstanding sums (honouring the same `search` filter), then point the stat cards at it.
+  Until then paging saves rendering, not bytes, on those screens.
+- [ ] **`GET /accounting/invoices` ignores the opt-in pagination rule**: it paginates even
+  with no `page`/`limit`, so any caller that sends no params silently gets the first 25.
+  `TransactionHistoryView` was doing exactly that and computing totals over a truncated
+  set (fixed by making it page explicitly). Either make the endpoint opt-in like the rest,
+  or sweep the remaining callers of `api.getInvoices()` that pass no params.
+- [ ] **Native dialogs in `hr/ReturnedPaymentRequests.tsx`**: two `window.confirm`/`alert`
+  calls remain; replace with `useConfirm` / `useSnackbar` like the rest of the app.
+- [ ] **Move remaining `import * as api` (13 files) to named imports** for tree-shaking —
+  `services/api.ts` is large and the namespace import pulls it into every portal chunk.
+- [ ] **E2E flakiness on the shared host**: a dashboard check occasionally needs a retry;
+  consider extra `retries` scoped to the "dashboard loads" tests only.
+- [ ] **Backend route tests**: guard coverage exists (`routes.guards.test.ts`); add
+  `app.inject` tests for the billing lifecycle, org-billing and vendor flows.
+- [ ] **CI action Node runtime**: `SamKirkland/FTP-Deploy-Action@v4.3.5` and
+  `actions/*-artifact@v5` still target Node 20 (GitHub forces 24); update when new
+  releases target 22+.
+
+### Cleared 2026-09-18
+Server-side pagination (20 screens, opt-in `?page`/`limit` contract so unpaginated callers
+are unchanged) · transactions around every multi-step write in `admin.ts` and
+`instructors.ts` · PIPEDA retention job (dry-run by default, `RETENTION_ENFORCE=true` to
+act) · tax rate served from `GET /config` and applied at app start · backend bundling
+(host packages 18 → 5, only `pdfkit` needed in production) · vendor PDFs mirrored to
+object storage at upload time · context providers memoised and `SessionWarning`'s
+per-second timer replaced · native dialogs and fabricated values removed from the
+accounting and vendor screens · portal tests for all 8 portals · backend `no-explicit-any`
+0 and promoted to `error`.
 
 ## 🟢 Features (unchanged from before; not started)
 

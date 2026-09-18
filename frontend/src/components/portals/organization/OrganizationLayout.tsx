@@ -52,10 +52,10 @@ const OrganizationLayout: React.FC<OrganizationLayoutProps> = ({
   user,
   currentView,
   onViewChange,
-  onLogout,
-  onRefresh,
+  onLogout: _onLogout,
+  onRefresh: _onRefresh,
   navigationItems,
-  drawerWidth,
+  drawerWidth: _drawerWidth,
 }) => {
   const location = useLocation();
 

@@ -43,7 +43,7 @@ interface CourseAdminPortalProps {
 }
 
 const CourseAdminPortal: React.FC<CourseAdminPortalProps> = ({
-  user,
+  user: _user,
   error,
 }) => {
   const location = useLocation();

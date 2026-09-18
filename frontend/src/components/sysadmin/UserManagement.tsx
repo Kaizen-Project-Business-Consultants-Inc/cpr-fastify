@@ -2,7 +2,6 @@ import React, { useState, useEffect } from 'react';
 import {
   Box,
   Typography,
-  CircularProgress,
   Dialog,
   DialogTitle,
   DialogContent,
@@ -14,8 +13,11 @@ import {
   Grid,
   TextField,
   Button,
+  SelectChangeEvent,
 } from '@mui/material';
+import type { Theme } from '@mui/material/styles';
 import { sysAdminApi } from '../../services/api';
+import api from '../../services/api';
 import logger from '../../utils/logger';
 import SearchBar from '../gtacpr/SearchBar';
 import DataTable, { DataTableRow } from '../gtacpr/DataTable';
@@ -24,7 +26,37 @@ import RoleChip from '../gtacpr/RoleChip';
 import StatusChip from '../gtacpr/StatusChip';
 import { PrimaryButton } from '../gtacpr/Buttons';
 import { useConfirm, LinkButton } from '../gtacpr';
+import { useDebounce } from '../../hooks/useDebounce';
+import { useServerPagination } from '../../hooks/useServerPagination';
 import { formatDisplayDate } from '../../utils/formatters';
+import { getErrorMessage } from '../../utils/errorMessage';
+
+interface OrgUser {
+  id: string;
+  username: string;
+  email: string;
+  role: string;
+  status: string;
+  firstName?: string;
+  lastName?: string;
+  fullName?: string;
+  mobile?: string;
+  organizationId?: string;
+  organizationName?: string;
+  locationId?: string;
+  dateOnboarded?: string;
+  userComments?: string;
+}
+
+interface Organization {
+  id: string;
+  organizationName: string;
+}
+
+interface OrgLocation {
+  id: string;
+  locationName: string;
+}
 
 const columns = [
   { key: 'user', label: 'USER', width: '1.5fr' },
@@ -40,60 +72,74 @@ const columns = [
 const userRoles = ['admin', 'instructor', 'organization', 'student', 'accountant', 'sysadmin', 'hr'];
 const userStatuses = ['active', 'inactive', 'suspended'];
 
-function getInitials(user: any): string {
+function getInitials(user: OrgUser): string {
   const first = user.firstName || '';
   const last = user.lastName || '';
   if (first || last) return `${first[0] || ''}${last[0] || ''}`.toUpperCase();
   return (user.username || '?')[0].toUpperCase();
 }
 
-const UserManagement = ({ onShowSnackbar }: { onShowSnackbar: any }) => {
-  const [users, setUsers] = useState<any[]>([]);
-  const [organizations, setOrganizations] = useState<any[]>([]);
-  const [locations, setLocations] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
+const UserManagement = ({ onShowSnackbar }: { onShowSnackbar?: (message: string, severity?: 'success' | 'error') => void }) => {
+  const [organizations, setOrganizations] = useState<Organization[]>([]);
+  const [locations, setLocations] = useState<OrgLocation[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
+  const debouncedSearch = useDebounce(searchTerm, 300);
   const [roleFilter, setRoleFilter] = useState('');
   const [saving, setSaving] = useState(false);
   const { confirm, dialog: confirmDialog } = useConfirm();
 
+  // Server-side paging: `/sysadmin/users` supports `search` and `role` as
+  // query params, so both the search box and the role pills filter the whole
+  // table on the server rather than just the rows currently on screen.
+  const grid = useServerPagination<OrgUser>({
+    pageSize: 25,
+    fetchFn: ({ page, limit }) =>
+      api
+        .get('/sysadmin/users', {
+          params: {
+            page,
+            limit,
+            search: debouncedSearch.trim() || undefined,
+            role: roleFilter || undefined,
+          },
+        })
+        .then(r => r.data),
+    onError: (err) => {
+      logger.error('Error loading users:', err);
+      onShowSnackbar?.('Failed to load users', 'error');
+    },
+  });
+  const users = grid.items;
+
   // Dialog state
   const [showDialog, setShowDialog] = useState(false);
-  const [editingUser, setEditingUser] = useState<any>(null);
+  const [editingUser, setEditingUser] = useState<OrgUser | null>(null);
   const [formData, setFormData] = useState({
     username: '', email: '', password: '', firstName: '', lastName: '',
     fullName: '', role: '', mobile: '', organizationId: '', locationId: '',
     dateOnboarded: '', userComments: '', status: 'active',
   });
 
-  useEffect(() => { loadUsers(); loadOrganizations(); }, []);
-
-  const loadUsers = async () => {
-    setLoading(true);
-    try {
-      const response = await sysAdminApi.getUsers();
-      setUsers(response.data || []);
-    } catch (err: any) {
-      logger.error('Error loading users:', err);
-      onShowSnackbar?.('Failed to load users', 'error');
-    } finally {
-      setLoading(false);
-    }
-  };
-
   const loadOrganizations = async () => {
     try {
       const response = await sysAdminApi.getOrganizations();
       setOrganizations(response.data || []);
-    } catch (err: any) {
+    } catch (err) {
       logger.error('Error loading organizations:', err);
     }
   };
 
-  const loadLocations = async (orgId: any) => {
+  const loadUsers = grid.load;
+  useEffect(() => { loadUsers(1); }, [loadUsers, debouncedSearch, roleFilter]);
+  // Mount-time fetch of the organization picker list (external API sync, not
+  // state derived from render data), so a direct setState inside is expected.
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => { loadOrganizations(); }, []);
+
+  const loadLocations = async (orgId: string) => {
     if (!orgId) { setLocations([]); return; }
     try {
-      const response = await sysAdminApi.getOrganizationLocations(orgId);
+      const response = await sysAdminApi.getOrganizationLocations(Number(orgId));
       setLocations(response.data || []);
     } catch { setLocations([]); }
   };
@@ -109,7 +155,7 @@ const UserManagement = ({ onShowSnackbar }: { onShowSnackbar: any }) => {
     setShowDialog(true);
   };
 
-  const handleEdit = async (user: any) => {
+  const handleEdit = async (user: OrgUser) => {
     setEditingUser(user);
     setFormData({
       username: user.username || '', email: user.email || '', password: '',
@@ -124,7 +170,7 @@ const UserManagement = ({ onShowSnackbar }: { onShowSnackbar: any }) => {
     setShowDialog(true);
   };
 
-  const handleDeactivate = async (user: any) => {
+  const handleDeactivate = async (user: OrgUser) => {
     const displayName = user.fullName || `${user.firstName || ''} ${user.lastName || ''}`.trim() || user.username;
     const ok = await confirm({
       title: 'Deactivate user?',
@@ -134,16 +180,16 @@ const UserManagement = ({ onShowSnackbar }: { onShowSnackbar: any }) => {
     });
     if (!ok) return;
     try {
-      await sysAdminApi.updateUser(user.id, { status: 'inactive' });
+      await sysAdminApi.updateUser(Number(user.id), { status: 'inactive' });
       onShowSnackbar?.('User deactivated successfully', 'success');
-      loadUsers();
-    } catch (err: any) {
+      grid.reload();
+    } catch (err) {
       logger.error('Error deactivating user:', err);
       onShowSnackbar?.('Failed to deactivate user', 'error');
     }
   };
 
-  const handleSubmit = async (e: any) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formData.username.trim() || !formData.email.trim() || !formData.role) {
       onShowSnackbar?.('Username, email, and role are required', 'error'); return;
@@ -163,26 +209,28 @@ const UserManagement = ({ onShowSnackbar }: { onShowSnackbar: any }) => {
       const mutableSubmitData: Record<string, unknown> = { ...submitData };
       if (!mutableSubmitData.password) delete mutableSubmitData.password;
 
-      if (editingUser) {
-        await sysAdminApi.updateUser(editingUser.id, submitData);
+      const isEdit = Boolean(editingUser);
+      if (isEdit && editingUser) {
+        await sysAdminApi.updateUser(Number(editingUser.id), submitData);
         onShowSnackbar?.('User updated successfully', 'success');
       } else {
         await sysAdminApi.createUser(submitData);
         onShowSnackbar?.('User created successfully', 'success');
       }
       setShowDialog(false);
-      loadUsers();
-    } catch (err: any) {
+      // A new user lands at the top of the list (newest first), so jump to
+      // page 1 to show it; an edit stays on the page the user was reading.
+      if (isEdit) grid.reload(); else grid.load(1);
+    } catch (err) {
       logger.error('Error saving user:', err);
-      const errorMessage = err.response?.data?.error?.message || err.response?.data?.message || err.message || 'Failed to save user';
-      onShowSnackbar?.(errorMessage, 'error');
+      onShowSnackbar?.(getErrorMessage(err, 'Failed to save user'), 'error');
     } finally {
       setSaving(false);
     }
   };
 
-  const handleChange = async (e: any) => {
-    const { name, value, checked, type } = e.target;
+  const handleChange = async (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement> | SelectChangeEvent) => {
+    const { name, value, checked, type } = e.target as HTMLInputElement;
     setFormData(prev => ({ ...prev, [name]: type === 'checkbox' ? checked : value }));
     if (name === 'organizationId') {
       setFormData(prev => ({ ...prev, locationId: '' }));
@@ -190,26 +238,6 @@ const UserManagement = ({ onShowSnackbar }: { onShowSnackbar: any }) => {
       else setLocations([]);
     }
   };
-
-  const filtered = users.filter(u => {
-    if (roleFilter && u.role !== roleFilter) return false;
-    if (!searchTerm) return true;
-    const q = searchTerm.toLowerCase();
-    return (u.username || '').toLowerCase().includes(q)
-      || (u.email || '').toLowerCase().includes(q)
-      || (u.fullName || '').toLowerCase().includes(q)
-      || (`${u.firstName || ''} ${u.lastName || ''}`).toLowerCase().includes(q);
-  });
-
-  if (loading) {
-    return (
-      <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: 400 }}>
-        <CircularProgress size={48} />
-      </Box>
-    );
-  }
-
-  const allRoles = [...new Set(users.map(u => u.role).filter(Boolean))];
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
@@ -227,13 +255,13 @@ const UserManagement = ({ onShowSnackbar }: { onShowSnackbar: any }) => {
             onClick={() => setRoleFilter('')}
             sx={{
               px: 1.5, py: 0.5, borderRadius: '20px', fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
-              border: '1px solid', borderColor: !roleFilter ? 'rgba(204,31,31,.3)' : (theme: any) => theme.palette.divider,
-              bgcolor: !roleFilter ? '#FFF0F0' : (theme: any) => theme.palette.background.paper, color: !roleFilter ? '#CC1F1F' : (theme: any) => theme.palette.text.secondary,
+              border: '1px solid', borderColor: !roleFilter ? 'rgba(204,31,31,.3)' : (theme: Theme) => theme.palette.divider,
+              bgcolor: !roleFilter ? '#FFF0F0' : (theme: Theme) => theme.palette.background.paper, color: !roleFilter ? '#CC1F1F' : (theme: Theme) => theme.palette.text.secondary,
             }}
           >
             All
           </Box>
-          {allRoles.map(role => (
+          {userRoles.map(role => (
             <Box
               key={role}
               component="button"
@@ -243,9 +271,9 @@ const UserManagement = ({ onShowSnackbar }: { onShowSnackbar: any }) => {
               sx={{
                 px: 1.5, py: 0.5, borderRadius: '20px', fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
                 border: '1px solid', textTransform: 'capitalize',
-                borderColor: roleFilter === role ? 'rgba(204,31,31,.3)' : (theme: any) => theme.palette.divider,
-                bgcolor: roleFilter === role ? '#FFF0F0' : (theme: any) => theme.palette.background.paper,
-                color: roleFilter === role ? '#CC1F1F' : (theme: any) => theme.palette.text.secondary,
+                borderColor: roleFilter === role ? 'rgba(204,31,31,.3)' : (theme: Theme) => theme.palette.divider,
+                bgcolor: roleFilter === role ? '#FFF0F0' : (theme: Theme) => theme.palette.background.paper,
+                color: roleFilter === role ? '#CC1F1F' : (theme: Theme) => theme.palette.text.secondary,
               }}
             >
               {role}
@@ -258,12 +286,22 @@ const UserManagement = ({ onShowSnackbar }: { onShowSnackbar: any }) => {
       </Box>
 
       <Typography sx={{ fontSize: 12, color: (theme) => theme.palette.text.secondary, mt: -1 }}>
-        {filtered.length} user{filtered.length !== 1 ? 's' : ''}
+        {grid.totalCount} user{grid.totalCount !== 1 ? 's' : ''}
       </Typography>
 
       {/* Table */}
-      <DataTable columns={columns} shownCount={filtered.length} totalCount={users.length}>
-        {filtered.map(user => (
+      <DataTable
+        columns={columns}
+        shownCount={grid.shownCount}
+        totalCount={grid.totalCount}
+        page={grid.page}
+        onPrevPage={grid.onPrevPage}
+        onNextPage={grid.onNextPage}
+        hasNextPage={grid.hasNextPage}
+        loading={grid.loading}
+        emptyMessage={searchTerm || roleFilter ? 'No users match your search.' : 'No users found.'}
+      >
+        {users.map(user => (
           <DataTableRow key={user.id} columns={columns}>
             {/* USER */}
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
@@ -329,7 +367,7 @@ const UserManagement = ({ onShowSnackbar }: { onShowSnackbar: any }) => {
                 <FormControl fullWidth><InputLabel>Organization</InputLabel>
                   <Select name="organizationId" value={formData.organizationId} label="Organization" onChange={handleChange}>
                     <MenuItem value="">None</MenuItem>
-                    {organizations.map((org: any) => <MenuItem key={org.id} value={org.id}>{org.organizationName}</MenuItem>)}
+                    {organizations.map((org: Organization) => <MenuItem key={org.id} value={org.id}>{org.organizationName}</MenuItem>)}
                   </Select>
                 </FormControl>
               </Grid>
@@ -338,7 +376,7 @@ const UserManagement = ({ onShowSnackbar }: { onShowSnackbar: any }) => {
                   <FormControl fullWidth><InputLabel>Location</InputLabel>
                     <Select name="locationId" value={formData.locationId} label="Location" onChange={handleChange}>
                       <MenuItem value="">Select Location</MenuItem>
-                      {locations.map((loc: any) => <MenuItem key={loc.id} value={loc.id}>{loc.locationName}</MenuItem>)}
+                      {locations.map((loc: OrgLocation) => <MenuItem key={loc.id} value={loc.id}>{loc.locationName}</MenuItem>)}
                     </Select>
                   </FormControl>
                 </Grid>

@@ -1,8 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import { useAuth } from '../../../contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
-import { api } from '../../../services/api';
 import logger from '../../../utils/logger';
 import analytics from '../../../services/analytics';
 import ErrorBoundary from '../../common/ErrorBoundary';
@@ -12,8 +11,7 @@ import { CircularProgress, Box } from '@mui/material';
 const CourseAdminPortalContainer: React.FC = () => {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
-  const queryClient = useQueryClient();
-  
+
   // Navigation state
   // const [selectedTab, setSelectedTab] = useState(0);
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
@@ -66,11 +64,11 @@ const CourseAdminPortalContainer: React.FC = () => {
   }, [navigate, handleMenuClose]);
 
   // Data fetching with React Query (placeholder for future implementation)
-  const { data: dashboardData, isLoading: dashboardLoading } = useQuery({
+  const { isLoading: dashboardLoading } = useQuery({
     queryKey: ['course-admin-dashboard'],
     queryFn: async () => {
       // Placeholder - implement actual dashboard data fetching
-      return { stats: {} as any, recentActivity: [] as any[] };
+      return { stats: {} as Record<string, unknown>, recentActivity: [] as unknown[] };
     },
     enabled: !!user,
   });
