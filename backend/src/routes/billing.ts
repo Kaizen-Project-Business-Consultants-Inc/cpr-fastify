@@ -45,9 +45,14 @@ const paymentSchema = z.object({
   notes: z.string().max(1000).optional(),
 });
 
-function handleError(err: unknown, reply: FastifyReply) {
+function handleError(err: unknown, reply: FastifyReply, request?: import('fastify').FastifyRequest) {
   if (err instanceof BillingError) return reply.status(err.statusCode).send({ error: err.message });
-  throw err;
+  // Anything else (e.g. a bad column in a query) fell through to Fastify's
+  // generic handler and came back as "An unexpected error occurred" — log
+  // and surface the real message instead.
+  const { statusCode, message } = httpError(err);
+  request?.log.error({ err }, 'billing route error');
+  return reply.status(statusCode).send({ error: message });
 }
 
 // --- Routes ---
@@ -77,7 +82,7 @@ export async function billingRoutes(app: FastifyInstance) {
     try {
       const pricing = await service.upsertPricing(organizationId, courseTypeId, pricePerStudent);
       return { success: true, message: 'Pricing saved', data: pricing };
-    } catch (err) { return handleError(err, reply); }
+    } catch (err) { return handleError(err, reply, request); }
   });
 
   app.put('/course-pricing/:id', { preHandler: acctRole }, async (request, reply) => {
@@ -86,7 +91,7 @@ export async function billingRoutes(app: FastifyInstance) {
     try {
       const pricing = await service.updatePricing(parseInt(id), pricePerStudent);
       return { success: true, data: pricing };
-    } catch (err) { return handleError(err, reply); }
+    } catch (err) { return handleError(err, reply, request); }
   });
 
   app.delete('/course-pricing/:id', { preHandler: acctRole }, async (request, reply) => {
@@ -94,7 +99,7 @@ export async function billingRoutes(app: FastifyInstance) {
     try {
       await service.deletePricing(parseInt(id));
       return { success: true, message: 'Pricing deleted' };
-    } catch (err) { return handleError(err, reply); }
+    } catch (err) { return handleError(err, reply, request); }
   });
 
   // ===== Billing queue =====
@@ -108,7 +113,7 @@ export async function billingRoutes(app: FastifyInstance) {
     try {
       const invoice = await service.createInvoice(courseId);
       return { success: true, message: 'Invoice created — pending approval', data: invoice };
-    } catch (err) { return handleError(err, reply); }
+    } catch (err) { return handleError(err, reply, request); }
   });
 
   app.get('/invoices', { preHandler: acctRole }, async (request) => {
@@ -158,7 +163,7 @@ export async function billingRoutes(app: FastifyInstance) {
     const { id } = request.params as { id: string };
     try {
       return { success: true, data: await service.getInvoiceById(parseInt(id)) };
-    } catch (err) { return handleError(err, reply); }
+    } catch (err) { return handleError(err, reply, request); }
   });
 
   // ===== Approval workflow =====
@@ -170,7 +175,7 @@ export async function billingRoutes(app: FastifyInstance) {
         ? await service.approve(parseInt(id), request.userId)
         : await service.reject(parseInt(id), notes ?? '', request.userId);
       return { success: true, message: `Invoice ${approvalStatus}`, data: invoice };
-    } catch (err) { return handleError(err, reply); }
+    } catch (err) { return handleError(err, reply, request); }
   });
 
   app.put('/invoices/:id/resubmit', { preHandler: acctRole }, async (request, reply) => {
@@ -178,7 +183,7 @@ export async function billingRoutes(app: FastifyInstance) {
     try {
       const invoice = await service.resubmit(parseInt(id));
       return { success: true, message: 'Invoice resubmitted for approval', data: invoice };
-    } catch (err) { return handleError(err, reply); }
+    } catch (err) { return handleError(err, reply, request); }
   });
 
   app.put('/invoices/:id/fix-calculations', { preHandler: acctRole }, async (request, reply) => {
@@ -186,7 +191,7 @@ export async function billingRoutes(app: FastifyInstance) {
     try {
       const result = await service.fixCalculations(parseInt(id));
       return { success: true, message: 'Calculations fixed', data: result };
-    } catch (err) { return handleError(err, reply); }
+    } catch (err) { return handleError(err, reply, request); }
   });
 
   app.put('/invoices/:id/post-to-org', { preHandler: acctRole }, async (request, reply) => {
@@ -194,7 +199,7 @@ export async function billingRoutes(app: FastifyInstance) {
     try {
       const invoice = await service.postToOrg(parseInt(id), request.userId);
       return { success: true, message: 'Invoice posted to organization', data: invoice };
-    } catch (err) { return handleError(err, reply); }
+    } catch (err) { return handleError(err, reply, request); }
   });
 
   // ===== Payments =====
@@ -209,7 +214,7 @@ export async function billingRoutes(app: FastifyInstance) {
     try {
       const payment = await service.recordPayment(parseInt(id), amount, paymentMethod, reference, { paymentDate, notes });
       return { success: true, message: 'Payment recorded', data: payment };
-    } catch (err) { return handleError(err, reply); }
+    } catch (err) { return handleError(err, reply, request); }
   });
 
   // ===== Organizations list (for pricing dropdowns) =====
