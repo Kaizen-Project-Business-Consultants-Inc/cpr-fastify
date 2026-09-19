@@ -327,6 +327,19 @@ const migrations: Migration[] = [
       await addIndexIfMissing(pool, 'course_students', 'idx_cs_deleted_at', ['deleted_at']);
     },
   },
+  {
+    version: 20,
+    name: 'payroll_payments_notes_and_timesheets_course_details',
+    // Two more columns the code always assumed existed but never actually
+    // did — found live tonight once POST /payroll/payments and POST
+    // /timesheet got real error surfacing instead of a swallowed 500.
+    // Creating a payroll payment and submitting a timesheet have likely
+    // never worked, for anyone, since either route was written.
+    up: async (pool: Pool) => {
+      await addColumnIfMissing(pool, 'payroll_payments', 'notes', 'TEXT DEFAULT NULL');
+      await addColumnIfMissing(pool, 'timesheets', 'course_details', 'JSON DEFAULT NULL');
+    },
+  },
 ];
 
 const MIGRATION_LOCK = 'cpr_migrations';
