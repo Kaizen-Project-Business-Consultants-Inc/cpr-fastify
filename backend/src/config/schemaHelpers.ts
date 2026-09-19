@@ -71,6 +71,13 @@ export async function addIndexIfMissing(
   return true;
 }
 
+/** The inverse of addIndexIfMissing — safe to re-run, no-ops if already gone. */
+export async function dropIndexIfExists(pool: Pool, table: string, index: string): Promise<boolean> {
+  if (!(await indexExists(pool, table, index))) return false;
+  await pool.query(`ALTER TABLE \`${table}\` DROP INDEX \`${index}\``);
+  return true;
+}
+
 export async function addForeignKeyIfMissing(
   pool: Pool,
   table: string,

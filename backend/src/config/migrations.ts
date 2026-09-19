@@ -1,7 +1,7 @@
 import { Pool, RowDataPacket, ResultSetHeader } from 'mysql2/promise';
 import { getPool } from './database.js';
 import { logger } from './logger.js';
-import { addColumnIfMissing, addIndexIfMissing, addForeignKeyIfMissing, tableExists } from './schemaHelpers.js';
+import { addColumnIfMissing, addIndexIfMissing, addForeignKeyIfMissing, dropIndexIfExists, tableExists } from './schemaHelpers.js';
 
 interface Migration {
   version: number;
@@ -357,6 +357,25 @@ const migrations: Migration[] = [
       // in the same file and cheap/safe to guard now rather than find it
       // the same way as the others, one deploy at a time.
       await addColumnIfMissing(pool, 'timesheets', 'hr_comment', 'TEXT DEFAULT NULL');
+    },
+  },
+  {
+    version: 22,
+    name: 'drop_broken_instructor_pay_rate_unique',
+    // uq_instructor_active is UNIQUE(instructor_id, is_active) — not what
+    // it sounds like. Its intent was clearly "one active rate per
+    // instructor", but MariaDB has no partial/filtered unique index, so as
+    // written it also caps every instructor at exactly one *inactive*
+    // (historical) rate row ever. The route already deactivates the old
+    // active row and inserts a fresh one in the same transaction, which is
+    // the correct way to enforce "one active rate" — so this constraint
+    // was never protecting anything real, only breaking every second rate
+    // change for the same instructor with 'Duplicate entry ... for key
+    // uq_instructor_active'. Confirmed live: instructor 4's second rate
+    // change failed this way tonight. Dropping it; the app-level logic is
+    // what actually keeps this correct.
+    up: async (pool: Pool) => {
+      await dropIndexIfExists(pool, 'instructor_pay_rates', 'uq_instructor_active');
     },
   },
 ];
