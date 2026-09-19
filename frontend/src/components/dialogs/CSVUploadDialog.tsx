@@ -14,6 +14,7 @@ import { CloudUpload as UploadIcon } from '@mui/icons-material';
 import { parseCSV, ParsedCSVResult } from '../../utils/csvParser';
 import { organizationApi } from '../../services/api';
 import { tokenService } from '../../services/tokenService';
+import { useSnackbar } from '../../contexts/SnackbarContext';
 
 interface UploadResult {
   fileName: string;
@@ -45,6 +46,7 @@ const CSVUploadDialog: React.FC<CSVUploadDialogProps> = ({
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [parseResult, setParseResult] = useState<ParsedCSVResult | null>(null);
+  const { showSuccess } = useSnackbar();
 
   const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -105,14 +107,19 @@ const CSVUploadDialog: React.FC<CSVUploadDialogProps> = ({
 
       // Send to backend
       const response = await organizationApi.uploadStudents(courseRequestId!, parsed.students);
-      
-      const result = { 
-        fileName: selectedFile.name, 
+
+      const result = {
+        fileName: selectedFile.name,
         content: text,
         parsed: parsed,
         response: response
       };
-      
+
+      // The dialog used to just close on success with no feedback at all —
+      // a successful upload looked identical to nothing happening.
+      showSuccess(
+        `${parsed.students.length} student${parsed.students.length === 1 ? '' : 's'} uploaded successfully.`
+      );
       onUploadSuccess?.(result);
       onClose();
     } catch (err: unknown) {
