@@ -378,6 +378,18 @@ const migrations: Migration[] = [
       await dropIndexIfExists(pool, 'instructor_pay_rates', 'uq_instructor_active');
     },
   },
+  {
+    version: 23,
+    name: 'invoices_rejection_reason',
+    // Confirmed live: PUT /accounting/invoices/:id/approval (reject) has
+    // always thrown "Unknown column 'rejection_reason' in 'SET'" — invoices
+    // have rejected_by/rejected_at but never got the reason column the
+    // reject route and the Rejected Invoices screen both assume exists.
+    // Rejecting an invoice has never worked.
+    up: async (pool: Pool) => {
+      await addColumnIfMissing(pool, 'invoices', 'rejection_reason', 'TEXT DEFAULT NULL');
+    },
+  },
 ];
 
 const MIGRATION_LOCK = 'cpr_migrations';
