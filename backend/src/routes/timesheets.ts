@@ -324,6 +324,7 @@ export async function timesheetRoutes(app: FastifyInstance) {
   app.post('/:timesheetId/notes', { preHandler: [requireAuth] }, async (request, reply) => {
     const { timesheetId } = request.params as { timesheetId: string };
     const { note_text, note_type } = addNoteSchema.parse(request.body);
+    try {
 
     // Check role matches note type
     if (note_type === 'instructor' && request.userRole !== 'instructor') return reply.status(403).send({ error: 'Only instructors can add instructor notes' });
@@ -351,6 +352,11 @@ export async function timesheetRoutes(app: FastifyInstance) {
       [result.insertId]
     );
     return { success: true, message: 'Note added successfully.', data: rows[0] };
+    } catch (err) {
+      const { statusCode, message } = httpError(err);
+      request.log.error({ err }, 'Failed to add timesheet note');
+      return reply.status(statusCode).send({ error: message });
+    }
   });
 
   app.delete('/:timesheetId/notes/:noteId', { preHandler: [requireAuth] }, async (request, reply) => {

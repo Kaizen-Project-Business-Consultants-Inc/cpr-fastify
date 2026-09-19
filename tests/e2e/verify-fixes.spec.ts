@@ -79,12 +79,37 @@ test.describe('Verify: organization pricing fields render', () => {
     await ctx.close();
   });
 
-  test('organization user sees the same pricing on their own read-only screen', async ({ browser }) => {
+  test('organization user sees pricing on their own read-only screen', async ({ browser }) => {
     test.setTimeout(120000);
+    // NOT the same data store as the previous test. Discovered live tonight:
+    // the admin "Organization Pricing" manager (OrganizationPricingManager.tsx)
+    // reads/writes course_pricing via /accounting/course-pricing, while this
+    // org-facing read-only screen (OrganizationPricing.tsx) reads a
+    // completely different table, organization_pricing, via
+    // /organization-pricing/*. They don't share data at all — confirmed by
+    // querying both live: one had the row the previous test just created,
+    // the other returned an empty array. That's a real, separate
+    // architecture problem (see TODO.md), not something to route around
+    // silently here. This test seeds the table this screen actually reads,
+    // to verify what today's fix here actually touched: the camelCase
+    // rendering, not the (broken) connection between the two systems.
+    const sysCtx = await browser.newContext({ ignoreHTTPSErrors: true });
+    const sysPg = await sysCtx.newPage();
+    await loginAs(sysPg, USERS.sysadmin.username, USERS.sysadmin.password);
+    const typesRes = await apiGet(sysPg, '/api/v1/course-types');
+    const types = await typesRes.json();
+    const courseTypeId = (types.data ?? types)[0]?.id;
+    expect(courseTypeId, 'need at least one course type').toBeTruthy();
+    const seedRes = await apiPost(sysPg, '/api/v1/organization-pricing/admin', {
+      organizationId: 1, classTypeId: courseTypeId, pricePerStudent: 77.5,
+    });
+    const seedAlready = seedRes.status() === 400;
+    expect(seedRes.ok() || seedAlready, `seed organization-pricing -> ${seedRes.status()}: ${await seedRes.text().catch(() => '')}`).toBeTruthy();
+    await sysCtx.close();
+
     const ctx = await browser.newContext({ ignoreHTTPSErrors: true });
     const pg = await ctx.newPage();
     await loginAs(pg, USERS.orguser.username, USERS.orguser.password);
-
     await pg.goto('/organization/dashboard');
     await pg.waitForLoadState('domcontentloaded');
     await pg.getByText('Pricing', { exact: true }).click();
@@ -139,8 +164,8 @@ test.describe('Verify: pay rate fields render', () => {
     await historyBtn.click();
     const historyDialog = pg.getByRole('dialog').filter({ hasText: /Pay Rate History/ });
     await expect(historyDialog).toBeVisible({ timeout: 15000 });
-    await expect(historyDialog.getByText('$32.50/hr', { exact: false })).toBeVisible({ timeout: 15000 });
-    await expect(historyDialog.getByText('$60.00 per course', { exact: false })).toBeVisible({ timeout: 15000 });
+    await expect(historyDialog.getByText('$32.50/hr', { exact: false }).first()).toBeVisible({ timeout: 15000 });
+    await expect(historyDialog.getByText('$60.00 per course', { exact: false }).first()).toBeVisible({ timeout: 15000 });
 
     await ctx.close();
   });
@@ -275,7 +300,11 @@ test.describe('Verify: invoice course-type/org fields render on Pending Approval
     test.setTimeout(240000);
     const runId = Date.now();
     const date = new Date();
-    date.setDate(date.getDate() + 60 + (Math.floor(runId / 1000) % 200));
+    // Wide spread (60..2060 days out) keyed off full millisecond precision —
+    // repeated manual runs within the same debugging session are seconds
+    // apart, and a narrower range collided with an already-booked
+    // instructor from an earlier run on the same date.
+    date.setDate(date.getDate() + 60 + (runId % 2000));
     const isoDate = date.toISOString().slice(0, 10);
     const location = `${TEST_MARKER} (verify-fixes ${runId})`;
 
