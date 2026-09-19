@@ -124,9 +124,13 @@ function OrganizationPricingDialog({
     setSubmitError('');
 
     try {
+      // POST /accounting/course-pricing (createCoursePricing) requires
+      // courseTypeId — sending classTypeId (this form's own field name)
+      // always 400'd with "courseTypeId: Required", so Create Pricing has
+      // never worked through this screen.
       const submitData = {
         organizationId: parseInt(formData.organizationId, 10),
-        classTypeId: parseInt(formData.classTypeId, 10),
+        courseTypeId: parseInt(formData.classTypeId, 10),
         pricePerStudent: parseFloat(formData.pricePerStudent),
         isActive: formData.isActive,
       };
