@@ -5,7 +5,7 @@ _Generated from the route table by `npm run docs:api` (backend/scripts/generate-
 Base URL: `/api/v1` (except the two root-level health/metrics endpoints).
 Auth: send the access token as `Authorization: Bearer <token>`. Role guards are enforced per route (`requireRole`); see the route file for the exact roles.
 
-**266 endpoints across 29 groups.**
+**267 endpoints across 29 groups.**
 
 ## Accounting
 
@@ -141,6 +141,7 @@ Course requests — org submission, admin scheduling, instructor assignment
 | GET | `/courses/confirmed` | Bearer |  |
 | GET | `/courses/org/students/{courseId}` | Bearer |  |
 | POST | `/courses/org/students/{courseId}` | Bearer |  |
+| DELETE | `/courses/org/students/{courseId}/{courseStudentId}` | Bearer |  |
 | GET | `/courses/pending` | Bearer |  |
 | POST | `/courses/request` | Bearer |  |
 
