@@ -139,7 +139,20 @@ class PayRateService {
   }
 
   async setInstructorRate(instructorId: number, rate: InstructorPayRateForm): Promise<InstructorPayRate> {
-    const response = await api.post(`/pay-rates/instructors/${instructorId}`, rate);
+    // POST /pay-rates/instructors/:id requires snake_case
+    // (hourly_rate/course_bonus/tier_id/effective_date/change_reason) —
+    // this form's own fields are camelCase and were sent as-is, so every
+    // required field came through as undefined and the request always
+    // 400'd. Setting an instructor's pay rate has never worked through
+    // this screen.
+    const response = await api.post(`/pay-rates/instructors/${instructorId}`, {
+      hourly_rate: rate.hourlyRate,
+      course_bonus: rate.courseBonus,
+      tier_id: rate.tierId,
+      effective_date: rate.effectiveDate,
+      notes: rate.notes,
+      change_reason: rate.changeReason,
+    });
     return response.data.data;
   }
 

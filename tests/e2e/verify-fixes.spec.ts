@@ -43,15 +43,17 @@ test.describe('Verify: organization pricing fields render', () => {
 
     // These two Selects have no associated <label> at all — "Organization"/
     // "Class Type" are just the closed control's own placeholder-style
-    // display text, not a real accessible label — so getByLabel matches
-    // nothing. Click the visible text directly instead.
-    await dialog.getByText('Organization', { exact: true }).click();
+    // display text (appearing twice: once as the floating label, once as
+    // the display span), not a real accessible label — getByLabel matches
+    // nothing and getByText is ambiguous. Target by role instead: the
+    // first two comboboxes in this dialog are Organization then Class Type.
+    await dialog.getByRole('combobox').nth(0).click();
     const orgOption = pg.getByRole('option').first();
     await expect(orgOption).toBeVisible({ timeout: 10000 });
     const orgName = (await orgOption.innerText()).trim();
     await orgOption.click();
 
-    await dialog.getByText('Class Type', { exact: true }).click();
+    await dialog.getByRole('combobox').nth(1).click();
     const classOption = pg.getByRole('option').first();
     await expect(classOption).toBeVisible({ timeout: 10000 });
     const className = (await classOption.innerText()).trim();
@@ -246,7 +248,11 @@ test.describe('Verify: timesheet fields render', () => {
       // Anchored both ends (allowing an optional trailing " *") so this
       // doesn't also match the "Note Type" select in the same dialog.
       await noteDialog.getByLabel(/^Note\s*\*?$/).fill(TEST_MARKER);
-      await noteDialog.getByRole('button', { name: 'Add Note' }).click();
+      const [noteResponse] = await Promise.all([
+        hrPg.waitForResponse((r) => r.url().includes('/notes') && r.request().method() === 'POST', { timeout: 20000 }),
+        noteDialog.getByRole('button', { name: 'Add Note' }).click(),
+      ]);
+      expect(noteResponse.ok(), `add note -> ${noteResponse.status()}`).toBeTruthy();
       await expect(detailDialog.getByText(TEST_MARKER, { exact: false }).first()).toBeVisible({ timeout: 15000 });
       await expect(detailDialog.getByText('hruser', { exact: false }).first()).toBeVisible({ timeout: 15000 });
     }
@@ -289,7 +295,7 @@ test.describe('Verify: invoice course-type/org fields render on Pending Approval
     const courseTypeName: string = (types.data ?? types)[0]?.name;
 
     const reqRes = await apiPost(orgPg, '/api/v1/organization/course-request', {
-      courseTypeId, scheduledDate: isoDate, location, registeredStudents: 0, notes: TEST_MARKER,
+      courseTypeId, scheduledDate: isoDate, location, registeredStudents: 1, notes: TEST_MARKER,
     });
     expect(reqRes.ok(), `course-request -> ${reqRes.status()}: ${await reqRes.text().catch(() => '')}`).toBeTruthy();
     const reqBody = await reqRes.json();
@@ -309,15 +315,42 @@ test.describe('Verify: invoice course-type/org fields render on Pending Approval
     });
     expect(assignRes.ok(), `assign-instructor -> ${assignRes.status()}`).toBeTruthy();
 
-    // 4. Instructor completes the class (0 registered students — nothing to mark).
+    // 4. Billing readiness requires pricing configured and at least one
+    // attended student — add one and mark them present, and make sure
+    // pricing exists for this org+course type (accountant role).
+    const studentRes = await apiPost(instrPg, `/api/v1/instructor/classes/${courseId}/students`, {
+      firstName: 'E2E', lastName: 'TestStudent', email: `e2e-${runId}@example.com`, phone: '4165551234',
+    });
+    expect(studentRes.ok(), `add student -> ${studentRes.status()}: ${await studentRes.text().catch(() => '')}`).toBeTruthy();
+    const studentBody = await studentRes.json();
+    const studentId = studentBody.data?.id ?? studentBody.student?.id ?? studentBody.id;
+    expect(studentId, 'need the created student id').toBeTruthy();
+    const attendRes = await apiPut(instrPg, `/api/v1/instructor/classes/${courseId}/students/${studentId}/attendance`, {
+      attended: true,
+    });
+    expect(attendRes.ok(), `mark attendance -> ${attendRes.status()}`).toBeTruthy();
+
+    const acctSetupCtx = await browser.newContext({ ignoreHTTPSErrors: true });
+    const acctSetupPg = await acctSetupCtx.newPage();
+    await loginAs(acctSetupPg, USERS.accountant.username, USERS.accountant.password);
+    const pricingRes = await apiPost(acctSetupPg, '/api/v1/accounting/course-pricing', {
+      organizationId: 1, courseTypeId, pricePerStudent: 50, isActive: true,
+    });
+    // A prior run may have already priced this org+course-type combo —
+    // that's fine, pricing existing at all is what billing readiness needs.
+    const pricingAlready = pricingRes.status() === 400 || pricingRes.status() === 409;
+    expect(pricingRes.ok() || pricingAlready, `course-pricing -> ${pricingRes.status()}: ${await pricingRes.text().catch(() => '')}`).toBeTruthy();
+    await acctSetupCtx.close();
+
+    // 5. Instructor completes the class.
     const completeRes = await apiPost(instrPg, `/api/v1/instructor/classes/${courseId}/complete`, {
       instructor_comments: TEST_MARKER,
     });
     expect(completeRes.ok(), `complete -> ${completeRes.status()}: ${await completeRes.text().catch(() => '')}`).toBeTruthy();
 
-    // 5. Admin marks it ready for billing.
+    // 6. Admin marks it ready for billing.
     const readyRes = await apiPut(adminPg, `/api/v1/courses/${courseId}/ready-for-billing`, {});
-    expect(readyRes.ok(), `ready-for-billing -> ${readyRes.status()}`).toBeTruthy();
+    expect(readyRes.ok(), `ready-for-billing -> ${readyRes.status()}: ${await readyRes.text().catch(() => '')}`).toBeTruthy();
 
     // 6. Accountant creates the invoice (now "pending approval").
     const acctCtx = await browser.newContext({ ignoreHTTPSErrors: true });
