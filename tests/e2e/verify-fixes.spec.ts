@@ -390,18 +390,25 @@ test.describe('Verify: invoice course-type/org fields render on Pending Approval
     await loginAs(acctPg, USERS.accountant.username, USERS.accountant.password);
     const invRes = await apiPost(acctPg, '/api/v1/accounting/invoices', { courseId });
     expect(invRes.ok(), `create invoice -> ${invRes.status()}: ${await invRes.text().catch(() => '')}`).toBeTruthy();
+    const invBody = await invRes.json();
+    const invoiceNumber: string = invBody.data?.invoice_number ?? invBody.data?.invoiceNumber;
+    expect(invoiceNumber, 'need the created invoice number').toBeTruthy();
 
     // --- Verification starts here: real UI, real screens. ---
+    // (Pending Approvals / Rejected Invoices show Invoice #/Organization/
+    // Course/Date/Amount — no location column — so the invoice number is
+    // what identifies our row here, not the TEST_MARKER location used to
+    // find the *course* earlier in this test.)
 
     // Pending Approvals: confirm the course-type join fix — this column was
     // blank before regardless of the row even existing.
     await acctPg.goto('/accounting/pending-approvals');
     await acctPg.waitForLoadState('domcontentloaded');
-    await expect(acctPg.getByText(location, { exact: false }).first(), 'our invoice should be listed').toBeVisible({ timeout: 30000 });
+    await expect(acctPg.getByText(invoiceNumber, { exact: false }).first(), 'our invoice should be listed').toBeVisible({ timeout: 30000 });
     await expect(acctPg.getByText(courseTypeName, { exact: false }).first(), 'course type should render, not blank').toBeVisible({ timeout: 15000 });
 
     // Reject it through the real dialog.
-    const row = acctPg.getByText(location, { exact: false }).first();
+    const row = acctPg.getByText(invoiceNumber, { exact: false }).first();
     const rowContainer = row.locator('xpath=ancestor::*[.//button[normalize-space(text())="Review"] or .//*[normalize-space(text())="Review"]][1]');
     await rowContainer.getByText('Review', { exact: true }).click();
     const invoiceDialog = acctPg.getByRole('dialog');
@@ -417,7 +424,7 @@ test.describe('Verify: invoice course-type/org fields render on Pending Approval
     // Rejected Invoices: confirm every field the earlier fix targeted.
     await acctPg.goto('/accounting/rejected-invoices');
     await acctPg.waitForLoadState('domcontentloaded');
-    await expect(acctPg.getByText(location, { exact: false }).first(), 'rejected invoice should be listed').toBeVisible({ timeout: 30000 });
+    await expect(acctPg.getByText(invoiceNumber, { exact: false }).first(), 'rejected invoice should be listed').toBeVisible({ timeout: 30000 });
     await expect(acctPg.getByText(courseTypeName, { exact: false }).first(), 'courseTypeName should render').toBeVisible({ timeout: 15000 });
     await expect(acctPg.getByText(TEST_MARKER, { exact: false }).first(), 'rejectionReason should render').toBeVisible({ timeout: 15000 });
     await expect(acctPg.getByText(/\$\d+\.\d{2}/).first(), 'baseCost+taxAmount should render as a real dollar figure, not blank').toBeVisible({ timeout: 15000 });

@@ -312,7 +312,7 @@ export async function timesheetRoutes(app: FastifyInstance) {
               u.email as added_by_email, u.email as addedByEmail,
               tn.user_id as userId, tn.timesheet_id as timesheetId,
               tn.user_role as userRole, tn.note_text as noteText, tn.note_type as noteType,
-              tn.created_at as createdAt, tn.updated_at as updatedAt
+              tn.created_at as createdAt
        ${fromClause} ORDER BY tn.created_at ASC`,
       `SELECT COUNT(*) as count ${fromClause}`,
       params,
@@ -347,7 +347,7 @@ export async function timesheetRoutes(app: FastifyInstance) {
               u.email as added_by_email, u.email as addedByEmail,
               tn.user_id as userId, tn.timesheet_id as timesheetId,
               tn.user_role as userRole, tn.note_text as noteText, tn.note_type as noteType,
-              tn.created_at as createdAt, tn.updated_at as updatedAt
+              tn.created_at as createdAt
        FROM timesheet_notes tn JOIN users u ON tn.user_id = u.id WHERE tn.id = ?`,
       [result.insertId]
     );
