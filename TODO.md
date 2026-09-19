@@ -25,20 +25,43 @@ Legend: 🔴 before taking paying customers · 🟡 soon · 🟢 when convenient
 
 The audit's engineering-debt list was cleared on 2026-09-18. What is left:
 
-- [ ] **Audit every remaining raw `table.*` SELECT for the same snake_case/camelCase gap.**
-  Four confirmed, previously-undiscovered bugs today (pending/confirmed course lists, the
-  vendor invoice list on all three roles' screens, and the org's own "My Courses" list —
-  see the bug log below) were all the same root cause: a query does `SELECT t.*, ...` with
-  only snake_case aliases, while the frontend reads the camelCase property and silently
-  gets `undefined`. A repo-wide grep for `SELECT \w+\.\*,` turns up roughly 30 more
-  instances not yet checked, including `InvoiceRepository.ts`, `CoursePricingRepository.ts`,
-  `ProfileChangeRepository.ts`, `organization-pricing.ts`, `pay-rates.ts`, `payroll.ts`,
-  `students.ts`, `timesheets.ts`, `misc.ts`, and `admin.ts`. Each needs the same treatment
-  as `CourseRequestRepository.LIST_COLS` / `VI_CAMEL_COLS` in `vendor-admin.ts`: check what
-  the corresponding frontend component actually reads, then alias every gap. This is worth
-  a dedicated pass, not a quick pattern-match — some of these fields may already be read in
-  snake_case by an older component, so blindly adding aliases everywhere risks masking a
-  *different* bug (the frontend reading the wrong thing) instead of fixing this one.
+- [x] **Repo-wide snake_case/camelCase audit (2026-09-18/19).** Four bugs found the same day
+  (pending/confirmed course lists, the vendor invoice list on all three roles' screens, and
+  the org's own "My Courses" list — see the bug log below) shared one root cause: a query
+  doing `SELECT t.*, ...` with only snake_case aliases, silently leaving the camelCase
+  property the frontend reads as `undefined`. Rather than pattern-match a fix everywhere,
+  four parallel audits checked every one of the ~30 remaining raw `table.*` queries in the
+  backend against what its actual frontend consumer reads, to avoid masking a *different*
+  bug by blindly aliasing fields nothing uses. Result: 9 more confirmed live bugs fixed —
+  `organization-pricing.ts` (all 4 endpoints), `CoursePricingRepository`, `pay-rates.ts`
+  (instructor list + rate history), `payroll.ts`, `timesheets.ts` (list, detail, approve,
+  notes), and `InvoiceRepository.findRejected`. One adjacent bug fixed in passing:
+  `findPendingApproval` never joined to get the course type at all (a missing JOIN, not a
+  casing issue) — the Pending Approvals screen's course-type column was blank regardless.
+  `ProfileChangeRepository`'s three queries were fixed too but are currently unreachable —
+  `HRDashboard.tsx` calls a `/hr-dashboard/*` path that doesn't exist (a separate,
+  pre-existing routing bug, not fixed here; see below).
+  Confirmed **not** bugs, left alone: `billing.ts`/`org-billing.ts`'s invoice PDF/preview
+  and payment verify/reverse endpoints (feed a PDF generator or a hand-built JSON body,
+  never a raw row); the rest of `InvoiceRepository.findPendingApproval`'s fields (frontend
+  reads snake_case there on purpose, per its own code comment); `StudentRepository` +
+  `admin.ts` `/sysadmin/students` (same, snake-case-first component);
+  `CourseRequestRepository.findWithBillingDetails` (service already maps to camelCase
+  before returning).
+- [ ] **`HRDashboard.tsx` calls `/hr-dashboard/stats`, which doesn't exist** — only
+  `/hr/dashboard` is registered. Found while auditing `ProfileChangeRepository` above; the
+  dashboard has likely been 404ing since it was written. There's a second, unused
+  `hrService.ts` whose `getDashboard()` correctly points at `/hr/dashboard`, but nothing
+  calls it either — worth checking which of the two services the dashboard should actually
+  use before just repointing the URL.
+- [ ] **Two dead-code endpoints found in the same audit, no frontend caller at all:**
+  `GET /student/upcoming-classes` and `/student/completed-classes` (students.ts), and
+  `GET /classes` (misc.ts, superseded by `/courses/pending`/`/confirmed`/`/completed`).
+  Confirm whether to wire them up or remove them.
+- [ ] **`InstructorManagement.tsx` reads `validationData.validationErrors`** from
+  `GET /courses/:id/validate-billing`, but the backend DTO field is named `errors` — found
+  while auditing `CourseRequestRepository.findWithBillingDetails` above. The bulleted error
+  list in the "can't mark ready for billing" confirm dialog is always empty.
 - [ ] **E2E flakiness on the shared host**: a dashboard check occasionally needs a retry;
   consider extra `retries` scoped to the "dashboard loads" tests only. Test timeouts were
   raised to 20s in both packages after 5s proved too tight under load.
