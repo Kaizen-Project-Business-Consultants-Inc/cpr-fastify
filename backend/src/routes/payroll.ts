@@ -2,6 +2,7 @@ import { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { getPool } from '../config/database.js';
 import { requireRole } from '../plugins/auth.js';
+import { httpError } from '../utils/httpError.js';
 import type { RowDataPacket, ResultSetHeader } from 'mysql2/promise';
 
 const createPaymentSchema = z.object({
@@ -159,6 +160,7 @@ export async function payrollRoutes(app: FastifyInstance) {
   // ===== Create payment =====
   app.post('/payments', { preHandler: hrRole }, async (request, reply) => {
     const data = createPaymentSchema.parse(request.body);
+    try {
     const [instrCheck] = await pool.query<RowDataPacket[]>(
       "SELECT id FROM users WHERE id = ? AND role = 'instructor'", [data.instructor_id]
     );
@@ -171,6 +173,11 @@ export async function payrollRoutes(app: FastifyInstance) {
     );
     const [rows] = await pool.query<RowDataPacket[]>('SELECT * FROM payroll_payments WHERE id = ?', [result.insertId]);
     return { success: true, message: 'Payment created successfully.', data: rows[0] };
+    } catch (err) {
+      const { statusCode, message } = httpError(err);
+      request.log.error({ err }, 'Failed to create payroll payment');
+      return reply.status(statusCode).send({ error: message });
+    }
   });
 
   // ===== Process payment =====

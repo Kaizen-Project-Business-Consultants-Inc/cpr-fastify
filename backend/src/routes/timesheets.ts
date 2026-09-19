@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { getPool } from '../config/database.js';
 import { requireAuth, requireRole } from '../plugins/auth.js';
 import { maybePaginate, paginatedResponse } from '../utils/pagination.js';
+import { httpError } from '../utils/httpError.js';
 import type { RowDataPacket, ResultSetHeader } from 'mysql2/promise';
 
 const submitTimesheetSchema = z.object({
@@ -126,6 +127,7 @@ export async function timesheetRoutes(app: FastifyInstance) {
   // ===== Submit timesheet (instructor) =====
   app.post('/', { preHandler: [requireRole('instructor')] }, async (request, reply) => {
     const data = submitTimesheetSchema.parse(request.body);
+    try {
 
     // Validate Monday
     const [y, m, d] = data.weekStartDate.split('-').map(Number);
@@ -175,6 +177,11 @@ export async function timesheetRoutes(app: FastifyInstance) {
       message: data.isLate ? 'Late timesheet submitted successfully. HR will review.' : 'Timesheet submitted successfully.',
       data: { ...rows[0], course_details: courses },
     };
+    } catch (err) {
+      const { statusCode, message } = httpError(err);
+      request.log.error({ err }, 'Failed to submit timesheet');
+      return reply.status(statusCode).send({ error: message });
+    }
   });
 
   // ===== Update timesheet (instructor) =====
