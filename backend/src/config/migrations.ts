@@ -314,6 +314,19 @@ const migrations: Migration[] = [
       await addColumnIfMissing(pool, 'organization_locations', 'is_active', 'TINYINT(1) NOT NULL DEFAULT 1');
     },
   },
+  {
+    version: 19,
+    name: 'course_students_deleted_at',
+    // Needed so an org user can remove a student they mistakenly added (e.g.
+    // a duplicate CSV upload) without a hard DELETE. course_students never
+    // had this column — a raw query elsewhere in the app already assumed it
+    // did (instructor-admin.ts's students_attended subquery), which was
+    // itself a latent bug this makes correct.
+    up: async (pool: Pool) => {
+      await addColumnIfMissing(pool, 'course_students', 'deleted_at', 'DATETIME DEFAULT NULL');
+      await addIndexIfMissing(pool, 'course_students', 'idx_cs_deleted_at', ['deleted_at']);
+    },
+  },
 ];
 
 const MIGRATION_LOCK = 'cpr_migrations';
