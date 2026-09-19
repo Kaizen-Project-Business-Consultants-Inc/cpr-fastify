@@ -88,10 +88,19 @@ export class OrganizationRepository extends BaseRepository<Organization> {
       dateParams.push(options.to);
     }
 
+    // The "My Courses" screen reads these in camelCase (course.registeredStudents,
+    // course.courseTypeName, ...); cr.* alone left them undefined, so REG.,
+    // course name and every date on this exact screen never actually showed —
+    // independent of whatever value is in the column, including the count
+    // CourseService now keeps in sync with the uploaded roster.
     const rows = await this.query<RowDataPacket>(
-      `SELECT cr.*, cr.date_requested as request_submitted_date,
-              ct.name as course_type_name, u.username as instructor,
-              (SELECT COUNT(*) FROM course_students cs WHERE cs.course_request_id = cr.id AND cs.attended = true) AS students_attended
+      `SELECT cr.*, cr.date_requested as request_submitted_date, cr.date_requested as requestSubmittedDate,
+              cr.scheduled_date as scheduledDate, cr.confirmed_date as confirmedDate,
+              cr.registered_students as registeredStudents,
+              ct.name as course_type_name, ct.name as courseTypeName,
+              u.username as instructor,
+              (SELECT COUNT(*) FROM course_students cs WHERE cs.course_request_id = cr.id AND cs.attended = true) AS students_attended,
+              (SELECT COUNT(*) FROM course_students cs WHERE cs.course_request_id = cr.id AND cs.attended = true) AS studentsAttended
        FROM course_requests cr
        LEFT JOIN class_types ct ON cr.course_type_id = ct.id
        LEFT JOIN users u ON cr.instructor_id = u.id

@@ -25,6 +25,20 @@ Legend: 🔴 before taking paying customers · 🟡 soon · 🟢 when convenient
 
 The audit's engineering-debt list was cleared on 2026-09-18. What is left:
 
+- [ ] **Audit every remaining raw `table.*` SELECT for the same snake_case/camelCase gap.**
+  Four confirmed, previously-undiscovered bugs today (pending/confirmed course lists, the
+  vendor invoice list on all three roles' screens, and the org's own "My Courses" list —
+  see the bug log below) were all the same root cause: a query does `SELECT t.*, ...` with
+  only snake_case aliases, while the frontend reads the camelCase property and silently
+  gets `undefined`. A repo-wide grep for `SELECT \w+\.\*,` turns up roughly 30 more
+  instances not yet checked, including `InvoiceRepository.ts`, `CoursePricingRepository.ts`,
+  `ProfileChangeRepository.ts`, `organization-pricing.ts`, `pay-rates.ts`, `payroll.ts`,
+  `students.ts`, `timesheets.ts`, `misc.ts`, and `admin.ts`. Each needs the same treatment
+  as `CourseRequestRepository.LIST_COLS` / `VI_CAMEL_COLS` in `vendor-admin.ts`: check what
+  the corresponding frontend component actually reads, then alias every gap. This is worth
+  a dedicated pass, not a quick pattern-match — some of these fields may already be read in
+  snake_case by an older component, so blindly adding aliases everywhere risks masking a
+  *different* bug (the frontend reading the wrong thing) instead of fixing this one.
 - [ ] **E2E flakiness on the shared host**: a dashboard check occasionally needs a retry;
   consider extra `retries` scoped to the "dashboard loads" tests only. Test timeouts were
   raised to 20s in both packages after 5s proved too tight under load.
@@ -63,6 +77,36 @@ removed · every native `alert()`/`window.confirm()` gone from the app · namesp
 `no-explicit-any` 0 and an error; frontend warnings 714 → 46, six rules promoted to error.
 
 ### Bugs this work uncovered and fixed
+- **The 5-day instructor-cancellation rule didn't exist server-side at all**, and the one
+  frontend UI lock suggesting it used 11 days, not 5, with no enforcement behind it —
+  restored per the intended business rule, enforced on the server. A second, independent
+  copy of the same stale 11-day check lived in `MyClassesView.tsx` and was missed on the
+  first pass. The initial fix also had its own bug: it compared distance from today
+  without checking direction, so a date months in the past was also treated as "5 days or
+  less away" and blocked from removal with a misleading message — caught live on staging
+  and fixed same day.
+- **CSV student upload always failed with "Authentication required."** It read a
+  `window.tokenService` global that nothing in the app ever set; the real token lives in
+  the `tokenService` module every other API call already uses.
+- **CSV student upload gave zero confirmation on success**, so a working upload and a
+  silently-failed one looked identical — which is what led directly to the next bug.
+- **Re-uploading a CSV (because the one above gave no confirmation) duplicated the entire
+  roster** — `addStudents` did a raw INSERT with no duplicate check at all. Now skips
+  anyone already on the course. There was also no way to remove a student from a roster
+  anywhere in the app; added `DELETE /courses/org/students/:courseId/:courseStudentId`.
+  Building that surfaced a second pre-existing bug: `course_students.deleted_at` was
+  referenced by a live query in `instructor-admin.ts` (the instructor-schedule endpoint)
+  but the column never actually existed, so that endpoint had likely been failing all
+  along; added via migration v19.
+- **"REG." on My Courses never updated after uploading the actual roster**, by design it
+  should: the org's initial estimate should start there, then track the real headcount
+  once names are uploaded. `registered_students` was set once at course-request time and
+  never written again anywhere in the backend — also the exact figure billing calculates
+  `students_billed` from, so an invoice could silently disagree with the real roster.
+  `addStudents`/the new `removeStudent` now resync it from the live roster count. Fixing
+  this also surfaced a *fourth* instance of the snake_case/camelCase bug below, in the
+  org's own course list — `registeredStudents` would have stayed blank on screen even with
+  the count correct in the database.
 - **Admin could never assign an instructor to a newly requested course.** `GET
   /courses/pending` (and confirmed/completed/cancelled, sharing the same query)
   returned `scheduled_date`, `course_type_name`, `registered_students` etc. in
