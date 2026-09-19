@@ -340,6 +340,25 @@ const migrations: Migration[] = [
       await addColumnIfMissing(pool, 'timesheets', 'course_details', 'JSON DEFAULT NULL');
     },
   },
+  {
+    version: 21,
+    name: 'timesheets_travel_prep_teaching_late',
+    // Same discovery as v20, one column at a time as each new "Unknown
+    // column" error surfaced — the whole submit-timesheet INSERT assumed
+    // columns that were never added. Confirmed timesheets.travel_time is
+    // missing; adding its neighbours from the same INSERT in one pass
+    // rather than deploying four more times to find each one individually.
+    up: async (pool: Pool) => {
+      await addColumnIfMissing(pool, 'timesheets', 'travel_time', 'DECIMAL(5,2) DEFAULT 0');
+      await addColumnIfMissing(pool, 'timesheets', 'prep_time', 'DECIMAL(5,2) DEFAULT 0');
+      await addColumnIfMissing(pool, 'timesheets', 'teaching_hours', 'DECIMAL(5,2) DEFAULT 0');
+      await addColumnIfMissing(pool, 'timesheets', 'is_late', 'TINYINT(1) NOT NULL DEFAULT 0');
+      // Not yet confirmed missing, but written by the approve/reject route
+      // in the same file and cheap/safe to guard now rather than find it
+      // the same way as the others, one deploy at a time.
+      await addColumnIfMissing(pool, 'timesheets', 'hr_comment', 'TEXT DEFAULT NULL');
+    },
+  },
 ];
 
 const MIGRATION_LOCK = 'cpr_migrations';
