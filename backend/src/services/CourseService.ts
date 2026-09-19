@@ -517,7 +517,9 @@ export class CourseService {
     const course = await this.courseRepo.forOrg(orgId).findById(courseId);
     if (!course) throw new CourseError('Course not found or not authorized', 404);
 
-    return this.studentRepo.addStudents(courseId, students, orgId);
+    const result = await this.studentRepo.addStudents(courseId, students, orgId);
+    await this.syncRegisteredCount(courseId, orgId);
+    return result;
   }
 
   async removeStudent(courseId: number, orgId: number, courseStudentId: number): Promise<void> {
@@ -527,6 +529,20 @@ export class CourseService {
 
     const removed = await this.studentRepo.removeFromCourse(courseId, courseStudentId);
     if (!removed) throw new CourseError('Student not found on this course', 404);
+    await this.syncRegisteredCount(courseId, orgId);
+  }
+
+  /**
+   * "Registered Students" (REG. on My Courses) is what the org typed in
+   * when first requesting the course — an estimate, before any names are
+   * known. Per design, once they upload (or remove) the actual roster, that
+   * figure should track the real headcount instead of staying frozen at
+   * the original guess — otherwise it silently disagrees with the roster,
+   * and it's also what invoices are calculated from (students_billed).
+   */
+  private async syncRegisteredCount(courseId: number, orgId: number): Promise<void> {
+    const roster = await this.studentRepo.findByCourse(courseId);
+    await this.courseRepo.forOrg(orgId).update(courseId, { registered_students: roster.length });
   }
 
   // --- Reminder ---
