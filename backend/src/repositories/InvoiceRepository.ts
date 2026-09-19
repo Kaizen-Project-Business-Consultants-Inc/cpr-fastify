@@ -205,11 +205,18 @@ export class InvoiceRepository extends BaseRepository<Invoice> {
   }
 
   async findPendingApproval(pg?: PaginationParams): Promise<InvoiceWithDetails[] | PaginatedResult<InvoiceWithDetails>> {
+    // PendingApprovalsView reads course_type_name (snake_case, correctly)
+    // but nothing here ever joined to get it — the column was always
+    // blank regardless of casing. Added the same course_requests/class_types
+    // join findRejected() already has.
     const dataSQL = `SELECT i.*, o.name as organization_name,
+              ct.name as course_type_name,
               COALESCE(p.total_paid, 0) as amount_paid,
               GREATEST(0, i.amount - COALESCE(p.total_paid, 0)) as balance_due
        FROM invoices i
        LEFT JOIN organizations o ON i.organization_id = o.id
+       LEFT JOIN course_requests cr ON i.course_request_id = cr.id
+       LEFT JOIN class_types ct ON cr.course_type_id = ct.id
        LEFT JOIN (SELECT invoice_id, SUM(amount) as total_paid FROM payments
                   WHERE ${VERIFIED_PAYMENT_FILTER} GROUP BY invoice_id) p ON p.invoice_id = i.id
        WHERE i.approval_status = 'pending'
@@ -227,8 +234,13 @@ export class InvoiceRepository extends BaseRepository<Invoice> {
   }
 
   async findRejected(pg?: PaginationParams): Promise<InvoiceWithDetails[] | PaginatedResult<InvoiceWithDetails>> {
-    const dataSQL = `SELECT i.*, o.name as organization_name, ct.name as course_type_name,
-              u.username as rejected_by_name
+    // RejectedInvoicesView reads these in camelCase; i.* alone left every
+    // field but `id`/`amount`/`status` undefined on this screen.
+    const dataSQL = `SELECT i.*, o.name as organization_name, o.name as organizationName,
+              ct.name as course_type_name, ct.name as courseTypeName,
+              u.username as rejected_by_name,
+              i.invoice_number as invoiceNumber, i.base_cost as baseCost, i.tax_amount as taxAmount,
+              i.rejected_at as rejectedAt, i.rejection_reason as rejectionReason
        FROM invoices i
        LEFT JOIN organizations o ON i.organization_id = o.id
        LEFT JOIN course_requests cr ON i.course_request_id = cr.id

@@ -80,10 +80,15 @@ export async function payRateRoutes(app: FastifyInstance) {
     if (has_rate === 'true') where += ' AND ipr.id IS NOT NULL';
     else if (has_rate === 'false') where += ' AND ipr.id IS NULL';
 
+    // PayRateManagement.tsx reads these in camelCase.
     const [rows] = await pool.query<RowDataPacket[]>(
       `SELECT u.id, u.username, u.email, u.phone,
-              ipr.hourly_rate, ipr.course_bonus, ipr.effective_date, ipr.is_active as rate_active,
-              prt.name as tier_name, prt.description as tier_description,
+              ipr.hourly_rate, ipr.hourly_rate as hourlyRate,
+              ipr.course_bonus, ipr.course_bonus as courseBonus,
+              ipr.effective_date, ipr.effective_date as effectiveDate,
+              ipr.is_active as rate_active,
+              prt.name as tier_name, prt.name as tierName,
+              prt.description as tier_description, prt.description as tierDescription,
               CASE WHEN ipr.id IS NOT NULL THEN 'Set' ELSE 'Not Set' END as rate_status
        FROM users u
        LEFT JOIN instructor_pay_rates ipr ON u.id = ipr.instructor_id AND ipr.is_active = true
@@ -113,9 +118,17 @@ export async function payRateRoutes(app: FastifyInstance) {
     const { instructorId } = request.params as { instructorId: string };
 
     const [[currentRate], [history], [instructor]] = await Promise.all([
+      // PayRateManagement.tsx's history dialog reads currentRate/history in
+      // camelCase; ipr.*/prh.* alone left every field but the id undefined.
       pool.query<RowDataPacket[]>(
-        `SELECT ipr.*, prt.name as tier_name, prt.description as tier_description,
-                u.username as instructor_name, u.email as instructor_email
+        `SELECT ipr.*, prt.name as tier_name, prt.name as tierName,
+                prt.description as tier_description, prt.description as tierDescription,
+                u.username as instructor_name, u.email as instructor_email,
+                ipr.hourly_rate as hourlyRate, ipr.course_bonus as courseBonus,
+                ipr.effective_date as effectiveDate, ipr.end_date as endDate,
+                ipr.instructor_id as instructorId, ipr.tier_id as tierId,
+                ipr.is_active as isActive, ipr.created_by as createdBy,
+                ipr.created_at as createdAt, ipr.updated_at as updatedAt
          FROM instructor_pay_rates ipr
          LEFT JOIN pay_rate_tiers prt ON ipr.tier_id = prt.id
          JOIN users u ON ipr.instructor_id = u.id
@@ -125,8 +138,12 @@ export async function payRateRoutes(app: FastifyInstance) {
         [instructorId]
       ),
       pool.query<RowDataPacket[]>(
-        `SELECT prh.*, prt_old.name as old_tier_name, prt_new.name as new_tier_name,
-                u_changed.username as changed_by_name
+        `SELECT prh.*, prt_old.name as old_tier_name, prt_old.name as oldTierName,
+                prt_new.name as new_tier_name, prt_new.name as newTierName,
+                u_changed.username as changed_by_name, u_changed.username as changedByName,
+                prh.old_hourly_rate as oldHourlyRate, prh.new_hourly_rate as newHourlyRate,
+                prh.old_course_bonus as oldCourseBonus, prh.new_course_bonus as newCourseBonus,
+                prh.effective_date as effectiveDate, prh.change_reason as changeReason
          FROM pay_rate_history prh
          LEFT JOIN pay_rate_tiers prt_old ON prh.old_tier_id = prt_old.id
          LEFT JOIN pay_rate_tiers prt_new ON prh.new_tier_id = prt_new.id

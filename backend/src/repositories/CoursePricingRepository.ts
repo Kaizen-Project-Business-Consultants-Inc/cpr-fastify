@@ -17,9 +17,16 @@ export class CoursePricingRepository extends BaseRepository<CoursePricing> {
     super('course_pricing');
   }
 
+  // OrganizationPricingManager.tsx reads these in camelCase — and asks for
+  // `classTypeName` specifically, not `courseTypeName`, despite the column
+  // being course_type_id. cp.* alone left every field but `id` undefined.
   async findAllActive(): Promise<CoursePricing[]> {
     return this.query<CoursePricing>(
-      `SELECT cp.*, o.name as organization_name, ct.name as course_type_name
+      `SELECT cp.*, o.name as organization_name, o.name as organizationName,
+              ct.name as course_type_name, ct.name as classTypeName,
+              cp.organization_id as organizationId, cp.course_type_id as classTypeId,
+              cp.price_per_student as pricePerStudent, cp.is_active as isActive,
+              cp.updated_at as updatedAt
        FROM course_pricing cp
        JOIN organizations o ON cp.organization_id = o.id
        JOIN class_types ct ON cp.course_type_id = ct.id
@@ -30,7 +37,10 @@ export class CoursePricingRepository extends BaseRepository<CoursePricing> {
 
   async findByOrg(orgId: number): Promise<CoursePricing[]> {
     return this.query<CoursePricing>(
-      `SELECT cp.*, ct.name as course_type_name
+      `SELECT cp.*, ct.name as course_type_name, ct.name as classTypeName,
+              cp.organization_id as organizationId, cp.course_type_id as classTypeId,
+              cp.price_per_student as pricePerStudent, cp.is_active as isActive,
+              cp.updated_at as updatedAt
        FROM course_pricing cp
        JOIN class_types ct ON cp.course_type_id = ct.id
        WHERE cp.organization_id = ? AND cp.is_active = true
@@ -66,7 +76,9 @@ export class CoursePricingRepository extends BaseRepository<CoursePricing> {
     }
 
     const rows = await this.query<CoursePricing>(
-      `SELECT * FROM course_pricing WHERE organization_id = ? AND course_type_id = ? AND is_active = true`,
+      `SELECT *, organization_id as organizationId, course_type_id as classTypeId,
+              price_per_student as pricePerStudent, is_active as isActive, updated_at as updatedAt
+       FROM course_pricing WHERE organization_id = ? AND course_type_id = ? AND is_active = true`,
       [orgId, courseTypeId]
     );
     return rows[0]!;

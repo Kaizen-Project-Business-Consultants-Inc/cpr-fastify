@@ -59,8 +59,15 @@ export async function payrollRoutes(app: FastifyInstance) {
     if (instructor_id) { where += ' AND p.instructor_id = ?'; params.push(instructor_id); }
     if (month) { where += ' AND MONTH(p.payment_date) = ?'; params.push(month); }
 
+    // PayrollManagement.tsx reads these in camelCase, both for the list rows
+    // and for the detail dialog (populated from a list row, not the
+    // separate /payments/:id endpoint).
     const [rows] = await pool.query<RowDataPacket[]>(
-      `SELECT p.*, u.username as instructor_name, u.email as instructor_email
+      `SELECT p.*, u.username as instructor_name, u.username as instructorName,
+              u.email as instructor_email, u.email as instructorEmail,
+              p.instructor_id as instructorId, p.payment_date as paymentDate,
+              p.payment_method as paymentMethod, p.transaction_id as transactionId,
+              p.hr_notes as hrNotes, p.created_at as createdAt
        FROM payroll_payments p JOIN users u ON p.instructor_id = u.id
        ${where} ORDER BY p.payment_date DESC LIMIT ? OFFSET ?`,
       [...params, safeLimit, offset]
@@ -80,7 +87,11 @@ export async function payrollRoutes(app: FastifyInstance) {
   app.get('/payments/:paymentId', { preHandler: hrRole }, async (request, reply) => {
     const { paymentId } = request.params as { paymentId: string };
     const [rows] = await pool.query<RowDataPacket[]>(
-      `SELECT p.*, u.username as instructor_name, u.email as instructor_email
+      `SELECT p.*, u.username as instructor_name, u.username as instructorName,
+              u.email as instructor_email, u.email as instructorEmail,
+              p.instructor_id as instructorId, p.payment_date as paymentDate,
+              p.payment_method as paymentMethod, p.transaction_id as transactionId,
+              p.hr_notes as hrNotes, p.created_at as createdAt
        FROM payroll_payments p JOIN users u ON p.instructor_id = u.id WHERE p.id = ?`,
       [paymentId]
     );

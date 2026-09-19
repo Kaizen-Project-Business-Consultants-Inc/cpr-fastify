@@ -67,8 +67,18 @@ export async function timesheetRoutes(app: FastifyInstance) {
     if (instructor_id) { where += ' AND t.instructor_id = ?'; params.push(instructor_id); }
     if (month) { where += ' AND MONTH(t.week_start_date) = ?'; params.push(month); }
 
+    // TimesheetProcessingDashboard.tsx reads these in camelCase, both for
+    // the list rows and the detail view (populated from a list row here,
+    // not the separate GET /:timesheetId endpoint).
     const [rows] = await pool.query<RowDataPacket[]>(
-      `SELECT t.*, u.username as instructor_name, u.email as instructor_email
+      `SELECT t.*, u.username as instructor_name, u.username as instructorName,
+              u.email as instructor_email, u.email as instructorEmail,
+              t.instructor_id as instructorId, t.week_start_date as weekStartDate,
+              t.total_hours as totalHours, t.courses_taught as coursesTaught,
+              t.course_details as courseDetails, t.hr_comment as hrComment,
+              t.travel_time as travelTime, t.prep_time as prepTime,
+              t.teaching_hours as teachingHours, t.is_late as isLate,
+              t.created_at as createdAt, t.updated_at as updatedAt
        FROM timesheets t JOIN users u ON t.instructor_id = u.id
        ${where} ORDER BY t.created_at DESC LIMIT ? OFFSET ?`,
       [...params, safeLimit, offset]
@@ -98,7 +108,14 @@ export async function timesheetRoutes(app: FastifyInstance) {
     }
 
     const [rows] = await pool.query<RowDataPacket[]>(
-      `SELECT t.*, u.username as instructor_name, u.email as instructor_email
+      `SELECT t.*, u.username as instructor_name, u.username as instructorName,
+              u.email as instructor_email, u.email as instructorEmail,
+              t.instructor_id as instructorId, t.week_start_date as weekStartDate,
+              t.total_hours as totalHours, t.courses_taught as coursesTaught,
+              t.course_details as courseDetails, t.hr_comment as hrComment,
+              t.travel_time as travelTime, t.prep_time as prepTime,
+              t.teaching_hours as teachingHours, t.is_late as isLate,
+              t.created_at as createdAt, t.updated_at as updatedAt
        FROM timesheets t JOIN users u ON t.instructor_id = u.id ${where}`,
       params
     );
@@ -194,7 +211,10 @@ export async function timesheetRoutes(app: FastifyInstance) {
       await conn.beginTransaction();
 
       const [tsRows] = await conn.query<RowDataPacket[]>(
-        `SELECT t.*, u.username as instructor_name, u.email as instructor_email
+        `SELECT t.*, u.username as instructor_name, u.username as instructorName,
+                u.email as instructor_email, u.email as instructorEmail,
+                t.instructor_id as instructorId, t.week_start_date as weekStartDate,
+                t.total_hours as totalHours, t.courses_taught as coursesTaught
          FROM timesheets t JOIN users u ON t.instructor_id = u.id
          WHERE t.id = ? AND t.status = 'pending'`,
         [timesheetId]
@@ -279,8 +299,13 @@ export async function timesheetRoutes(app: FastifyInstance) {
        JOIN users u ON tn.user_id = u.id
        JOIN timesheets t ON t.id = tn.timesheet_id
        WHERE tn.timesheet_id = ?${ownerClause}`;
+    // TimesheetNotes.tsx reads these in camelCase.
     const result = await maybePaginate(
-      `SELECT tn.*, u.username as added_by, u.email as added_by_email
+      `SELECT tn.*, u.username as added_by, u.username as addedBy,
+              u.email as added_by_email, u.email as addedByEmail,
+              tn.user_id as userId, tn.timesheet_id as timesheetId,
+              tn.user_role as userRole, tn.note_text as noteText, tn.note_type as noteType,
+              tn.created_at as createdAt, tn.updated_at as updatedAt
        ${fromClause} ORDER BY tn.created_at ASC`,
       `SELECT COUNT(*) as count ${fromClause}`,
       params,
@@ -310,7 +335,11 @@ export async function timesheetRoutes(app: FastifyInstance) {
       [timesheetId, request.userId, request.userRole, note_text.trim(), note_type]
     );
     const [rows] = await pool.query<RowDataPacket[]>(
-      `SELECT tn.*, u.username as added_by, u.email as added_by_email
+      `SELECT tn.*, u.username as added_by, u.username as addedBy,
+              u.email as added_by_email, u.email as addedByEmail,
+              tn.user_id as userId, tn.timesheet_id as timesheetId,
+              tn.user_role as userRole, tn.note_text as noteText, tn.note_type as noteType,
+              tn.created_at as createdAt, tn.updated_at as updatedAt
        FROM timesheet_notes tn JOIN users u ON tn.user_id = u.id WHERE tn.id = ?`,
       [result.insertId]
     );

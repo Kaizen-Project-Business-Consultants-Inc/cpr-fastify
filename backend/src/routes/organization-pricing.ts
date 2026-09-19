@@ -36,8 +36,13 @@ export async function organizationPricingRoutes(app: FastifyInstance) {
       return reply.status(403).send({ error: 'Access denied to this organization' });
     }
 
+    // The frontend reads these in camelCase (pricing.pricePerStudent,
+    // .isActive, .classTypeName); op.* alone left them undefined.
     const [rows] = await pool.query<RowDataPacket[]>(
-      `SELECT op.*, ct.name as class_type_name, ct.duration_minutes, o.name as organization_name
+      `SELECT op.*, ct.name as class_type_name, ct.name as classTypeName,
+              ct.duration_minutes, ct.duration_minutes as durationMinutes,
+              o.name as organization_name, o.name as organizationName,
+              op.price_per_student as pricePerStudent, op.is_active as isActive
        FROM organization_pricing op
        JOIN class_types ct ON op.class_type_id = ct.id
        JOIN organizations o ON op.organization_id = o.id
@@ -58,7 +63,9 @@ export async function organizationPricingRoutes(app: FastifyInstance) {
     }
 
     const [rows] = await pool.query<RowDataPacket[]>(
-      `SELECT op.*, ct.name as class_type_name, o.name as organization_name
+      `SELECT op.*, ct.name as class_type_name, ct.name as classTypeName,
+              o.name as organization_name, o.name as organizationName,
+              op.price_per_student as pricePerStudent, op.is_active as isActive
        FROM organization_pricing op
        JOIN class_types ct ON op.class_type_id = ct.id
        JOIN organizations o ON op.organization_id = o.id
@@ -105,7 +112,10 @@ export async function organizationPricingRoutes(app: FastifyInstance) {
     if (conditions.length > 0) where = 'WHERE ' + conditions.join(' AND ');
 
     const [rows] = await pool.query<RowDataPacket[]>(
-      `SELECT op.*, ct.name as class_type_name, ct.duration_minutes, o.name as organization_name
+      `SELECT op.*, ct.name as class_type_name, ct.name as classTypeName,
+              ct.duration_minutes, ct.duration_minutes as durationMinutes,
+              o.name as organization_name, o.name as organizationName,
+              op.price_per_student as pricePerStudent, op.is_active as isActive
        FROM organization_pricing op
        JOIN class_types ct ON op.class_type_id = ct.id
        JOIN organizations o ON op.organization_id = o.id
@@ -119,7 +129,9 @@ export async function organizationPricingRoutes(app: FastifyInstance) {
   app.get('/admin/:id', { preHandler: sysadminRole }, async (request, reply) => {
     const { id } = request.params as { id: string };
     const [rows] = await pool.query<RowDataPacket[]>(
-      `SELECT op.*, ct.name as class_type_name, o.name as organization_name
+      `SELECT op.*, ct.name as class_type_name, ct.name as classTypeName,
+              o.name as organization_name, o.name as organizationName,
+              op.price_per_student as pricePerStudent, op.is_active as isActive
        FROM organization_pricing op
        JOIN class_types ct ON op.class_type_id = ct.id
        JOIN organizations o ON op.organization_id = o.id
@@ -148,7 +160,7 @@ export async function organizationPricingRoutes(app: FastifyInstance) {
        VALUES (?, ?, ?, ?)`,
       [data.organizationId, data.classTypeId, data.pricePerStudent, request.userId]
     );
-    const [rows] = await pool.query<RowDataPacket[]>('SELECT * FROM organization_pricing WHERE id = ?', [result.insertId]);
+    const [rows] = await pool.query<RowDataPacket[]>('SELECT *, price_per_student as pricePerStudent, is_active as isActive FROM organization_pricing WHERE id = ?', [result.insertId]);
     return { success: true, data: rows[0], message: 'Organization pricing created successfully' };
   });
 
@@ -167,7 +179,7 @@ export async function organizationPricingRoutes(app: FastifyInstance) {
       [data.pricePerStudent ?? null, data.isActive ?? null, request.userId, parseInt(id)]
     );
     if (result.affectedRows === 0) return reply.status(404).send({ error: 'Organization pricing not found' });
-    const [rows] = await pool.query<RowDataPacket[]>('SELECT * FROM organization_pricing WHERE id = ?', [parseInt(id)]);
+    const [rows] = await pool.query<RowDataPacket[]>('SELECT *, price_per_student as pricePerStudent, is_active as isActive FROM organization_pricing WHERE id = ?', [parseInt(id)]);
     return { success: true, data: rows[0], message: 'Organization pricing updated successfully' };
   });
 

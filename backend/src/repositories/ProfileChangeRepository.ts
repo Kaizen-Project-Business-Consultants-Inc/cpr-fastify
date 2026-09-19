@@ -21,6 +21,15 @@ export interface ProfileChangeWithUser extends ProfileChange {
   organization_name: string | null;
 }
 
+// HRDashboard.tsx (via hrDashboardService.ts) reads these in camelCase —
+// currently unreachable in practice because that service calls a
+// /hr-dashboard/* path that doesn't exist (a separate routing bug, not
+// fixed here), but fixing the casing now means it's already correct
+// whenever that routing gap gets closed.
+const PC_CAMEL_COLS = `pc.user_id as userId, pc.change_type as changeType, pc.field_name as fieldName,
+              pc.old_value as oldValue, pc.new_value as newValue, pc.hr_comment as hrComment,
+              pc.created_at as createdAt, pc.updated_at as updatedAt`;
+
 export class ProfileChangeRepository extends BaseRepository<ProfileChange> {
   constructor() {
     super('profile_changes', null, false);
@@ -28,7 +37,8 @@ export class ProfileChangeRepository extends BaseRepository<ProfileChange> {
 
   async findPendingWithUsers(options: { limit: number; offset: number }): Promise<{ rows: ProfileChangeWithUser[]; total: number }> {
     const rows = await this.query<ProfileChangeWithUser>(
-      `SELECT pc.*, u.username, u.email, u.role, o.name as organization_name
+      `SELECT pc.*, ${PC_CAMEL_COLS}, u.username, u.email, u.role,
+              o.name as organization_name, o.name as organizationName
        FROM profile_changes pc
        JOIN users u ON pc.user_id = u.id
        LEFT JOIN organizations o ON u.organization_id = o.id
@@ -75,7 +85,7 @@ export class ProfileChangeRepository extends BaseRepository<ProfileChange> {
 
   async findRecentWithUsers(limit: number): Promise<ProfileChangeWithUser[]> {
     return this.query<ProfileChangeWithUser>(
-      `SELECT pc.*, u.username, u.email, u.role
+      `SELECT pc.*, ${PC_CAMEL_COLS}, u.username, u.email, u.role
        FROM profile_changes pc
        JOIN users u ON pc.user_id = u.id
        ORDER BY pc.created_at DESC
@@ -89,7 +99,7 @@ export class ProfileChangeRepository extends BaseRepository<ProfileChange> {
   async findAllPendingWithUsers(
     pagination?: PaginationParams,
   ): Promise<ProfileChangeWithUser[] | PaginatedResult<ProfileChangeWithUser>> {
-    const dataSQL = `SELECT pc.*, u.username, u.email, u.role
+    const dataSQL = `SELECT pc.*, ${PC_CAMEL_COLS}, u.username, u.email, u.role
        FROM profile_changes pc
        JOIN users u ON pc.user_id = u.id
        WHERE pc.status = 'pending'
