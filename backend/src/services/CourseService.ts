@@ -512,12 +512,21 @@ export class CourseService {
     courseId: number,
     orgId: number,
     students: Array<{ firstName: string; lastName: string; email?: string }>
-  ): Promise<number> {
+  ): Promise<{ added: number; skipped: number }> {
     // Verify course belongs to org
     const course = await this.courseRepo.forOrg(orgId).findById(courseId);
     if (!course) throw new CourseError('Course not found or not authorized', 404);
 
     return this.studentRepo.addStudents(courseId, students, orgId);
+  }
+
+  async removeStudent(courseId: number, orgId: number, courseStudentId: number): Promise<void> {
+    // Verify course belongs to org
+    const course = await this.courseRepo.forOrg(orgId).findById(courseId);
+    if (!course) throw new CourseError('Course not found or not authorized', 404);
+
+    const removed = await this.studentRepo.removeFromCourse(courseId, courseStudentId);
+    if (!removed) throw new CourseError('Student not found on this course', 404);
   }
 
   // --- Reminder ---

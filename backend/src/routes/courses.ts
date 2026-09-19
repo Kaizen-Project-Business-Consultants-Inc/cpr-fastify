@@ -95,8 +95,23 @@ export async function courseRoutes(app: FastifyInstance) {
     const { courseId } = request.params as { courseId: string };
     const { students } = addStudentsSchema.parse(request.body);
     try {
-      const count = await service.addStudents(parseInt(courseId), request.userOrgId, students);
-      return { success: true, message: `${count} students added`, count };
+      const { added, skipped } = await service.addStudents(parseInt(courseId), request.userOrgId, students);
+      const message = skipped > 0
+        ? `${added} student${added === 1 ? '' : 's'} added, ${skipped} already on this course were skipped`
+        : `${added} student${added === 1 ? '' : 's'} added`;
+      return { success: true, message, count: added, added, skipped };
+    } catch (err) { return handleCourseError(err, reply); }
+  });
+
+  // DELETE /courses/org/students/:courseId/:courseStudentId — org user
+  // removes a student they mistakenly added (e.g. a duplicate CSV upload).
+  app.delete('/org/students/:courseId/:courseStudentId', { preHandler: [requireAuth] }, async (request, reply) => {
+    if (!request.userOrgId) return reply.status(400).send({ error: 'Must be associated with an organization' });
+
+    const { courseId, courseStudentId } = request.params as { courseId: string; courseStudentId: string };
+    try {
+      await service.removeStudent(parseInt(courseId), request.userOrgId, parseInt(courseStudentId));
+      return { success: true, message: 'Student removed' };
     } catch (err) { return handleCourseError(err, reply); }
   });
 

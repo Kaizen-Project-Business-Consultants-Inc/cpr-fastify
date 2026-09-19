@@ -116,9 +116,13 @@ const CSVUploadDialog: React.FC<CSVUploadDialogProps> = ({
       };
 
       // The dialog used to just close on success with no feedback at all —
-      // a successful upload looked identical to nothing happening.
+      // a successful upload looked identical to nothing happening. The
+      // server's message also now says if any rows were skipped as
+      // already-on-this-course, instead of silently re-adding them.
+      const uploadResponse = response as { message?: string } | undefined;
       showSuccess(
-        `${parsed.students.length} student${parsed.students.length === 1 ? '' : 's'} uploaded successfully.`
+        uploadResponse?.message ??
+          `${parsed.students.length} student${parsed.students.length === 1 ? '' : 's'} uploaded successfully.`
       );
       onUploadSuccess?.(result);
       onClose();
