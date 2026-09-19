@@ -2,6 +2,7 @@ import { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { getPool } from '../config/database.js';
 import { requireRole } from '../plugins/auth.js';
+import { httpError } from '../utils/httpError.js';
 import type { RowDataPacket, ResultSetHeader } from 'mysql2/promise';
 
 const createTierSchema = z.object({
@@ -207,7 +208,12 @@ export async function payRateRoutes(app: FastifyInstance) {
       await conn.commit();
       const [rows] = await pool.query<RowDataPacket[]>('SELECT * FROM instructor_pay_rates WHERE id = ?', [result.insertId]);
       return { success: true, message: 'Instructor pay rate set successfully.', data: rows[0] };
-    } catch (err) { await conn.rollback(); throw err; } finally { conn.release(); }
+    } catch (err) {
+      await conn.rollback();
+      const { statusCode, message } = httpError(err);
+      request.log.error({ err }, 'Failed to set instructor pay rate');
+      return reply.status(statusCode).send({ error: message });
+    } finally { conn.release(); }
   });
 
   // ===== Current rate for payroll =====

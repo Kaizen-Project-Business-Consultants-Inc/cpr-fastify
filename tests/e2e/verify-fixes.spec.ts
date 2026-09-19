@@ -48,7 +48,10 @@ test.describe('Verify: organization pricing fields render', () => {
     // nothing and getByText is ambiguous. Target by role instead: the
     // first two comboboxes in this dialog are Organization then Class Type.
     await dialog.getByRole('combobox').nth(0).click();
-    const orgOption = pg.getByRole('option').first();
+    // Prefer "Test Organization" specifically (orguser's own org, used by
+    // the next test) over whatever the first option happens to be.
+    const preferredOrg = pg.getByRole('option', { name: /Test Organization/i });
+    const orgOption = (await preferredOrg.count()) > 0 ? preferredOrg.first() : pg.getByRole('option').first();
     await expect(orgOption).toBeVisible({ timeout: 10000 });
     const orgName = (await orgOption.innerText()).trim();
     await orgOption.click();
@@ -323,7 +326,7 @@ test.describe('Verify: invoice course-type/org fields render on Pending Approval
     });
     expect(studentRes.ok(), `add student -> ${studentRes.status()}: ${await studentRes.text().catch(() => '')}`).toBeTruthy();
     const studentBody = await studentRes.json();
-    const studentId = studentBody.data?.id ?? studentBody.student?.id ?? studentBody.id;
+    const studentId = studentBody.data?.studentid;
     expect(studentId, 'need the created student id').toBeTruthy();
     const attendRes = await apiPut(instrPg, `/api/v1/instructor/classes/${courseId}/students/${studentId}/attendance`, {
       attended: true,

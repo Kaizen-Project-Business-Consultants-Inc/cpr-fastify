@@ -187,7 +187,14 @@ class TimesheetService {
 
   // Add note to timesheet
   async addTimesheetNote(timesheetId: number, data: TimesheetNoteSubmission): Promise<TimesheetNote> {
-    const response = await api.post(`/timesheet/${timesheetId}/notes`, data);
+    // POST /timesheet/:id/notes requires snake_case (note_text/note_type);
+    // this form's own fields are camelCase and were sent as-is, so
+    // note_text always came through undefined (required, min length 1) and
+    // the request always 400'd. Adding a timesheet note has never worked.
+    const response = await api.post(`/timesheet/${timesheetId}/notes`, {
+      note_text: data.noteText,
+      note_type: data.noteType,
+    });
     return response.data.data;
   }
 
