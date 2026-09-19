@@ -777,15 +777,18 @@ export const getPendingApprovals = async (params?: { page?: number; limit?: numb
 };
 
 export const approveInvoice = async (invoiceId: number) => {
+  // PUT /accounting/invoices/:id/approval requires camelCase approvalStatus;
+  // this sent approval_status and always 400'd, so approving an invoice
+  // through this screen has never worked.
   const response = await api.put(`/accounting/invoices/${invoiceId}/approval`, {
-    approval_status: 'approved',
+    approvalStatus: 'approved',
   });
   return response.data;
 };
 
 export const rejectInvoice = async (invoiceId: number, reason: string) => {
   const response = await api.put(`/accounting/invoices/${invoiceId}/approval`, {
-    approval_status: 'rejected',
+    approvalStatus: 'rejected',
     notes: reason,
   });
   return response.data;

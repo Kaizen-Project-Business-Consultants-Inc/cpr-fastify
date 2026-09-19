@@ -391,7 +391,7 @@ const InvoiceDetailDialog = ({
       
       // Step 1: Approve the invoice
       const approveResponse = await api.put(`/accounting/invoices/${invoice.id}/approval`, {
-        approval_status: 'approved',
+        approvalStatus: 'approved',
         notes: paymentNotes || `Invoice approved by accounting`
       });
       
