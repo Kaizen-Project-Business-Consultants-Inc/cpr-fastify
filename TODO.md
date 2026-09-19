@@ -172,6 +172,49 @@ removed · every native `alert()`/`window.confirm()` gone from the app · namesp
 - **20 latent temporal-dead-zone references** to functions declared below their use.
 - **`useErrorHandler` held a stale closure** across four callbacks.
 
+### Bugs found 2026-09-19 (real E2E verification of the 9-location snake/camelCase audit)
+Auditing ~30 flagged snake_case/camelCase locations turned up 9 real bugs (fixed same day),
+but "no SQL error" isn't proof a screen actually renders right — so each fix was re-verified
+with Playwright driving the real screen against real seeded data (`tests/e2e/verify-fixes.spec.ts`).
+That verification pass surfaced several more genuine, previously-undiscovered bugs, none of
+which the original audit would have caught:
+- **Setting an instructor's pay rate has never worked** and **adding a timesheet note has
+  never worked** — both sent camelCase form fields to endpoints whose zod schemas require
+  snake_case. Fixed in `payRateService.ts`/`timesheetService.ts`.
+- **`instructor_pay_rates`' unique index (`uq_instructor_active`, `UNIQUE(instructor_id,
+  is_active)`) broke every *second* rate change for the same instructor** — not a partial
+  index, so it also capped each instructor at exactly one historical (inactive) row ever.
+  Dropped via migration v22; the app already enforces "one active rate" correctly at the
+  service layer.
+- **Creating a payroll payment and submitting a timesheet have likely never worked, for
+  anyone** — `payroll_payments.notes`, `timesheets.course_details`, and
+  `timesheets.travel_time`/`prep_time`/`teaching_hours`/`is_late`/`hr_comment` were all
+  columns the code always assumed existed but never actually did (migrations v20, v21).
+  Only found because those two routes got real error surfacing instead of a swallowed 500 —
+  see the `handleError`/`httpError` pattern below.
+- **Approving or rejecting an invoice from the accounting UI has never worked.**
+  `approveInvoice`/`rejectInvoice` (`api.ts`) and `InvoiceDetailDialog`'s approve-post-and-
+  email flow all sent `approval_status`; the endpoint requires camelCase `approvalStatus` —
+  same bug class as the pay-rate one, just missed by the original audit because it's a
+  service-function call site, not a raw fetch.
+- **Rejecting an invoice has never worked at the database level either**, on top of the
+  above: `invoices.rejection_reason` was referenced by both the reject route and the
+  Rejected Invoices screen but never actually existed as a column (migration v23). Only
+  found after fixing the casing bug above got the request *past* validation.
+- **Systemic finding: routes that `throw err` on anything but their own typed error class
+  silently masked the real DB/logic error as "An unexpected error occurred."** This is what
+  hid the missing-column bugs above behind a generic message with no way to diagnose them
+  short of reading server logs. Fixed for pay-rates, payroll, timesheets, and all of billing.ts
+  (`handleError` now uses the `httpError` utility and logs before responding) — worth
+  auditing the remaining route files for the same `throw err;` pattern.
+- **Architecture split, not a bug — needs a product decision:** `course_pricing` (backs the
+  admin "Organization Pricing" manager at `/accounting/course-pricing`) and
+  `organization_pricing` (backs the org's own read-only view at `/organization-pricing/*`)
+  are two completely disconnected tables with no relationship between them — confirmed via
+  direct API queries showing one had data the other didn't. Pricing set by an admin through
+  one screen does not appear on the org's own pricing view, and vice versa. Not silently
+  merged; needs a decision on which table is authoritative (or whether both are needed).
+
 ## 🟢 Features (unchanged from before; not started)
 
 - Real-time dashboards (WebSocket/SSE beyond the current `/events` stream); predictive analytics
