@@ -23,6 +23,7 @@ import { emailTemplateRoutes } from './email-templates.js';
 import { collegeRoutes } from './colleges.js';
 import { miscRoutes } from './misc.js';
 import { instructorAdminRoutes } from './instructor-admin.js';
+import { inboundEmailRoutes } from './inbound-email.js';
 import { logger } from '../config/logger.js';
 import { registerSwagger } from '../plugins/swagger.js';
 import { env } from '../config/env.js';
@@ -115,6 +116,7 @@ export async function registerRoutes(app: FastifyInstance) {
   await app.register(notificationRoutes, { prefix: '/notifications' });
   await app.register(organizationPricingRoutes, { prefix: '/organization-pricing' });
   await app.register(courseAdminRoutes, { prefix: '/courseadmin' });
+  await app.register(inboundEmailRoutes, { prefix: '/inbound-email' });
   await app.register(emailTemplateRoutes, { prefix: '/email-templates' });
   await app.register(collegeRoutes, { prefix: '/colleges' });
   await app.register(miscRoutes);

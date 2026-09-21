@@ -24,6 +24,7 @@ export interface CourseRequest {
   ready_for_billing_at: Date | null;
   invoiced: boolean;
   last_reminder_at: Date | null;
+  source: string;
   created_at: Date;
   updated_at: Date;
   deleted_at: Date | null;

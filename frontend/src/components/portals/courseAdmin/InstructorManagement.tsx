@@ -17,6 +17,7 @@ import {
   Select,
   Grid,
   CircularProgress,
+  Chip,
 } from '@mui/material';
 import { api } from '../../../services/api';
 import InstructorDashboard from './InstructorDashboard';
@@ -976,7 +977,12 @@ The course status has been updated to "Confirmed" and moved to the confirmed cou
               <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>
                 {course.scheduledDate ? formatDisplayDate(course.scheduledDate) : '-'}
               </Typography>
-              <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>{course.organizationName}</Typography>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
+                <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>{course.organizationName}</Typography>
+                {course.source === 'email' && (
+                  <Chip label="via email" size="small" color="info" variant="outlined" sx={{ height: 18, fontSize: 10 }} />
+                )}
+              </Box>
               <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>{course.location}</Typography>
               <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>
                 {course.courseTypeName || course.courseType || '-'}

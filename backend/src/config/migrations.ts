@@ -390,6 +390,37 @@ const migrations: Migration[] = [
       await addColumnIfMissing(pool, 'invoices', 'rejection_reason', 'TEXT DEFAULT NULL');
     },
   },
+  {
+    version: 24,
+    name: 'inbound_email_course_requests',
+    // Email -> course request intake (see TODO.md). `course_requests.source`
+    // tags which channel created a row; `inbound_emails` is the audit trail
+    // of every received email and what the parser decided, whether or not
+    // it ended up creating a request.
+    up: async (pool: Pool) => {
+      await addColumnIfMissing(pool, 'course_requests', 'source', `VARCHAR(20) NOT NULL DEFAULT 'portal'`);
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS inbound_emails (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          resend_email_id VARCHAR(191) NOT NULL,
+          from_address VARCHAR(255) NOT NULL,
+          subject VARCHAR(500) DEFAULT NULL,
+          body_text MEDIUMTEXT DEFAULT NULL,
+          matched_organization_id INT DEFAULT NULL,
+          matched_user_id INT DEFAULT NULL,
+          parse_tier VARCHAR(20) DEFAULT NULL,
+          parse_confidence DECIMAL(3,2) DEFAULT NULL,
+          extracted JSON DEFAULT NULL,
+          status VARCHAR(20) NOT NULL DEFAULT 'received',
+          course_request_id INT DEFAULT NULL,
+          reject_reason TEXT DEFAULT NULL,
+          created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          UNIQUE KEY uq_inbound_emails_resend_id (resend_email_id),
+          KEY idx_inbound_emails_status (status)
+        )
+      `);
+    },
+  },
 ];
 
 const MIGRATION_LOCK = 'cpr_migrations';

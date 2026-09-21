@@ -10,6 +10,7 @@ import DashboardView from './DashboardView';
 import CancelledCourses from './CancelledCourses';
 import VendorInvoiceApproval from './VendorInvoiceApproval';
 import PaidVendorInvoices from './PaidVendorInvoices';
+import EmailRequestsReview from './EmailRequestsReview';
 import { User } from '../../../types/api';
 
 const pageConfig: Record<string, { eyebrow: string; title: string }> = {
@@ -20,12 +21,14 @@ const pageConfig: Record<string, { eyebrow: string; title: string }> = {
   'cancelled-courses': { eyebrow: 'Courses', title: 'Cancelled Courses' },
   'vendor-invoices': { eyebrow: 'Billing', title: 'Vendor Invoice Approval' },
   'paid-vendor-invoices': { eyebrow: 'Billing', title: 'Paid Vendor Invoices' },
+  'email-requests': { eyebrow: 'Courses', title: 'Email Requests Needing Review' },
 };
 
 const navItems = [
   { label: 'Dashboard', path: '/admin/dashboard' },
   { label: 'Instructor Management', path: '/admin/instructors' },
   { label: 'Course Scheduling', path: '/admin/scheduling' },
+  { label: 'Email Requests', path: '/admin/email-requests' },
   { label: 'Email Templates', path: '/admin/email-templates' },
   { label: 'Cancelled Courses', path: '/admin/cancelled-courses' },
   { label: 'Vendor Invoices', path: '/admin/vendor-invoices' },
@@ -75,6 +78,7 @@ const CourseAdminPortal: React.FC<CourseAdminPortalProps> = ({
           <Route path="scheduling" element={<CourseScheduling />} />
           <Route path="email-templates" element={<EmailTemplateManager />} />
           <Route path="cancelled-courses" element={<CancelledCourses />} />
+          <Route path="email-requests" element={<EmailRequestsReview />} />
           <Route path="vendor-invoices" element={<VendorInvoiceApproval />} />
           <Route path="paid-vendor-invoices" element={<PaidVendorInvoices />} />
           <Route path="" element={<Navigate to="dashboard" replace />} />

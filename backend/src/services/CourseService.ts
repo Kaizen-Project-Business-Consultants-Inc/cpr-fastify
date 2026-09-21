@@ -25,6 +25,7 @@ export interface CreateCourseRequestInput {
   locationId?: number;
   registeredStudents: number;
   notes?: string;
+  source?: 'portal' | 'email';
 }
 
 export interface AssignInstructorInput {
@@ -149,6 +150,7 @@ export class CourseService {
       registered_students: input.registeredStudents,
       notes: input.notes ?? null,
       status: 'pending',
+      source: input.source ?? 'portal',
     } as Partial<CourseRequest>);
 
     const course = await this.courseRepo.findById(id);

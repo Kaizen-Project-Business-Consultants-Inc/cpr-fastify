@@ -25,6 +25,10 @@ const envSchema = z.object({
   RESEND_API_KEY: z.string().optional(),
   EMAIL_FROM: z.string().default('noreply@kpbc.ca'),
 
+  // Inbound email -> course request (optional — the webhook route 503s if either is unset)
+  RESEND_WEBHOOK_SECRET: z.string().optional(),
+  ANTHROPIC_API_KEY: z.string().optional(),
+
   // Tax
   HST_RATE: z.coerce.number().min(0).max(1).optional(),
 
