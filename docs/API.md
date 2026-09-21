@@ -5,7 +5,7 @@ _Generated from the route table by `npm run docs:api` (backend/scripts/generate-
 Base URL: `/api/v1` (except the two root-level health/metrics endpoints).
 Auth: send the access token as `Authorization: Bearer <token>`. Role guards are enforced per route (`requireRole`); see the route file for the exact roles.
 
-**267 endpoints across 29 groups.**
+**269 endpoints across 30 groups.**
 
 ## Accounting
 
@@ -197,6 +197,13 @@ Health check and system status
 | GET | `/hr/returned-payment-requests` | Bearer |  |
 | POST | `/hr/returned-payment-requests/{requestId}/process` | Bearer |  |
 | GET | `/hr/user/{userId}` | Bearer |  |
+
+## Inbound Email
+
+| Method | Path | Auth | Notes |
+|---|---|---|---|
+| GET | `/inbound-email/needs-review` | Bearer |  |
+| POST | `/inbound-email/webhook` | Bearer |  |
 
 ## Instructor
 
