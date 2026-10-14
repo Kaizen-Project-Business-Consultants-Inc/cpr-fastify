@@ -12,11 +12,11 @@ import {
   Link,
 } from '@mui/material';
 import { ArrowBack as ArrowBackIcon } from '@mui/icons-material';
-import { requestPasswordReset } from '../services/api';
+import { api } from '../services/api';
 
 
 const ForgotPassword = () => {
-  const [email, setEmail] = useState('');
+  const [identifier, setIdentifier] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false);
@@ -25,15 +25,15 @@ const ForgotPassword = () => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    // Basic validation
-    if (!email) {
-      setError('Please enter your email address');
+    const value = identifier.trim();
+    if (!value) {
+      setError('Please enter your email address or username');
       return;
     }
 
-    // Email format validation
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(email)) {
+    // Anything with an @ is treated as an email, everything else as a username
+    const isEmail = value.includes('@');
+    if (isEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) {
       setError('Please enter a valid email address');
       return;
     }
@@ -42,17 +42,18 @@ const ForgotPassword = () => {
       setError(null);
       setIsLoading(true);
 
-      await requestPasswordReset(email);
+      await api.post('/auth/forgot-password', isEmail ? { email: value } : { username: value });
       setIsSuccess(true);
     } catch (err) {
-      console.error(
-        '[Debug] ForgotPassword - Password reset request error:',
-        err
-      );
+      const errObj = err as { response?: { status?: number; data?: { error?: string | { message?: string } } } };
+      const data = errObj.response?.data?.error;
+      const message = typeof data === 'object' ? data?.message : data;
       setError(
-        err instanceof Error
-          ? err.message
-          : 'An error occurred while requesting password reset. Please try again.'
+        errObj.response?.status === 429
+          ? 'Too many attempts. Please wait a few minutes and try again.'
+          : message && message !== 'Validation failed'
+            ? message
+            : 'We couldn’t send reset instructions. Please try again.'
       );
     } finally {
       setIsLoading(false);
@@ -99,7 +100,7 @@ const ForgotPassword = () => {
           {isSuccess ? (
             <Box sx={{ width: '100%', textAlign: 'center' }}>
               <Alert severity='success' sx={{ mb: 3 }}>
-                Password reset instructions have been sent to your email.
+                If an account matches, we’ve sent reset instructions to its email address.
               </Alert>
               <Typography variant='body1' paragraph>
                 Please check your email for instructions on how to reset your
@@ -118,8 +119,8 @@ const ForgotPassword = () => {
           ) : (
             <>
               <Typography variant='body1' sx={{ mb: 3, textAlign: 'center' }}>
-                Enter your email address and we'll send you instructions to
-                reset your password.
+                Enter your email address or username and we'll send you
+                instructions to reset your password.
               </Typography>
 
               <Box
@@ -131,15 +132,15 @@ const ForgotPassword = () => {
                   margin='normal'
                   required
                   fullWidth
-                  id='email'
-                  label='Email Address'
-                  name='email'
-                  autoComplete='email'
+                  id='identifier'
+                  label='Email or username'
+                  name='identifier'
+                  autoComplete='username'
                   autoFocus
-                  value={email}
-                  onChange={e => setEmail(e.target.value)}
+                  value={identifier}
+                  onChange={e => setIdentifier(e.target.value)}
                   disabled={isLoading}
-                  error={!!error && !email}
+                  error={!!error && !identifier.trim()}
                 />
                 <Button
                   type='submit'
@@ -177,7 +178,7 @@ const ForgotPassword = () => {
           align='center'
           sx={{ mt: 4 }}
         >
-          Need help? Contact your administrator.
+          Need help? Email <Link href='mailto:admin@kpbc.ca'>admin@kpbc.ca</Link>
         </Typography>
       </Box>
     </Container>

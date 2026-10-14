@@ -42,7 +42,7 @@ export async function buildApp() {
     contentSecurityPolicy: env.NODE_ENV === 'production' ? {
       directives: {
         defaultSrc: ["'self'"],
-        scriptSrc: ["'self'", "'unsafe-inline'"],
+        scriptSrc: ["'self'"],
         styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
         fontSrc: ["'self'", "https://fonts.gstatic.com"],
         imgSrc: ["'self'", "data:", "blob:"],
@@ -78,8 +78,11 @@ export async function buildApp() {
   });
 
   // Return request ID in response headers for client-side tracing
+  // Keep staging out of search engines; production is left indexable.
+  const isStaging = /stag/i.test(new URL(env.FRONTEND_URL).hostname);
   app.addHook('onSend', (request, reply, _payload, done) => {
     reply.header('x-request-id', request.id);
+    if (isStaging) reply.header('X-Robots-Tag', 'noindex, nofollow');
     done();
   });
 

@@ -30,8 +30,8 @@ const ResetPassword = () => {
   }, [token, navigate]);
 
   const validatePassword = (password: string): string | null => {
-    if (password.length < 6) {
-      return 'Password must be at least 6 characters long';
+    if (password.length < 8) {
+      return 'Password must be at least 8 characters long';
     }
     return null;
   };
@@ -73,12 +73,18 @@ const ResetPassword = () => {
       }, 3000);
     } catch (err: unknown) {
       console.error('[Debug] ResetPassword - Password reset error:', err);
-      const errObj = err as { response?: { data?: { error?: string } }; message?: string };
-      setError(
-        errObj.response?.data?.error ||
-        errObj.message ||
-        'An error occurred while resetting your password. Please try again.'
-      );
+      const errObj = err as { response?: { data?: { error?: string; details?: { field: string }[] } } };
+      const data = errObj.response?.data;
+      // The server's "Validation failed" means a bad or expired link (token) or a too-short password.
+      if (data?.details?.some(d => d.field === 'token')) {
+        setError('This reset link is invalid or has expired. Please request a new one.');
+      } else if (data?.details?.some(d => d.field === 'newPassword')) {
+        setError('Password must be at least 8 characters long');
+      } else if (data?.error && data.error !== 'Validation failed') {
+        setError(data.error);
+      } else {
+        setError('We couldn’t reset your password. Please request a new reset link and try again.');
+      }
     } finally {
       setIsLoading(false);
     }
@@ -137,10 +143,7 @@ const ResetPassword = () => {
               sx={{ width: '100%' }}
             >
               <Typography variant='body2' sx={{ mb: 3 }}>
-                Please enter your new password. The password must:
-                <ul>
-                  <li>Be at least 6 characters long</li>
-                </ul>
+                Enter your new password. It must be at least 8 characters long.
               </Typography>
 
               <TextField

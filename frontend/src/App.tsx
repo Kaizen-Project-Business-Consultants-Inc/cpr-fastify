@@ -1,5 +1,5 @@
 import React, { Suspense } from 'react';
-import { Routes, Route } from 'react-router-dom';
+import { Routes, Route, Navigate } from 'react-router-dom';
 import { CircularProgress, Box } from '@mui/material';
 import Login from './pages/Login';
 import NotFound from './pages/NotFound';
@@ -26,7 +26,6 @@ const VendorPortal = React.lazy(() => import('./components/portals/VendorPortal'
 // Lazy-loaded pages — rarely visited on initial load
 const ForgotPassword = React.lazy(() => import('./pages/ForgotPassword'));
 const ResetPassword = React.lazy(() => import('./pages/ResetPassword'));
-const RecoverPassword = React.lazy(() => import('./pages/RecoverPassword'));
 const PrivacyPolicy = React.lazy(() => import('./pages/PrivacyPolicy'));
 const TermsOfService = React.lazy(() => import('./pages/TermsOfService'));
 
@@ -51,7 +50,7 @@ function App() {
               <Routes>
                 {/* Public routes */}
                 <Route path='/login' element={<Login />} />
-                <Route path='/recover-password' element={<RecoverPassword />} />
+                <Route path='/recover-password' element={<Navigate to='/forgot-password' replace />} />
                 <Route path='/forgot-password' element={<ForgotPassword />} />
                 <Route path='/reset-password' element={<ResetPassword />} />
                 <Route path='/privacy' element={<PrivacyPolicy />} />

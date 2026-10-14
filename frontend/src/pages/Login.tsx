@@ -10,10 +10,6 @@ import {
   Alert,
   CircularProgress,
   Link,
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  DialogActions,
   List,
   ListItem,
   ListItemIcon,
@@ -23,11 +19,12 @@ import {
   CheckCircle,
   Info,
   Lock,
-  Email,
   Person,
 } from '@mui/icons-material';
 import { useAuth } from '../contexts/AuthContext';
-import { api } from '../services/api';
+
+// Staging is a copy of the real site; say so on screen so nobody mistakes it for production.
+const IS_STAGING = /stag/i.test(window.location.hostname);
 
 
 const Login = () => {
@@ -37,15 +34,21 @@ const Login = () => {
   const [errorCode, setErrorCode] = useState<string | null>(null);
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [isLoading, setIsLoading] = useState(false);
-  const [showForgotPassword, setShowForgotPassword] = useState(false);
-  const [forgotPasswordEmail, setForgotPasswordEmail] = useState('');
-  const [forgotPasswordUsername, setForgotPasswordUsername] = useState('');
-  const [isForgotPasswordLoading, setIsForgotPasswordLoading] = useState(false);
-  const [forgotPasswordMessage, setForgotPasswordMessage] = useState<string | null>(null);
+  const [submitted, setSubmitted] = useState(false);
   const { login } = useAuth();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setSubmitted(true);
+
+    // Catch empty fields here instead of letting the server answer "Validation failed"
+    if (!username.trim() || !password) {
+      setError(null);
+      setErrorCode(null);
+      setSuggestions([]);
+      return;
+    }
+
     setIsLoading(true);
     // DO NOT clear error on submit - let it stay visible
 
@@ -87,40 +90,6 @@ const Login = () => {
     }
   };
 
-  const handleForgotPassword = async () => {
-    if (!forgotPasswordEmail && !forgotPasswordUsername) {
-      setForgotPasswordMessage('Please enter either an email or username');
-      return;
-    }
-
-    setIsForgotPasswordLoading(true);
-    setForgotPasswordMessage(null);
-
-    try {
-      const response = await api.post('/auth/forgot-password', {
-        email: forgotPasswordEmail || undefined,
-        username: forgotPasswordUsername || undefined,
-      });
-
-      setForgotPasswordMessage(response.data.message);
-
-      // Only show reset token in development mode (double-check on frontend)
-      const isDev = import.meta.env.DEV || import.meta.env.MODE === 'development';
-      if (isDev && response.data.resetToken) {
-        setForgotPasswordMessage(
-          `${response.data.message}\n\nDevelopment Reset Token: ${response.data.resetToken}`
-        );
-      }
-    } catch (err: unknown) {
-      const errObj = err as { response?: { data?: { error?: string } } };
-      setForgotPasswordMessage(
-        errObj.response?.data?.error || 'Failed to send reset instructions'
-      );
-    } finally {
-      setIsForgotPasswordLoading(false);
-    }
-  };
-
   const getErrorIcon = () => {
     switch (errorCode) {
       case 'USER_NOT_FOUND':
@@ -158,14 +127,18 @@ const Login = () => {
             width: '100%',
           }}
         >
+          {IS_STAGING && (
+            <Alert severity='warning' sx={{ mb: 2, width: '100%' }}>
+              <strong>Staging (test) site.</strong> Changes here are not real.
+            </Alert>
+          )}
+          <Box component='img' src='/favicon.svg' alt='' sx={{ width: 48, height: 48, mb: 1.5 }} />
           <Typography component='h1' variant='h5' align='center' gutterBottom>
             CPR Training Portal
           </Typography>
-          {import.meta.env.NODE_ENV === 'test' && (
-            <Typography component='h2' variant='h6' align='center' gutterBottom sx={{ color: 'warning.main', fontWeight: 'bold' }}>
-              TEST SYSTEM - Login
-            </Typography>
-          )}
+          <Typography variant='body2' color='text.secondary' align='center' sx={{ mb: 1 }}>
+            Book courses, track certifications and manage invoices.
+          </Typography>
 
           {error && (
             <Alert
@@ -217,8 +190,8 @@ const Login = () => {
                 // DO NOT clear error when typing - keep it visible
               }}
               disabled={isLoading}
-              error={!username.trim() && error !== null}
-              helperText={!username.trim() && error !== null ? 'Username is required' : ''}
+              error={submitted && !username.trim()}
+              helperText={submitted && !username.trim() ? 'Enter your username' : ''}
               sx={{
                 '& .MuiInputLabel-root': {
                   fontFamily: 'inherit',
@@ -254,8 +227,8 @@ const Login = () => {
                 // DO NOT clear error when typing - keep it visible
               }}
               disabled={isLoading}
-              error={!password && error !== null}
-              helperText={!password && error !== null ? 'Password is required' : ''}
+              error={submitted && !password}
+              helperText={submitted && !password ? 'Enter your password' : ''}
               sx={{
                 '& .MuiInputLabel-root': {
                   fontFamily: 'inherit',
@@ -295,111 +268,17 @@ const Login = () => {
 
             <Box sx={{ textAlign: 'center', mt: 2 }}>
               <Link
-                component="button"
-                type="button"
+                component={RouterLink}
+                to="/forgot-password"
                 variant="body2"
-                onClick={() => setShowForgotPassword(true)}
-                sx={{ cursor: 'pointer' }}
+                sx={{ display: 'inline-block', py: 1.25, px: 1 }}
               >
-                Forgot Password?
+                Forgot password?
               </Link>
             </Box>
           </Box>
         </Paper>
       </Box>
-
-      {/* Forgot Password Dialog */}
-      <Dialog
-        open={showForgotPassword}
-        onClose={() => setShowForgotPassword(false)}
-        maxWidth="sm"
-        fullWidth
-      >
-        <DialogTitle>Reset Password</DialogTitle>
-        <DialogContent>
-          <Typography variant="body2" sx={{ mb: 2 }}>
-            Enter your email address or username to receive password reset instructions.
-          </Typography>
-
-          <TextField
-            fullWidth
-            label="Email Address"
-            type="email"
-            value={forgotPasswordEmail}
-            onChange={(e) => setForgotPasswordEmail(e.target.value)}
-            sx={{
-              mb: 2,
-              '& .MuiInputLabel-root': {
-                fontFamily: 'inherit',
-                fontSize: '1rem',
-                lineHeight: 1.5,
-                letterSpacing: 'normal'
-              },
-              '& .MuiInputBase-input': {
-                fontFamily: 'inherit',
-                fontSize: '1rem',
-                lineHeight: 1.5,
-                letterSpacing: 'normal'
-              }
-            }}
-            disabled={isForgotPasswordLoading}
-          />
-
-          <Typography variant="body2" sx={{ mb: 1, textAlign: 'center' }}>
-            OR
-          </Typography>
-
-          <TextField
-            fullWidth
-            label="Username"
-            value={forgotPasswordUsername}
-            onChange={(e) => setForgotPasswordUsername(e.target.value)}
-            sx={{
-              mb: 2,
-              '& .MuiInputLabel-root': {
-                fontFamily: 'inherit',
-                fontSize: '1rem',
-                lineHeight: 1.5,
-                letterSpacing: 'normal'
-              },
-              '& .MuiInputBase-input': {
-                fontFamily: 'inherit',
-                fontSize: '1rem',
-                lineHeight: 1.5,
-                letterSpacing: 'normal'
-              }
-            }}
-            disabled={isForgotPasswordLoading}
-          />
-
-          {forgotPasswordMessage && (
-            <Alert
-              severity={forgotPasswordMessage.includes('Development Reset Token') ? 'info' : 'success'}
-              sx={{ mt: 2 }}
-            >
-              <Typography variant="body2" component="pre" sx={{ whiteSpace: 'pre-wrap' }}>
-                {forgotPasswordMessage}
-              </Typography>
-            </Alert>
-          )}
-        </DialogContent>
-        <DialogActions>
-          <Button
-            onClick={() => setShowForgotPassword(false)}
-            disabled={isForgotPasswordLoading}
-          >
-            Cancel
-          </Button>
-          <Button
-            onClick={handleForgotPassword}
-            variant="contained"
-            disabled={isForgotPasswordLoading}
-            startIcon={isForgotPasswordLoading ? <CircularProgress size={16} /> : <Email />}
-          >
-            {isForgotPasswordLoading ? 'Sending...' : 'Send Reset Instructions'}
-          </Button>
-        </DialogActions>
-      </Dialog>
 
       <Box sx={{ mt: 3, textAlign: 'center' }}>
         <Typography variant="caption" color="text.secondary">
