@@ -138,6 +138,26 @@ const PrivacyPolicy = () => {
               <strong>Instructors:</strong> can view attendance records for courses they are assigned to teach
             </Typography>
           </Box>
+          <Box component="li" sx={{ mb: 0.5 }}>
+            <Typography variant="body1">
+              <strong>KPBC course administration staff:</strong> can view organization contacts, course requests, class rosters and instructor assignments in order to schedule and run courses
+            </Typography>
+          </Box>
+          <Box component="li" sx={{ mb: 0.5 }}>
+            <Typography variant="body1">
+              <strong>KPBC accounting staff:</strong> can view invoices, payments and billing contacts for organizations, and pay records for instructors and vendors
+            </Typography>
+          </Box>
+          <Box component="li" sx={{ mb: 0.5 }}>
+            <Typography variant="body1">
+              <strong>KPBC HR staff:</strong> can view instructor personnel, timesheet, pay rate and payroll records, and organization contact details and profile change requests
+            </Typography>
+          </Box>
+          <Box component="li" sx={{ mb: 0.5 }}>
+            <Typography variant="body1">
+              <strong>Vendors:</strong> can view only their own invoices and payment status; they cannot see organization, student or instructor records
+            </Typography>
+          </Box>
         </Box>
         <Typography variant="body1" paragraph>
           We do not sell, rent, or share your personal information with unaffiliated third parties for their own purposes.

@@ -69,7 +69,17 @@ const columns = [
   { key: 'actions', label: '', width: '0.5fr', align: 'right' as const },
 ];
 
-const userRoles = ['admin', 'instructor', 'organization', 'student', 'accountant', 'sysadmin', 'hr'];
+// Must match the roles the server accepts (backend/src/routes/admin.ts) and that have a portal.
+const userRoles = ['admin', 'instructor', 'organization', 'accountant', 'hr', 'vendor', 'sysadmin'];
+const roleLabels: Record<string, string> = {
+  admin: 'Course Admin',
+  instructor: 'Instructor',
+  organization: 'Organization',
+  accountant: 'Accountant',
+  hr: 'HR',
+  vendor: 'Vendor',
+  sysadmin: 'System Admin',
+};
 const userStatuses = ['active', 'inactive', 'suspended'];
 
 function getInitials(user: OrgUser): string {
@@ -270,13 +280,13 @@ const UserManagement = ({ onShowSnackbar }: { onShowSnackbar?: (message: string,
               onClick={() => setRoleFilter(role)}
               sx={{
                 px: 1.5, py: 0.5, borderRadius: '20px', fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
-                border: '1px solid', textTransform: 'capitalize',
+                border: '1px solid',
                 borderColor: roleFilter === role ? 'rgba(204,31,31,.3)' : (theme: Theme) => theme.palette.divider,
                 bgcolor: roleFilter === role ? '#FFF0F0' : (theme: Theme) => theme.palette.background.paper,
                 color: roleFilter === role ? '#CC1F1F' : (theme: Theme) => theme.palette.text.secondary,
               }}
             >
-              {role}
+              {roleLabels[role]}
             </Box>
           ))}
         </Box>
@@ -356,7 +366,7 @@ const UserManagement = ({ onShowSnackbar }: { onShowSnackbar?: (message: string,
               <Grid item xs={12} sm={6}>
                 <FormControl fullWidth required><InputLabel>Role</InputLabel>
                   <Select name="role" value={formData.role} label="Role" onChange={handleChange}>
-                    {userRoles.map(role => <MenuItem key={role} value={role}>{role.charAt(0).toUpperCase() + role.slice(1)}</MenuItem>)}
+                    {userRoles.map(role => <MenuItem key={role} value={role}>{roleLabels[role]}</MenuItem>)}
                   </Select>
                 </FormControl>
               </Grid>

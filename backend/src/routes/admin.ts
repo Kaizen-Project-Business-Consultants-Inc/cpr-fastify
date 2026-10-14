@@ -15,7 +15,8 @@ const createUserSchema = z.object({
   username: z.string().min(3).max(50).regex(/^[a-zA-Z0-9_-]+$/),
   email: z.string().email(),
   password: z.string().min(8).optional(),
-  role: z.enum(['admin', 'instructor', 'organization', 'accountant', 'hr', 'courseadmin', 'vendor', 'sysadmin']),
+  // 'courseadmin' is intentionally absent: it has no portal, so such a user couldn't use the app.
+  role: z.enum(['admin', 'instructor', 'organization', 'accountant', 'hr', 'vendor', 'sysadmin']),
   firstName: z.string().max(100).optional(),
   lastName: z.string().max(100).optional(),
   phone: z.string().optional(),
