@@ -30,7 +30,7 @@ const PrivacyPolicy = () => {
           Privacy Policy
         </Typography>
         <Typography variant="body2" color="text.secondary" gutterBottom>
-          Last updated: April 2026
+          Last updated: October 2026
         </Typography>
         <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
           Applies to: CPR Training Portal at{' '}
@@ -105,6 +105,9 @@ const PrivacyPolicy = () => {
           <Box component="li" sx={{ mb: 0.5 }}>
             <Typography variant="body1">Communicating account-related information (e.g., password resets, course notifications)</Typography>
           </Box>
+          <Box component="li" sx={{ mb: 0.5 }}>
+            <Typography variant="body1">Processing course requests that organizations send to us by email</Typography>
+          </Box>
         </Box>
         <Typography variant="body1" paragraph>
           We do not use your information for advertising, marketing to third parties, or any purpose beyond operating this service.
@@ -152,12 +155,17 @@ const PrivacyPolicy = () => {
         <Box component="ul" sx={{ pl: 3, mb: 2 }}>
           <Box component="li" sx={{ mb: 1 }}>
             <Typography variant="body1">
-              <strong>TMD Hosting</strong> (Canada) — provides the web hosting and MySQL database service where all application data, including personal information, is stored. Data is hosted on servers in Canada.
+              <strong>TMD Hosting</strong> (Canada) — provides the web hosting and MariaDB database service where all application data, including personal information, is stored. Data is hosted on servers in Canada.
             </Typography>
           </Box>
           <Box component="li" sx={{ mb: 1 }}>
             <Typography variant="body1">
-              <strong>KPBC mail server (kpbc.ca)</strong> — used for transactional email delivery (e.g., password reset emails, course notifications). Emails are sent from noreply@kpbc.ca via our own mail infrastructure.
+              <strong>Resend (Resend, Inc.)</strong> (United States) — delivers the emails the portal sends (e.g., password reset emails, course notifications) and receives course-request emails sent to our booking address. It processes recipient and sender email addresses and the content of those emails.
+            </Typography>
+          </Box>
+          <Box component="li" sx={{ mb: 1 }}>
+            <Typography variant="body1">
+              <strong>Anthropic (Anthropic, PBC)</strong> (United States) — when a course-request email is not in our standard format, the text of the email is sent to Anthropic's AI service to read the course type, date, location and number of students from it. Anthropic does not use this data to train its models. Emails in the standard format are read by the portal itself and are not sent to Anthropic.
             </Typography>
           </Box>
           <Box component="li" sx={{ mb: 1 }}>
@@ -167,7 +175,7 @@ const PrivacyPolicy = () => {
           </Box>
         </Box>
         <Typography variant="body1" paragraph>
-          <strong>Cross-border transfer notice:</strong> Application data and backups are stored in Canada (TMD Hosting). Error monitoring data (Sentry) may be processed in the United States. We take reasonable steps to ensure your data is protected in accordance with PIPEDA.
+          <strong>Cross-border transfer notice:</strong> Application data and backups are stored in Canada (TMD Hosting). Email delivery (Resend), automated reading of course-request emails (Anthropic) and error monitoring (Sentry) involve processing in the United States, where the data may be accessible to US authorities under US law. We take reasonable steps to ensure your data is protected in accordance with PIPEDA.
         </Typography>
 
         <Divider sx={{ my: 3 }} />

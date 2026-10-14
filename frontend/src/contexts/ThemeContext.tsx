@@ -13,11 +13,8 @@ import CssBaseline from '@mui/material/CssBaseline';
      rdk    #9B1515   hover/active on red
      rlt    #FFF0F0   tinted fills (used by components, not the theme)
      grays  #F9FAFB #F3F4F6 #E5E7EB #9CA3AF #4B5563 #1F2937 #111827
-     font   Inter (add the <link> below to index.html <head>)
-
-   index.html — add inside <head>:
-   <link rel="preconnect" href="https://fonts.googleapis.com">
-   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+     error  #A3122B   deliberately not the brand red, so errors don't read as CTAs
+     font   Inter, self-hosted via @fontsource/inter (imported in main.tsx)
 ──────────────────────────────────────────────────────────────────────── */
 
 // Theme context type
@@ -94,9 +91,9 @@ const lightTheme = createTheme({
       contrastText: '#ffffff',
     },
     error: {
-      main: '#CC1F1F',        // align error red to brand red
-      light: '#E04A4A',
-      dark: '#9B1515',
+      main: '#A3122B',        // darker crimson, kept distinct from the brand red so errors don't look like buttons
+      light: '#D14157',
+      dark: '#7A0D20',
       contrastText: '#ffffff',
     },
     warning: {
