@@ -4,12 +4,12 @@ import {
   DialogTitle,
   DialogContent,
   DialogActions,
-  TextField,
   Button,
   Alert,
   CircularProgress,
 } from '@mui/material';
 import api from '../../services/api';
+import PasswordField from './PasswordField';
 import { useSnackbar } from '../../contexts/SnackbarContext';
 
 export interface ChangePasswordDialogProps {
@@ -94,9 +94,8 @@ const ChangePasswordDialog: React.FC<ChangePasswordDialogProps> = ({ open, onClo
         </DialogTitle>
         <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: '8px !important' }}>
           {serverError && <Alert severity="error">{serverError}</Alert>}
-          <TextField
+          <PasswordField
             label="Current password"
-            type="password"
             autoComplete="current-password"
             value={form.currentPassword}
             onChange={set('currentPassword')}
@@ -107,9 +106,8 @@ const ChangePasswordDialog: React.FC<ChangePasswordDialogProps> = ({ open, onClo
             autoFocus
             required
           />
-          <TextField
+          <PasswordField
             label="New password"
-            type="password"
             autoComplete="new-password"
             value={form.newPassword}
             onChange={set('newPassword')}
@@ -119,9 +117,8 @@ const ChangePasswordDialog: React.FC<ChangePasswordDialogProps> = ({ open, onClo
             fullWidth
             required
           />
-          <TextField
+          <PasswordField
             label="Confirm new password"
-            type="password"
             autoComplete="new-password"
             value={form.confirmPassword}
             onChange={set('confirmPassword')}

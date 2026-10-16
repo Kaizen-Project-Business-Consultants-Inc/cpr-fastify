@@ -22,6 +22,7 @@ import {
   Person,
 } from '@mui/icons-material';
 import { useAuth } from '../contexts/AuthContext';
+import PasswordField from '../components/common/PasswordField';
 
 // Staging is a copy of the real site; say so on screen so nobody mistakes it for production.
 const IS_STAGING = /stag/i.test(window.location.hostname);
@@ -212,13 +213,12 @@ const Login = () => {
                 }
               }}
             />
-            <TextField
+            <PasswordField
               margin='normal'
               required
               fullWidth
               name='password'
               label='Password'
-              type='password'
               id='password'
               autoComplete='current-password'
               value={password}

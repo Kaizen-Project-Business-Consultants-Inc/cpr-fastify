@@ -4,13 +4,13 @@ import {
   Box,
   Button,
   Container,
-  TextField,
   Typography,
   Paper,
   Alert,
   CircularProgress,
 } from '@mui/material';
 import { api } from '../services/api';
+import PasswordField from '../components/common/PasswordField';
 
 
 const ResetPassword = () => {
@@ -35,6 +35,10 @@ const ResetPassword = () => {
     }
     return null;
   };
+
+  // Live hints, shown once the user has typed something.
+  const tooShort = password.length > 0 && password.length < 8;
+  const mismatch = confirmPassword.length > 0 && confirmPassword !== password;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -146,33 +150,34 @@ const ResetPassword = () => {
                 Enter your new password. It must be at least 8 characters long.
               </Typography>
 
-              <TextField
+              <PasswordField
                 margin='normal'
                 required
                 fullWidth
                 name='password'
                 label='New Password'
-                type='password'
                 id='password'
                 autoComplete='new-password'
                 value={password}
-                onChange={e => setPassword(e.target.value)}
+                onChange={e => { setPassword(e.target.value); setError(null); }}
                 disabled={isLoading}
-                error={!!error}
+                error={tooShort}
+                helperText={tooShort ? 'Must be at least 8 characters' : ' '}
               />
-              <TextField
+              <PasswordField
                 margin='normal'
                 required
                 fullWidth
                 name='confirmPassword'
                 label='Confirm New Password'
-                type='password'
                 id='confirmPassword'
                 autoComplete='new-password'
                 value={confirmPassword}
-                onChange={e => setConfirmPassword(e.target.value)}
+                onChange={e => { setConfirmPassword(e.target.value); setError(null); }}
                 disabled={isLoading}
-                error={!!error}
+                error={mismatch}
+                helperText={mismatch ? 'Passwords do not match' : confirmPassword ? 'Passwords match' : ' '}
+                FormHelperTextProps={{ sx: { color: !mismatch && confirmPassword ? 'success.main' : undefined } }}
               />
               <Button
                 type='submit'
