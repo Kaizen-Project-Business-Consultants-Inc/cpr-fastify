@@ -19,6 +19,7 @@ import {
   CircularProgress,
   Chip,
 } from '@mui/material';
+import PasswordField from '../../common/PasswordField';
 import { api } from '../../../services/api';
 import InstructorDashboard from './InstructorDashboard';
 import AdminViewStudentsDialog from '../../dialogs/AdminViewStudentsDialog';
@@ -1472,10 +1473,9 @@ The course status has been updated to "Confirmed" and moved to the confirmed cou
                 />
               </Grid>
               <Grid item xs={12} sm={6}>
-                <TextField
+                <PasswordField
                   name="password"
                   label={editingInstructor ? 'New password (optional)' : 'Password'}
-                  type="password"
                   fullWidth
                   required={!editingInstructor}
                   autoComplete="new-password"

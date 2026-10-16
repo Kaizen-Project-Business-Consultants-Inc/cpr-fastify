@@ -17,6 +17,7 @@ import {
   InputLabel,
   FormHelperText,
 } from '@mui/material';
+import PasswordField from '../common/PasswordField';
 import type { SelectChangeEvent } from '@mui/material';
 import PhoneInput, { isValidPhoneNumber } from 'react-phone-number-input';
 import 'react-phone-number-input/style.css';
@@ -355,10 +356,9 @@ function UserDialog({ open, onClose, onSave, user, existingUsers = [] }: UserDia
             />
           </Grid>
           <Grid item xs={12} sm={6}>
-            <TextField
+            <PasswordField
               name='password'
               label={isEditMode ? 'New Password (Optional)' : 'Password *'}
-              type='password'
               value={userData.password}
               onChange={handleTextChange}
               fullWidth

@@ -15,6 +15,7 @@ import {
   Button,
   SelectChangeEvent,
 } from '@mui/material';
+import PasswordField from '../common/PasswordField';
 import type { Theme } from '@mui/material/styles';
 import { sysAdminApi } from '../../services/api';
 import api from '../../services/api';
@@ -361,7 +362,7 @@ const UserManagement = ({ onShowSnackbar }: { onShowSnackbar?: (message: string,
               <Grid item xs={12} sm={6}><TextField fullWidth required label="Username" name="username" value={formData.username} onChange={handleChange} autoComplete="off" /></Grid>
               <Grid item xs={12} sm={6}><TextField fullWidth required type="email" label="Email" name="email" value={formData.email} onChange={handleChange} autoComplete="off" /></Grid>
               <Grid item xs={12} sm={6}>
-                <TextField fullWidth type="password" label={editingUser ? 'New Password (leave blank to keep current)' : 'Password'} name="password" value={formData.password} onChange={handleChange} required={!editingUser} autoComplete="new-password" />
+                <PasswordField fullWidth label={editingUser ? 'New Password (leave blank to keep current)' : 'Password'} name="password" value={formData.password} onChange={handleChange} required={!editingUser} autoComplete="new-password" />
               </Grid>
               <Grid item xs={12} sm={6}>
                 <FormControl fullWidth required><InputLabel>Role</InputLabel>
