@@ -42,7 +42,7 @@ import {
 import api from '../../services/api';
 import SegmentedToggle from '../gtacpr/SegmentedToggle';
 import { formatCurrency, formatDisplayDate } from '../../utils/formatters';
-import { FinancialSummary, buildFinancialSummary, csvCell, extractRows } from './financialSummaryUtils';
+import { FinancialSummary, csvCell } from './financialSummaryUtils';
 
 interface GroupedInvoice {
   invoice_number: string;
@@ -55,8 +55,16 @@ interface GroupedInvoice {
 const FinancialSummaryView: React.FC = () => {
   const currentYear = new Date().getFullYear();
   const [startDate, setStartDate] = useState(`${currentYear}-01-01`);
-  const [endDate, setEndDate] = useState(new Date().toISOString().split('T')[0]);
+  // Local "today" (toISOString would be tomorrow's UTC date in the evening).
+  const [endDate, setEndDate] = useState(() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  });
   const [viewMode, setViewMode] = useState<'summary' | 'detailed'>('summary');
+
+  const rangeError = !startDate || !endDate
+    ? 'Choose a start date and an end date.'
+    : startDate > endDate ? 'The start date must be on or before the end date.' : null;
 
   const {
     data: summary,
@@ -66,12 +74,11 @@ const FinancialSummaryView: React.FC = () => {
   } = useQuery<FinancialSummary>({
     queryKey: ['financial-summary', startDate, endDate],
     queryFn: async () => {
-      const [invoicesRes, vendorRes] = await Promise.all([
-        api.get('/accounting/invoices', { params: { page: 1, limit: 500 } }),
-        api.get('/accounting/vendor-invoices'),
-      ]);
-      return buildFinancialSummary(extractRows(invoicesRes.data), extractRows(vendorRes.data), startDate, endDate);
+      const res = await api.get('/accounting/financial-summary', { params: { start_date: startDate, end_date: endDate } });
+      return res.data.data as FinancialSummary;
     },
+    enabled: !rangeError,
+    retry: false,
   });
 
   // Group transactions by invoice for summary view
@@ -159,22 +166,6 @@ const FinancialSummaryView: React.FC = () => {
     link.click();
   };
 
-  if (isLoading) {
-    return (
-      <Box display="flex" justifyContent="center" alignItems="center" minHeight="400px">
-        <CircularProgress />
-      </Box>
-    );
-  }
-
-  if (error) {
-    return (
-      <Alert severity="error">
-        Failed to load financial summary. Please try again.
-      </Alert>
-    );
-  }
-
   const chartData = summary?.monthly_breakdown.map(m => ({
     ...m,
     net: m.money_in - m.money_out,
@@ -199,6 +190,7 @@ const FinancialSummaryView: React.FC = () => {
             onChange={(e) => setStartDate(e.target.value)}
             InputLabelProps={{ shrink: true }}
             size="small"
+            error={!!rangeError}
           />
           <TextField
             label="End Date"
@@ -207,11 +199,13 @@ const FinancialSummaryView: React.FC = () => {
             onChange={(e) => setEndDate(e.target.value)}
             InputLabelProps={{ shrink: true }}
             size="small"
+            error={!endDate}
           />
           <Button
             variant="outlined"
             startIcon={<RefreshIcon />}
             onClick={() => refetch()}
+            disabled={!!rangeError}
           >
             Refresh
           </Button>
@@ -226,12 +220,31 @@ const FinancialSummaryView: React.FC = () => {
       </Box>
 
       <Alert severity="info" sx={{ mb: 3 }}>
-        Computed from invoice and vendor-invoice records: money in is verified payments applied to
-        organization invoices, money out is processed vendor payments. Instructor payouts and
-        per-payment method/reference details are not available in this view.
+        By payment date. Money in is verified organization payments; money out is processed vendor
+        payments and completed instructor payroll.
       </Alert>
+      {rangeError && (
+        <Alert severity="warning" sx={{ mb: 3 }}>{rangeError}</Alert>
+      )}
+      {!rangeError && error && (
+        <Alert severity="error" sx={{ mb: 3 }}>
+          The financial summary didn’t load. Check your connection and select Refresh.
+        </Alert>
+      )}
+      {!rangeError && isLoading && (
+        <Box display="flex" justifyContent="center" alignItems="center" minHeight="400px">
+          <CircularProgress aria-label="Loading financial summary" />
+        </Box>
+      )}
+      {(summary?.money_in.transactions_truncated || summary?.money_out.transactions_truncated) && (
+        <Alert severity="warning" sx={{ mb: 3 }}>
+          This period has more than 1,000 payments in or out, so the lists below show the most recent
+          1,000 money-in and 1,000 money-out payments. The totals and monthly figures include every
+          payment. Narrow the dates to see the rest.
+        </Alert>
+      )}
 
-      {summary && (
+      {!rangeError && summary && (
         <>
           {/* Summary Cards */}
           <Grid container spacing={3} mb={4}>

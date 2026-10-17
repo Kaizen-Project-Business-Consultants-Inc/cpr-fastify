@@ -80,11 +80,11 @@ export class OrganizationRepository extends BaseRepository<Organization> {
     let dateFilter = '';
     const dateParams: unknown[] = [];
     if (options.from) {
-      dateFilter += ' AND cr.date_scheduled >= ?';
+      dateFilter += ' AND cr.scheduled_date >= ?';
       dateParams.push(options.from);
     }
     if (options.to) {
-      dateFilter += ' AND cr.date_scheduled <= ?';
+      dateFilter += ' AND cr.scheduled_date <= ?';
       dateParams.push(options.to);
     }
 

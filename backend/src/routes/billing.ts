@@ -12,6 +12,7 @@ import type { InvoicePDFRow, StudentAttendanceRow, RevenueMonthRow } from '../ty
 import type { InvoicePDFData } from '../services/PDFService.js';
 import { httpError } from '../utils/httpError.js';
 import { logAudit } from '../utils/auditLog.js';
+import { FinancialSummaryService } from '../services/FinancialSummaryService.js';
 import { RowDataPacket } from 'mysql2/promise';
 
 // --- Schemas ---
@@ -320,6 +321,18 @@ export async function billingRoutes(app: FastifyInstance) {
     });
 
     return { success: true, data: { asOfDate, invoices: mappedRows, summary } };
+  });
+
+  // ===== Financial summary: money in / money out by payment date =====
+  const summaryQuerySchema = z.object({
+    start_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Use YYYY-MM-DD'),
+    end_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Use YYYY-MM-DD'),
+  }).refine((q) => q.start_date <= q.end_date, { message: 'Start date must be on or before end date', path: ['start_date'] });
+  const financialSummary = new FinancialSummaryService();
+
+  app.get('/financial-summary', { preHandler: acctRole }, async (request) => {
+    const { start_date, end_date } = summaryQuerySchema.parse(request.query);
+    return { success: true, data: await financialSummary.getSummary(start_date, end_date) };
   });
 
   // ===== Comprehensive aging report (for AgingReportView) =====

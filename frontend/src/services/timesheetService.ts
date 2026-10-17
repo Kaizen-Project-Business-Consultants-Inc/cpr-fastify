@@ -135,7 +135,8 @@ class TimesheetService {
     if (filters.limit) params.append('limit', filters.limit.toString());
     if (filters.status) params.append('status', filters.status);
     if (filters.instructorId) params.append('instructor_id', filters.instructorId);
-    if (filters.month) params.append('month', filters.month);
+    // Send a month only once it is complete (YYYY-MM); a half-typed one would be refused.
+    if (filters.month && /^\d{4}-\d{1,2}$/.test(filters.month)) params.append('month', filters.month);
 
     const response = await api.get(`/timesheet?${params.toString()}`);
     return response.data.data;

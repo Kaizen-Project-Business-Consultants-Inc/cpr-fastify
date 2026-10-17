@@ -421,6 +421,14 @@ const migrations: Migration[] = [
       `);
     },
   },
+  {
+    version: 25,
+    name: 'payments_status_date_index',
+    // Financial Summary reads verified payments by payment_date range.
+    up: async (pool: Pool) => {
+      await addIndexIfMissing(pool, 'payments', 'idx_payments_status_date', ['status', 'payment_date']);
+    },
+  },
 ];
 
 const MIGRATION_LOCK = 'cpr_migrations';

@@ -163,8 +163,8 @@ export async function organizationRoutes(app: FastifyInstance) {
 
     let dateFilter = '';
     const dateParams: unknown[] = [];
-    if (from) { dateFilter += ' AND cr.date_scheduled >= ?'; dateParams.push(from); }
-    if (to) { dateFilter += ' AND cr.date_scheduled <= ?'; dateParams.push(to); }
+    if (from) { dateFilter += ' AND cr.scheduled_date >= ?'; dateParams.push(from); }
+    if (to) { dateFilter += ' AND cr.scheduled_date <= ?'; dateParams.push(to); }
 
     let invoiceDateFilter = '';
     const invoiceDateParams: unknown[] = [];

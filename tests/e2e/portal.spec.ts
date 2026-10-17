@@ -10,7 +10,7 @@
  */
 import { test, expect } from '@playwright/test';
 import { loginAs, USERS } from './fixtures';
-import type { BrowserContext, Page } from '@playwright/test';
+import type { BrowserContext, Locator, Page } from '@playwright/test';
 
 /** Find the logout element — all portals now use AdminShell sidebar with a
  *  ButtonBase containing "Logout" text.
@@ -19,20 +19,27 @@ function logoutLocator(pg: Page) {
   return pg.locator('button:has-text("Logout"), [role="button"]:has-text("Logout")');
 }
 
-/** Open the portal, click Logout and expect /login.
+/** Load a portal page and wait for `target` to appear.
  *  A full page load first re-checks the session, which on shared hosting can
- *  take well over 15s, so wait generously and reload once if the shell never
+ *  take well over 30s, so wait generously and reload once if the page never
  *  rendered (same approach as loginAs). */
-async function logoutFrom(pg: Page, portalPath: string) {
+async function openPortal(pg: Page, portalPath: string, target: Locator) {
   test.setTimeout(150000);
   await pg.goto(portalPath, { waitUntil: 'domcontentloaded' });
-  const btn = logoutLocator(pg).first();
   try {
-    await expect(btn).toBeVisible({ timeout: 45000 });
+    await expect(target).toBeVisible({ timeout: 45000 });
   } catch {
     await pg.reload({ waitUntil: 'domcontentloaded' });
-    await expect(btn).toBeVisible({ timeout: 45000 });
+    await expect(target).toBeVisible({ timeout: 45000 });
   }
+}
+
+const PORTAL_CONTENT = 'main, [role="main"], .MuiContainer-root';
+
+/** Open the portal, click Logout and expect /login. */
+async function logoutFrom(pg: Page, portalPath: string) {
+  const btn = logoutLocator(pg).first();
+  await openPortal(pg, portalPath, btn);
   await btn.click();
   await pg.waitForURL(/login/, { timeout: 30000 });
   await expect(pg).toHaveURL(/login/);
@@ -56,9 +63,7 @@ test.describe.serial('Instructor (login, portal, logout)', () => {
   });
 
   test('dashboard loads with stats cards', async () => {
-    await pg.goto('/instructor/dashboard');
-    await pg.waitForLoadState('domcontentloaded');
-    await expect(pg.locator('main, [role="main"], .MuiContainer-root').first()).toBeVisible({ timeout: 30000 });
+    await openPortal(pg, '/instructor/dashboard', pg.locator(PORTAL_CONTENT).first());
   });
 
   test('can navigate to My Schedule', async () => {
@@ -98,9 +103,7 @@ test.describe.serial('Accountant (login, portal, logout)', () => {
   });
 
   test('dashboard loads with financial overview', async () => {
-    await pg.goto('/accounting/dashboard');
-    await pg.waitForLoadState('domcontentloaded');
-    await expect(pg.locator('main, [role="main"], .MuiContainer-root').first()).toBeVisible({ timeout: 30000 });
+    await openPortal(pg, '/accounting/dashboard', pg.locator(PORTAL_CONTENT).first());
   });
 
   test('billing tab is accessible', async () => {
@@ -139,9 +142,7 @@ test.describe.serial('Sysadmin (login, portal, logout)', () => {
   });
 
   test('dashboard loads', async () => {
-    await pg.goto('/sysadmin/dashboard');
-    await pg.waitForLoadState('domcontentloaded');
-    await expect(pg.locator('#main-content, main, [role="main"], .MuiContainer-root').first()).toBeVisible({ timeout: 60000 });
+    await openPortal(pg, '/sysadmin/dashboard', pg.locator('#main-content, main, [role="main"], .MuiContainer-root').first());
   });
 
   test('user management is accessible', async () => {
@@ -180,12 +181,7 @@ test.describe.serial('Admin (login, portal, logout)', () => {
   });
 
   test('dashboard loads with calendar', async () => {
-    await pg.goto('/admin/dashboard');
-    await pg.waitForLoadState('domcontentloaded');
-    // CourseAdmin portal lazy-loads — wait for the portal header or content
-    await expect(
-      pg.locator('main, [role="main"], .MuiContainer-root, .MuiBox-root, .MuiToolbar-root').first()
-    ).toBeVisible({ timeout: 15000 });
+    await openPortal(pg, '/admin/dashboard', pg.locator('main, [role="main"], .MuiContainer-root, .MuiBox-root, .MuiToolbar-root').first());
   });
 
   test('course scheduling tab is accessible', async () => {
@@ -226,9 +222,7 @@ test.describe.serial('Organization (login, portal, logout)', () => {
   });
 
   test('dashboard loads', async () => {
-    await pg.goto('/organization/dashboard');
-    await pg.waitForLoadState('domcontentloaded');
-    await expect(pg.locator('main, [role="main"], .MuiContainer-root').first()).toBeVisible({ timeout: 30000 });
+    await openPortal(pg, '/organization/dashboard', pg.locator(PORTAL_CONTENT).first());
   });
 
   test('can navigate to billing or courses section', async () => {
@@ -267,9 +261,7 @@ test.describe.serial('Vendor (login, portal, logout)', () => {
   });
 
   test('dashboard loads', async () => {
-    await pg.goto('/vendor/dashboard');
-    await pg.waitForLoadState('domcontentloaded');
-    await expect(pg.locator('main, [role="main"], .MuiContainer-root').first()).toBeVisible({ timeout: 30000 });
+    await openPortal(pg, '/vendor/dashboard', pg.locator(PORTAL_CONTENT).first());
   });
 
   test('can navigate to invoices', async () => {
@@ -309,9 +301,7 @@ test.describe.serial('HR (login, portal, logout)', () => {
 
   test('dashboard loads', async () => {
     // HR route is /hr, not /hr/dashboard
-    await pg.goto('/hr');
-    await pg.waitForLoadState('domcontentloaded');
-    await expect(pg.locator('main, [role="main"], .MuiContainer-root, .MuiBox-root').first()).toBeVisible({ timeout: 30000 });
+    await openPortal(pg, '/hr', pg.locator('main, [role="main"], .MuiContainer-root, .MuiBox-root').first());
   });
 
   test('HR portal has navigation items', async () => {
@@ -348,11 +338,7 @@ test.describe.serial('CourseAdmin (login, portal, logout)', () => {
   });
 
   test('dashboard loads with calendar', async () => {
-    await pg.goto('/admin/dashboard');
-    await pg.waitForLoadState('domcontentloaded');
-    await expect(
-      pg.locator('main, [role="main"], .MuiContainer-root, .MuiBox-root, .MuiToolbar-root').first()
-    ).toBeVisible({ timeout: 15000 });
+    await openPortal(pg, '/admin/dashboard', pg.locator('main, [role="main"], .MuiContainer-root, .MuiBox-root, .MuiToolbar-root').first());
   });
 
   test('instructor management tab is accessible', async () => {

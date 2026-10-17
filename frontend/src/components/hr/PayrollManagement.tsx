@@ -268,7 +268,7 @@ const PayrollManagement: React.FC = () => {
                 </Select>
               </FormControl>
               <TextField fullWidth size="small" label="Instructor ID" value={filters.instructor_id || ''} onChange={(e) => setFilters(prev => ({ ...prev, instructor_id: e.target.value, page: 1 }))} />
-              <TextField fullWidth size="small" label="Month" type="number" value={filters.month || ''} onChange={(e) => setFilters(prev => ({ ...prev, month: e.target.value, page: 1 }))} inputProps={{ min: 1, max: 12 }} />
+              <TextField fullWidth size="small" label="Month" type="month" value={filters.month || ''} onChange={(e) => setFilters(prev => ({ ...prev, month: e.target.value, page: 1 }))} InputLabelProps={{ shrink: true }} />
             </Box>
 
             <DataTable columns={paymentColumns} shownCount={payments.length} totalCount={pagination.total}>

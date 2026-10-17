@@ -107,6 +107,7 @@ const TimesheetProcessingDashboard: React.FC = () => {
   const loadTimesheets = useCallback(async () => {
     try {
       setLoading(true);
+      setError(null);
       const response = await timesheetService.getTimesheets({ ...filters, page: pagination.page, limit: pagination.limit });
       setTimesheets(response.timesheets);
       setPagination(prev => ({ ...prev, total: response.pagination.total, pages: response.pagination.pages }));
@@ -217,7 +218,7 @@ const TimesheetProcessingDashboard: React.FC = () => {
             </Select>
           </FormControl>
           <TextField fullWidth label="Instructor ID" value={filters.instructorId} onChange={(e) => handleFilterChange('instructorId', e.target.value)} placeholder="Filter by ID" />
-          <TextField fullWidth label="Month" type="number" value={filters.month} onChange={(e) => handleFilterChange('month', e.target.value)} placeholder="1-12" inputProps={{ min: 1, max: 12 }} />
+          <TextField fullWidth label="Month" type="month" value={filters.month} onChange={(e) => handleFilterChange('month', e.target.value)} InputLabelProps={{ shrink: true }} />
         </Box>
       </Box>
 

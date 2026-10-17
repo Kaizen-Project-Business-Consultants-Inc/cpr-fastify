@@ -4,6 +4,7 @@ import { getPool } from '../config/database.js';
 import { requireAuth, requireRole } from '../plugins/auth.js';
 import { maybePaginate, paginatedResponse } from '../utils/pagination.js';
 import { httpError } from '../utils/httpError.js';
+import { monthRangeOrThrow } from '../utils/monthRange.js';
 import { writeAudit } from '../utils/auditLog.js';
 import type { RowDataPacket, ResultSetHeader } from 'mysql2/promise';
 
@@ -67,7 +68,7 @@ export async function timesheetRoutes(app: FastifyInstance) {
     }
     if (status) { where += ' AND t.status = ?'; params.push(status); }
     if (instructor_id) { where += ' AND t.instructor_id = ?'; params.push(instructor_id); }
-    if (month) { where += ' AND MONTH(t.week_start_date) = ?'; params.push(month); }
+    if (month) { where += ' AND t.week_start_date >= ? AND t.week_start_date < ?'; params.push(...monthRangeOrThrow(month)); }
 
     // TimesheetProcessingDashboard.tsx reads these in camelCase, both for
     // the list rows and the detail view (populated from a list row here,
