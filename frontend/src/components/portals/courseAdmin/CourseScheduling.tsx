@@ -63,7 +63,7 @@ const CourseScheduling = () => {
       const response = await api.get('/courses/confirmed');
       return response.data.data;
     },
-    refetchInterval: 60000,
+    refetchInterval: 5 * 60 * 1000, // 5 minutes; saving here refreshes it at once
   });
 
   const uniqueInstructors = useMemo((): string[] => {

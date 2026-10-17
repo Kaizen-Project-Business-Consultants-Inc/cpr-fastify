@@ -24,10 +24,6 @@ vi.mock('../../../../services/api', () => {
   };
 });
 
-vi.mock('../../../../contexts/RealtimeContext', () => ({
-  useRealtime: () => ({ isConnected: true, lastUpdate: null }),
-}));
-
 const mockShowSuccess = vi.fn();
 const mockShowError = vi.fn();
 vi.mock('../../../../contexts/SnackbarContext', () => ({
@@ -61,6 +57,33 @@ describe('InstructorManagement', () => {
     expect(screen.getByText('Pending Course Requests')).toBeInTheDocument();
     expect(screen.getByText(/Instructor Availability/)).toBeInTheDocument();
     await waitFor(() => expect(mockGet).toHaveBeenCalledWith('/instructors'));
+  });
+
+  it('asks for pending and completed courses 25 at a time and shows the full count', async () => {
+    mockGet.mockImplementation(async (url: string) =>
+      url === '/courses/pending'
+        ? { data: { success: true, data: [], pagination: { page: 1, limit: 25, total: 60, pages: 3 } } }
+        : { data: { success: true, data: [] } });
+
+    renderWithQuery();
+
+    await waitFor(() => expect(mockGet).toHaveBeenCalledWith('/courses/pending', { params: { page: 1, limit: 25 } }));
+    expect(mockGet).toHaveBeenCalledWith('/courses/completed', { params: { page: 1, limit: 25 } });
+    expect(await screen.findByText('60')).toBeInTheDocument();
+  });
+
+  it('loads the next 25 pending courses when Next is clicked', async () => {
+    mockGet.mockImplementation(async (url: string, opts?: { params?: { page?: number } }) =>
+      url === '/courses/pending'
+        ? { data: { success: true, data: [], pagination: { page: opts?.params?.page ?? 1, limit: 25, total: 60, pages: 3 } } }
+        : { data: { success: true, data: [] } });
+
+    renderWithQuery();
+    await screen.findByText('60');
+    // The pending table is the first one with paging.
+    fireEvent.click((await screen.findAllByRole('button', { name: /next/i }))[0]);
+
+    await waitFor(() => expect(mockGet).toHaveBeenCalledWith('/courses/pending', { params: { page: 2, limit: 25 } }));
   });
 
   it('shows the "Add Instructor" button', async () => {

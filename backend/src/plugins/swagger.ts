@@ -108,7 +108,7 @@ export async function registerSwagger(app: FastifyInstance) {
     if (path.startsWith('/admin/vendor') || path.startsWith('/accounting/vendor')) {
       routeOptions.schema = routeOptions.schema || {};
       routeOptions.schema.tags = ['Vendor Admin'];
-    } else if (path === '/client-errors' || path === '/events') {
+    } else if (path === '/client-errors') {
       routeOptions.schema = routeOptions.schema || {};
       routeOptions.schema.tags = ['Misc'];
     } else if (path.startsWith('/invoices/') || path.startsWith('/payments/')) {

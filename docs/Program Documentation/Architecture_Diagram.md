@@ -131,7 +131,6 @@ graph TB
 
 All routes are registered under the `/api/v1` prefix via `routes/index.ts`. The route file also registers:
 - `POST /client-errors` -- client-side error collector (rate-limited, unauthenticated)
-- `GET /events` -- SSE endpoint for real-time updates (authenticated)
 - OpenAPI docs at `/api/v1/docs` via `@fastify/swagger`
 
 ### Middleware Chain

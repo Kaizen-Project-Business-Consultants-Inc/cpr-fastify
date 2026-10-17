@@ -1345,28 +1345,6 @@ export const vendorApi = {
 };
 
 // Notification API methods
-export const getNotifications = async (limit = 50, offset = 0, unreadOnly = false) => {
-  try {
-    const response = await api.get('/notifications', {
-      params: { limit, offset, unread_only: unreadOnly }
-    });
-    return extractData(response);
-  } catch (error) {
-    console.error('Error fetching notifications:', error);
-    throw error;
-  }
-};
-
-export const getUnreadNotificationCount = async () => {
-  try {
-    const response = await api.get('/notifications/unread-count');
-    return extractData(response);
-  } catch (error) {
-    console.error('Error fetching unread notification count:', error);
-    throw error;
-  }
-};
-
 export const markNotificationAsRead = async (notificationId: number) => {
   try {
     const response = await api.post(`/notifications/${notificationId}/read`);

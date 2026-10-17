@@ -6,9 +6,7 @@ import NotFound from './pages/NotFound';
 import PrivateRoute from './components/PrivateRoute';
 import RoleBasedRouter from './components/RoleBasedRouter';
 import { ErrorBoundary } from './components/common/ErrorBoundary';
-import { RealtimeProvider } from './contexts/RealtimeContext';
 import { SnackbarProvider } from './contexts/SnackbarContext';
-import { NotificationProvider } from './contexts/NotificationContext';
 import SessionWarning from './components/common/SessionWarning';
 import LocationTracker from './components/LocationTracker';
 import TransitionWrapper from './components/common/TransitionWrapper';
@@ -40,8 +38,6 @@ const LazyFallback = () => (
 function App() {
   return (
     <SnackbarProvider>
-      <RealtimeProvider>
-        <NotificationProvider>
           <ErrorBoundary>
             <SessionWarning showAtMinutes={5} />
             <LocationTracker />
@@ -145,8 +141,6 @@ function App() {
               </Suspense>
             </TransitionWrapper>
           </ErrorBoundary>
-        </NotificationProvider>
-      </RealtimeProvider>
     </SnackbarProvider>
   );
 }

@@ -99,7 +99,7 @@ export class CourseRequestRepository extends BaseRepository<CourseRequest> {
     const dataSQL = `SELECT ${CourseRequestRepository.LIST_COLS}
        ${CourseRequestRepository.LIST_FROM}
        ${where}
-       ORDER BY ${orderBy}`;
+       ORDER BY ${orderBy}, cr.id ASC`; // id breaks ties so pages never overlap or skip a course
 
     if (pagination) {
       return paginatedQuery<CourseWithDetails>(

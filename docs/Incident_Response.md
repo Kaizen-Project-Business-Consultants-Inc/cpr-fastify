@@ -168,7 +168,7 @@ Daily backups run at 2:00 AM via cron with 7-day rotation on the server, and are
 
 **When**: Resource Usage shows limits being hit.
 
-- **High process count**: Check for SSE connection leaks (the `/api/v1/events` endpoint). Restart Passenger to clear stuck connections. Consider adding authentication to the SSE endpoint if not yet done.
+- **High process count**: The hosting account caps processes and threads at 100 (each Node app uses about 11). Look for duplicate `lsnode` copies of the same app (`pgrep -fa lsnode`) and stop the older ones; restart the CPR app by killing its `lsnode` process. The old `/api/v1/events` SSE stream was removed on 2026-10-17.
 - **High RAM**: Look for memory leaks in Sentry or logs. Restart Passenger as immediate fix.
 - **High CPU**: Check for runaway queries in phpMyAdmin (`SHOW PROCESSLIST`). Kill long-running queries if needed.
 - **Persistent resource issues**: Contact TMD support to temporarily increase limits or investigate root cause.

@@ -222,7 +222,7 @@ which the original audit would have caught:
 
 ## 🟢 Features (unchanged from before; not started)
 
-- Real-time dashboards (WebSocket/SSE beyond the current `/events` stream); predictive analytics
+- Real-time dashboards (WebSocket/SSE; the unused `/events` stream was removed 2026-10-17); predictive analytics
 - OCR receipt scanning (OCR-1; the vendor UI button was removed until this exists)
 - SMS notifications; calendar sync; document management; online payments; recurring courses
 - LMS evaluation capture; student marketing emails (needs PIPEDA consent flow)

@@ -23,8 +23,7 @@ import PasswordField from '../../common/PasswordField';
 import { api } from '../../../services/api';
 import InstructorDashboard from './InstructorDashboard';
 import AdminViewStudentsDialog from '../../dialogs/AdminViewStudentsDialog';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useRealtime } from '../../../contexts/RealtimeContext';
+import { useQuery, useQueryClient, keepPreviousData } from '@tanstack/react-query';
 import { formatDisplayDate } from '../../../utils/dateUtils';
 import DataTable, { DataTableRow } from '../../gtacpr/DataTable';
 import StatusChip from '../../gtacpr/StatusChip';
@@ -34,6 +33,15 @@ import LinkButton from '../../gtacpr/LinkButton';
 import { useConfirm } from '../../gtacpr/ConfirmDialog';
 import { useSnackbar } from '../../../contexts/SnackbarContext';
 
+
+/** Course Admin's paged lists (owner's choice, 2026-10-17). */
+const COURSE_PAGE_SIZE = 25;
+const COURSE_REFRESH_MS = 5 * 60 * 1000;
+
+interface PagedCourses {
+  data: Course[];
+  pagination?: { page: number; limit: number; total: number; pages: number };
+}
 
 interface Instructor {
   id: number;
@@ -222,7 +230,6 @@ const getAssignmentStatusKind = (
 
 const InstructorManagement: React.FC = () => {
   const queryClient = useQueryClient();
-  const { isConnected, lastUpdate } = useRealtime();
   const { showSuccess, showError } = useSnackbar();
   const { confirm, dialog: confirmDialog } = useConfirm();
   const [availableInstructors, setAvailableInstructors] = useState<AvailableInstructor[]>([]);
@@ -276,22 +283,27 @@ const InstructorManagement: React.FC = () => {
   const [organizationFilter, setOrganizationFilter] = useState('');
   const [dateFilter, setDateFilter] = useState<Date | null>(null);
 
+  // Pending and completed lists grow without limit, so they are paged on the
+  // server. Confirmed stays whole: its instructor, organization and date
+  // filters run in the browser. Everything re-checks every 5 minutes, and the
+  // Refresh button updates it at once.
+  const [pendingPage, setPendingPage] = useState(1);
+  const [completedPage, setCompletedPage] = useState(1);
+
   const { data: instructorsData = [], isLoading: instructorsLoading } = useQuery({
     queryKey: ['instructors'],
     queryFn: async () => {
       const response = await api.get('/instructors');
       return response.data.data;
     },
-    refetchInterval: 60000,
+    refetchInterval: COURSE_REFRESH_MS,
   });
 
-  const { data: pendingCoursesData = [], isLoading: pendingLoading } = useQuery({
-    queryKey: ['pendingCourses'],
-    queryFn: async () => {
-      const response = await api.get('/courses/pending');
-      return response.data.data;
-    },
-    refetchInterval: 60000,
+  const { data: pendingResult, isLoading: pendingLoading } = useQuery({
+    queryKey: ['pendingCourses', pendingPage],
+    queryFn: async () => (await api.get('/courses/pending', { params: { page: pendingPage, limit: COURSE_PAGE_SIZE } })).data as PagedCourses,
+    refetchInterval: COURSE_REFRESH_MS,
+    placeholderData: keepPreviousData,
   });
 
   const { data: confirmedCoursesData = [], isLoading: confirmedLoading } = useQuery({
@@ -300,22 +312,40 @@ const InstructorManagement: React.FC = () => {
       const response = await api.get('/courses/confirmed');
       return response.data.data;
     },
-    refetchInterval: 60000,
+    refetchInterval: COURSE_REFRESH_MS,
   });
 
-  const { data: completedCoursesData = [], isLoading: completedLoading } = useQuery({
-    queryKey: ['completedCourses'],
-    queryFn: async () => {
-      const response = await api.get('/courses/completed');
-      return response.data.data;
-    },
-    refetchInterval: 60000,
+  const { data: completedResult, isLoading: completedLoading } = useQuery({
+    queryKey: ['completedCourses', completedPage],
+    queryFn: async () => (await api.get('/courses/completed', { params: { page: completedPage, limit: COURSE_PAGE_SIZE } })).data as PagedCourses,
+    refetchInterval: COURSE_REFRESH_MS,
+    placeholderData: keepPreviousData,
   });
 
   const instructors: Instructor[] = instructorsData;
-  const pendingCourses: Course[] = pendingCoursesData;
+  const pendingCourses: Course[] = pendingResult?.data ?? [];
+  const pendingTotal = pendingResult?.pagination?.total ?? pendingCourses.length;
+  const pendingPages = pendingResult?.pagination?.pages ?? 1;
   const confirmedCourses: Course[] = confirmedCoursesData;
-  const completedCourses: Course[] = completedCoursesData;
+  const completedCourses: Course[] = completedResult?.data ?? [];
+  const completedTotal = completedResult?.pagination?.total ?? completedCourses.length;
+  const completedPages = completedResult?.pagination?.pages ?? 1;
+
+  // A page can empty out (the last pending request on page 3 gets assigned): step back.
+  // Syncs to the server's page count after a refetch, so setState in the effect is intended.
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- see comment above
+    if (pendingPages > 0 && pendingPage > pendingPages) setPendingPage(pendingPages);
+  }, [pendingPage, pendingPages]);
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- see comment above
+    if (completedPages > 0 && completedPage > completedPages) setCompletedPage(completedPages);
+  }, [completedPage, completedPages]);
+
+  const refreshAll = () => {
+    ['instructors', 'pendingCourses', 'confirmedCourses', 'completedCourses'].forEach((key) =>
+      queryClient.invalidateQueries({ queryKey: [key] }));
+  };
 
   const uniqueInstructors = useMemo(() => {
     const names = confirmedCourses
@@ -922,11 +952,10 @@ The course status has been updated to "Confirmed" and moved to the confirmed cou
           {success}
         </Alert>
       )}
-      {!isConnected && (
-        <Alert severity="warning" sx={{ mb: 2 }}>
-          Real-time updates are currently using polling. Last update: {lastUpdate?.toLocaleTimeString()}
-        </Alert>
-      )}
+
+      <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 2 }}>
+        <GhostButton onClick={refreshAll}>Refresh</GhostButton>
+      </Box>
 
       <InstructorDashboard />
 
@@ -956,14 +985,18 @@ The course status has been updated to "Confirmed" and moved to the confirmed cou
             }}
           >
             <Typography sx={{ fontSize: 12, fontWeight: 700, color: '#fff' }}>
-              {pendingCourses.length}
+              {pendingTotal}
             </Typography>
           </Box>
         </Box>
         <DataTable
           columns={pendingColumns}
           shownCount={pendingCourses.length}
-          totalCount={pendingCourses.length}
+          totalCount={pendingTotal}
+          page={pendingPage - 1}
+          onPrevPage={() => setPendingPage((p) => Math.max(1, p - 1))}
+          onNextPage={() => setPendingPage((p) => p + 1)}
+          hasNextPage={pendingPage < pendingPages}
         >
           {pendingLoading ? (
             <TableLoading />
@@ -1315,14 +1348,18 @@ The course status has been updated to "Confirmed" and moved to the confirmed cou
             }}
           >
             <Typography sx={{ fontSize: 12, fontWeight: 700, color: '#fff' }}>
-              {completedCourses.length}
+              {completedTotal}
             </Typography>
           </Box>
         </Box>
         <DataTable
           columns={completedColumns}
           shownCount={completedCourses.length}
-          totalCount={completedCourses.length}
+          totalCount={completedTotal}
+          page={completedPage - 1}
+          onPrevPage={() => setCompletedPage((p) => Math.max(1, p - 1))}
+          onNextPage={() => setCompletedPage((p) => p + 1)}
+          hasNextPage={completedPage < completedPages}
         >
           {completedLoading ? (
             <TableLoading />

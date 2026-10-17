@@ -1,5 +1,4 @@
 import { FastifyInstance } from 'fastify';
-import { requireAuth } from '../plugins/auth.js';
 import { authRoutes } from './auth.js';
 import { healthRoutes } from './health.js';
 import { courseRoutes } from './courses.js';
@@ -77,24 +76,6 @@ export async function registerRoutes(app: FastifyInstance) {
     // Small and stable — safe for shared caches for a few minutes.
     reply.header('Cache-Control', 'public, max-age=300');
     return { success: true, data: { taxRate: getHSTRate(), taxLabel: getHSTLabel() } };
-  });
-
-  // SSE endpoint for real-time updates (keeps connection open)
-  app.get('/events', { preHandler: [requireAuth] }, async (request, reply) => {
-    reply.raw.writeHead(200, {
-      'Content-Type': 'text/event-stream',
-      'Cache-Control': 'no-cache',
-      Connection: 'keep-alive',
-    });
-    reply.raw.write('data: {"type":"connected"}\n\n');
-
-    const keepAlive = setInterval(() => {
-      reply.raw.write(': keepalive\n\n');
-    }, 30000);
-
-    request.raw.on('close', () => {
-      clearInterval(keepAlive);
-    });
   });
 
   await app.register(authRoutes, { prefix: '/auth' });

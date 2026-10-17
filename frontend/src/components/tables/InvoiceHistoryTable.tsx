@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import {
   Table,
   TableBody,
@@ -209,24 +209,11 @@ const PaymentDetails = ({
 
 const InvoiceHistoryTable = ({
   invoices = [],
-  onRefresh,
 }: {
   invoices?: HistoryInvoice[];
-  onRefresh?: () => void;
 }) => {
   const [expandedRowId, setExpandedRowId] = useState<number | string | null>(null); // State to track expanded row
   const { showError } = useSnackbar();
-
-  // Auto-refresh every 30 seconds
-  useEffect(() => {
-    if (!onRefresh) return () => {};
-    
-    const interval = setInterval(() => {
-      onRefresh();
-    }, 30000); // 30 seconds
-    
-    return () => clearInterval(interval);
-  }, [onRefresh]);
 
   const handleExpandClick = (invoiceId: number | string) => {
     setExpandedRowId(expandedRowId === invoiceId ? null : invoiceId); // Toggle expansion

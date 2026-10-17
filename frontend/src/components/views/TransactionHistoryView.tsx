@@ -161,7 +161,10 @@ const TransactionHistoryView = () => {
       <Box sx={{ border: (theme) => `1px solid ${theme.palette.divider}`, borderRadius: '10px', bgcolor: (theme) => theme.palette.background.paper, p: 3 }}>
         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 0.5 }}>
           <Typography sx={{ fontSize: 13, fontWeight: 700, color: (theme) => theme.palette.text.secondary, textTransform: 'uppercase', letterSpacing: '0.07em' }}>Filters</Typography>
-          <GhostButton onClick={handleClearFilters}>Clear Filters</GhostButton>
+          <Box sx={{ display: 'flex', gap: 1 }}>
+            <GhostButton onClick={handleRefresh} disabled={grid.loading}>Refresh</GhostButton>
+            <GhostButton onClick={handleClearFilters}>Clear Filters</GhostButton>
+          </Box>
         </Box>
         <Typography sx={{ fontSize: 12, color: (theme) => theme.palette.text.secondary, mb: 2 }}>
           Filters apply to the totals below (all invoices) and to the rows on the current page.
@@ -200,7 +203,7 @@ const TransactionHistoryView = () => {
               directly; the /accounting/invoices rows it actually receives here satisfy it
               at runtime (unchanged from before this typing pass). */}
           <InvoiceStatsDashboard invoices={summaryInvoices as unknown as React.ComponentProps<typeof InvoiceStatsDashboard>['invoices']} loading={grid.loading} />
-          <InvoiceHistoryTable invoices={pageInvoices} onRefresh={handleRefresh} />
+          <InvoiceHistoryTable invoices={pageInvoices} />
 
           {/* Server-driven paging for the table above */}
           <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
