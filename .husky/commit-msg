@@ -1,0 +1,15 @@
+#!/bin/sh
+# Every commit records its pre-commit review (CODING_STANDARDS.md section 9).
+# Commits git writes itself (merge, revert, fixup!/squash!/amend!) are let through, judged by the
+# subject line only, so a body sentence like "merge the two lists" can't switch the check off.
+msg_file="$1"
+subject=$(head -n1 "$msg_file" | tr -d '\r')
+case "$subject" in
+  "Merge "*|"Revert "*|"fixup! "*|"squash! "*|"amend! "*) exit 0 ;;
+esac
+if sed 's/[[:space:]]*$//' "$msg_file" | grep -qE '^Review: (passed|passed after fixes|not needed) \(.+\)$'; then exit 0; fi
+echo "commit rejected: add a 'Review:' line next to Co-Authored-By (CODING_STANDARDS.md section 9):" >&2
+echo "  Review: passed (code reviewer)" >&2
+echo "  Review: passed after fixes (code reviewer)" >&2
+echo "  Review: not needed (docs only | tests only | <reason>)   <- a reason in brackets is required" >&2
+exit 1
