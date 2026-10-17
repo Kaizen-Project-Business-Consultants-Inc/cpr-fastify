@@ -2,6 +2,7 @@ import { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { getPool } from '../config/database.js';
 import { requireRole } from '../plugins/auth.js';
+import { writeAudit } from '../utils/auditLog.js';
 import { maybePaginate, paginatedResponse } from '../utils/pagination.js';
 import type { RowDataPacket, ResultSetHeader } from 'mysql2/promise';
 
@@ -220,6 +221,7 @@ export async function vendorAdminRoutes(app: FastifyInstance) {
           [notes, notes, id]
         );
       }
+      await writeAudit(conn, { userId: request.userId, action: action === 'approve' ? 'approve_vendor_invoice' : 'reject_vendor_invoice', entityType: 'vendor_invoice', entityId: parseInt(id), details: { invoiceNumber: invoiceRows[0].invoice_number, total: Number(invoiceRows[0].total ?? invoiceRows[0].amount), notes }, ipAddress: request.ip });
       await conn.commit();
       return { success: true, message: `Invoice ${action}d successfully.`, data: { invoiceId: id, status: action === 'approve' ? 'submitted_to_accounting' : 'rejected_by_admin' } };
     } catch (err) { await conn.rollback(); throw err; } finally { conn.release(); }
@@ -328,6 +330,7 @@ export async function vendorAdminRoutes(app: FastifyInstance) {
         `UPDATE vendor_invoices SET status = ?, paid_at = CASE WHEN ? = 'paid' THEN CURRENT_TIMESTAMP ELSE paid_at END, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
         [newStatus, newStatus, id]
       );
+      await writeAudit(conn, { userId: request.userId, action: 'pay_vendor_invoice', entityType: 'vendor_payment', entityId: payResult.insertId, details: { vendorInvoiceId: parseInt(id), amount: data.amount, paymentMethod: data.paymentMethod, reference: data.referenceNumber }, ipAddress: request.ip });
       await conn.commit();
 
       return { success: true, message: `Payment of $${data.amount.toFixed(2)} processed successfully.`, data: { paymentId: payResult.insertId, invoiceStatus: newStatus } };
@@ -352,6 +355,7 @@ export async function vendorAdminRoutes(app: FastifyInstance) {
          rejected_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
         [notes, notes, id]
       );
+      await writeAudit(conn, { userId: request.userId, action: 'accounting_reject_vendor_invoice', entityType: 'vendor_invoice', entityId: parseInt(id), details: { invoiceNumber: invoiceRows[0].invoice_number, total: Number(invoiceRows[0].total ?? invoiceRows[0].amount), notes }, ipAddress: request.ip });
       await conn.commit();
       return { success: true, message: 'Invoice rejected successfully.', data: { invoiceId: id, status: 'rejected_by_accountant' } };
     } catch (err) { await conn.rollback(); throw err; } finally { conn.release(); }

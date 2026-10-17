@@ -4,6 +4,7 @@ import { getPool } from '../config/database.js';
 import { requireAuth, requireRole } from '../plugins/auth.js';
 import { maybePaginate, paginatedResponse } from '../utils/pagination.js';
 import { httpError } from '../utils/httpError.js';
+import { writeAudit } from '../utils/auditLog.js';
 import type { RowDataPacket, ResultSetHeader } from 'mysql2/promise';
 
 const submitTimesheetSchema = z.object({
@@ -233,6 +234,7 @@ export async function timesheetRoutes(app: FastifyInstance) {
         'UPDATE timesheets SET status = ?, hr_comment = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
         [newStatus, comment ?? null, timesheetId]
       );
+      await writeAudit(conn, { userId: request.userId, action: action === 'approve' ? 'approve_timesheet' : 'reject_timesheet', entityType: 'timesheet', entityId: parseInt(timesheetId), details: { instructorId: tsRows[0].instructor_id, weekStartDate: tsRows[0].week_start_date, totalHours: Number(tsRows[0].total_hours), coursesTaught: Number(tsRows[0].courses_taught), comment }, ipAddress: request.ip });
       await conn.commit();
 
       return { success: true, message: `Timesheet ${action}d successfully.`, data: { ...tsRows[0], status: newStatus } };

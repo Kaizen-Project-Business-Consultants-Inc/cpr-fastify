@@ -15,7 +15,27 @@ vi.mock('../config/logger.js', () => ({
   logger: { warn: mockWarn },
 }));
 
-import { logAudit } from '../utils/auditLog.js';
+import { logAudit, writeAudit } from '../utils/auditLog.js';
+
+describe('writeAudit', () => {
+  it('writes through the transaction connection, not the pool', async () => {
+    const conn = { query: vi.fn().mockResolvedValueOnce([{}]) };
+    mockQuery.mockClear();
+
+    await writeAudit(conn as never, { userId: 2, action: 'verify_payment', entityType: 'payment', entityId: 9, details: { amount: 100 } });
+
+    expect(conn.query).toHaveBeenCalledWith(
+      expect.stringContaining('INSERT INTO audit_logs'),
+      [2, null, 'verify_payment', 'payment', 9, '{"amount":100}', null],
+    );
+    expect(mockQuery).not.toHaveBeenCalled();
+  });
+
+  it('throws on failure so the transaction rolls back', async () => {
+    const conn = { query: vi.fn().mockRejectedValueOnce(new Error('disk full')) };
+    await expect(writeAudit(conn as never, { action: 'x' })).rejects.toThrow('disk full');
+  });
+});
 
 describe('logAudit', () => {
   beforeEach(() => {

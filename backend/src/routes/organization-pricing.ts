@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { getPool } from '../config/database.js';
 import { requireAuth, requireRole } from '../plugins/auth.js';
 import { getHSTRate } from '../utils/taxConfig.js';
+import { logAudit } from '../utils/auditLog.js';
 import type { RowDataPacket, ResultSetHeader } from 'mysql2/promise';
 
 const createPricingSchema = z.object({
@@ -160,6 +161,7 @@ export async function organizationPricingRoutes(app: FastifyInstance) {
        VALUES (?, ?, ?, ?)`,
       [data.organizationId, data.classTypeId, data.pricePerStudent, request.userId]
     );
+    logAudit({ userId: request.userId, action: 'create_organization_pricing', entityType: 'organization_pricing', entityId: result.insertId, details: { organizationId: data.organizationId, classTypeId: data.classTypeId, pricePerStudent: data.pricePerStudent }, ipAddress: request.ip });
     const [rows] = await pool.query<RowDataPacket[]>('SELECT *, price_per_student as pricePerStudent, is_active as isActive FROM organization_pricing WHERE id = ?', [result.insertId]);
     return { success: true, data: rows[0], message: 'Organization pricing created successfully' };
   });
@@ -179,6 +181,7 @@ export async function organizationPricingRoutes(app: FastifyInstance) {
       [data.pricePerStudent ?? null, data.isActive ?? null, request.userId, parseInt(id)]
     );
     if (result.affectedRows === 0) return reply.status(404).send({ error: 'Organization pricing not found' });
+    logAudit({ userId: request.userId, action: 'update_organization_pricing', entityType: 'organization_pricing', entityId: parseInt(id), details: { pricePerStudent: data.pricePerStudent, isActive: data.isActive }, ipAddress: request.ip });
     const [rows] = await pool.query<RowDataPacket[]>('SELECT *, price_per_student as pricePerStudent, is_active as isActive FROM organization_pricing WHERE id = ?', [parseInt(id)]);
     return { success: true, data: rows[0], message: 'Organization pricing updated successfully' };
   });
@@ -190,6 +193,7 @@ export async function organizationPricingRoutes(app: FastifyInstance) {
       'DELETE FROM organization_pricing WHERE id = ?', [parseInt(id)]
     );
     if (result.affectedRows === 0) return reply.status(404).send({ error: 'Organization pricing not found' });
+    logAudit({ userId: request.userId, action: 'delete_organization_pricing', entityType: 'organization_pricing', entityId: parseInt(id), ipAddress: request.ip });
     return { success: true, message: 'Organization pricing deleted successfully' };
   });
 }

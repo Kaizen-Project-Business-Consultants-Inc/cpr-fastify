@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { getPool } from '../config/database.js';
 import { requireRole } from '../plugins/auth.js';
 import { httpError } from '../utils/httpError.js';
+import { logAudit, writeAudit } from '../utils/auditLog.js';
 import type { RowDataPacket, ResultSetHeader } from 'mysql2/promise';
 
 const createTierSchema = z.object({
@@ -49,6 +50,7 @@ export async function payRateRoutes(app: FastifyInstance) {
       'INSERT INTO pay_rate_tiers (name, description, base_hourly_rate, course_bonus) VALUES (?, ?, ?, ?)',
       [data.name, data.description ?? null, data.base_hourly_rate, data.course_bonus]
     );
+    logAudit({ userId: request.userId, action: 'create_pay_rate_tier', entityType: 'pay_rate_tier', entityId: result.insertId, details: { name: data.name, baseHourlyRate: data.base_hourly_rate, courseBonus: data.course_bonus }, ipAddress: request.ip });
     const [rows] = await pool.query<RowDataPacket[]>('SELECT * FROM pay_rate_tiers WHERE id = ?', [result.insertId]);
     return { success: true, message: 'Pay rate tier created successfully.', data: rows[0] };
   });
@@ -65,6 +67,7 @@ export async function payRateRoutes(app: FastifyInstance) {
       [name ?? null, description ?? null, base_hourly_rate ?? null, course_bonus ?? null, is_active ?? null, id]
     );
     if (result.affectedRows === 0) return reply.status(404).send({ error: 'Pay rate tier not found' });
+    logAudit({ userId: request.userId, action: 'update_pay_rate_tier', entityType: 'pay_rate_tier', entityId: parseInt(id), details: { name, baseHourlyRate: base_hourly_rate, courseBonus: course_bonus, isActive: is_active }, ipAddress: request.ip });
     const [rows] = await pool.query<RowDataPacket[]>('SELECT * FROM pay_rate_tiers WHERE id = ?', [id]);
     return { success: true, message: 'Pay rate tier updated successfully.', data: rows[0] };
   });
@@ -204,6 +207,7 @@ export async function payRateRoutes(app: FastifyInstance) {
         [instructorId, old?.hourly_rate ?? null, data.hourly_rate, old?.course_bonus ?? null, data.course_bonus,
          old?.tier_id ?? null, data.tier_id ?? null, data.change_reason ?? null, request.userId, effectiveDate]
       );
+      await writeAudit(conn, { userId: request.userId, action: 'set_instructor_pay_rate', entityType: 'user', entityId: parseInt(instructorId), details: { oldHourlyRate: old?.hourly_rate ?? null, hourlyRate: data.hourly_rate, oldCourseBonus: old?.course_bonus ?? null, courseBonus: data.course_bonus, effectiveDate, reason: data.change_reason }, ipAddress: request.ip });
 
       await conn.commit();
       const [rows] = await pool.query<RowDataPacket[]>('SELECT * FROM instructor_pay_rates WHERE id = ?', [result.insertId]);
@@ -283,6 +287,7 @@ export async function payRateRoutes(app: FastifyInstance) {
            old?.tier_id ?? null, data.tier_id ?? null, data.change_reason ?? null, request.userId, effectiveDate]
         );
       }
+      await writeAudit(conn, { userId: request.userId, action: 'bulk_set_instructor_pay_rate', entityType: 'user', details: { instructorIds: data.instructor_ids, hourlyRate: data.hourly_rate, courseBonus: data.course_bonus, effectiveDate, reason: data.change_reason }, ipAddress: request.ip });
 
       await conn.commit();
 

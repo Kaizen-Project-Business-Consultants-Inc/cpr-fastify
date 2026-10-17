@@ -184,6 +184,29 @@ describe('BillingService', () => {
       expect(mockConnQuery).toHaveBeenCalledTimes(2);
     });
 
+    it('writes the audit entry inside the transaction, before commit', async () => {
+      mockConnQuery
+        .mockResolvedValueOnce([[{ id: 1, amount: 200, status: 'pending', total_paid: 0 }]]) // FOR UPDATE lock
+        .mockResolvedValueOnce([{ insertId: 12 }]) // INSERT payment
+        .mockResolvedValueOnce([{}]);               // INSERT audit_logs
+
+      await service.recordPayment(1, 50, 'cheque', 'REF-9', undefined, { userId: 4, ipAddress: '10.0.0.1' });
+
+      const [sql, params] = mockConnQuery.mock.calls[2];
+      expect(sql).toContain('INSERT INTO audit_logs');
+      expect(params).toEqual([4, null, 'record_payment', 'payment', 12,
+        JSON.stringify({ invoiceId: 1, amount: 50, paymentMethod: 'cheque', reference: 'REF-9' }), '10.0.0.1']);
+      expect(mockConnQuery.mock.invocationCallOrder[2]).toBeLessThan(mockConn.commit.mock.invocationCallOrder[0]);
+    });
+
+    it('writes no audit entry when the payment is refused', async () => {
+      mockConnQuery.mockResolvedValueOnce([[{ id: 1, amount: 100, status: 'pending', total_paid: 100 }]]);
+
+      await expect(service.recordPayment(1, 50, 'cheque', undefined, undefined, { userId: 4 }))
+        .rejects.toThrow('already fully paid');
+      expect(mockConnQuery.mock.calls.some(([sql]) => String(sql).includes('audit_logs'))).toBe(false);
+    });
+
     it('throws on zero amount', async () => {
       await expect(service.recordPayment(1, 0, 'cheque'))
         .rejects.toThrow('Valid payment amount is required');

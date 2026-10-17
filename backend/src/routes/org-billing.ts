@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { getPool } from '../config/database.js';
 import { requireAuth, requireRole } from '../plugins/auth.js';
 import { logger } from '../config/logger.js';
+import { writeAudit } from '../utils/auditLog.js';
 import { toCSV } from '../utils/csv.js';
 import { maybePaginate, rowsOf, metaOf } from '../utils/pagination.js';
 import type { RowDataPacket, ResultSetHeader } from 'mysql2/promise';
@@ -335,6 +336,7 @@ export async function orgBillingRoutes(app: FastifyInstance) {
       const newStatus = isFullPayment ? 'payment_submitted' : 'partial_payment';
 
       await conn.query('UPDATE invoices SET status = ?, updated_at = NOW() WHERE id = ?', [newStatus, id]);
+      await writeAudit(conn, { userId: request.userId, action: 'submit_payment', entityType: 'payment', entityId: payResult.insertId, details: { invoiceId: parseInt(id), amount: data.amount, paymentMethod: data.payment_method, reference: data.reference_number }, ipAddress: request.ip });
       await conn.commit();
 
       const remainingBalance = Math.max(0, totalAmount - totalAfter);
@@ -474,6 +476,7 @@ export async function orgBillingRoutes(app: FastifyInstance) {
       }
 
       await conn.query('UPDATE invoices SET status = ?, paid_date = CURRENT_DATE, updated_at = CURRENT_TIMESTAMP WHERE id = ?', ['paid', id]);
+      await writeAudit(conn, { userId: request.userId, action: 'mark_invoice_paid', entityType: 'invoice', entityId: parseInt(id), details: { invoiceNumber: inv.invoice_number }, ipAddress: request.ip });
       await conn.commit();
 
       return { success: true, message: 'Invoice marked as paid successfully', data: { invoice_id: id, invoice_number: inv.invoice_number, paid_date: new Date().toISOString().split('T')[0], balance_due: 0 } };
@@ -599,6 +602,7 @@ export async function orgBillingRoutes(app: FastifyInstance) {
         await conn.query("UPDATE invoices SET status = 'pending', updated_at = NOW() WHERE id = ?", [payment.invoice_id]);
       }
 
+      await writeAudit(conn, { userId: request.userId, action: action === 'approve' ? 'verify_payment' : 'reject_payment', entityType: 'payment', entityId: parseInt(id), details: { invoiceId: payment.invoice_id, amount: Number(payment.amount), notes }, ipAddress: request.ip });
       await conn.commit();
       logger.info({ paymentId: id, action, invoiceId: payment.invoice_id }, `Payment ${action}d`);
 
@@ -657,6 +661,7 @@ export async function orgBillingRoutes(app: FastifyInstance) {
         await conn.query("UPDATE invoices SET status = 'pending', paid_date = NULL, updated_at = NOW() WHERE id = ?", [payment.invoice_id]);
       }
 
+      await writeAudit(conn, { userId: request.userId, action: 'reverse_payment', entityType: 'payment', entityId: parseInt(id), details: { invoiceId: payment.invoice_id, amount: Number(payment.amount), reason }, ipAddress: request.ip });
       await conn.commit();
       logger.info({ paymentId: id, invoiceId: payment.invoice_id, reason }, 'Payment reversed');
 

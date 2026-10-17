@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { getPool } from '../config/database.js';
 import { requireRole } from '../plugins/auth.js';
 import { httpError } from '../utils/httpError.js';
+import { logAudit, writeAudit } from '../utils/auditLog.js';
 import type { RowDataPacket, ResultSetHeader } from 'mysql2/promise';
 
 const createPaymentSchema = z.object({
@@ -171,6 +172,7 @@ export async function payrollRoutes(app: FastifyInstance) {
        VALUES (?, ?, ?, ?, ?, 'pending')`,
       [data.instructor_id, data.amount, data.payment_date, data.payment_method, data.notes]
     );
+    logAudit({ userId: request.userId, action: 'create_payroll_payment', entityType: 'payroll_payment', entityId: result.insertId, details: { instructorId: data.instructor_id, amount: data.amount, paymentMethod: data.payment_method }, ipAddress: request.ip });
     const [rows] = await pool.query<RowDataPacket[]>('SELECT * FROM payroll_payments WHERE id = ?', [result.insertId]);
     return { success: true, message: 'Payment created successfully.', data: rows[0] };
     } catch (err) {
@@ -198,6 +200,7 @@ export async function payrollRoutes(app: FastifyInstance) {
         'UPDATE payroll_payments SET status = ?, transaction_id = ?, hr_notes = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
         [newStatus, transaction_id ?? null, notes, paymentId]
       );
+      await writeAudit(conn, { userId: request.userId, action: action === 'approve' ? 'complete_payroll_payment' : 'reject_payroll_payment', entityType: 'payroll_payment', entityId: parseInt(paymentId), details: { instructorId: payRows[0].instructor_id, amount: Number(payRows[0].amount), transactionId: transaction_id, notes }, ipAddress: request.ip });
       await conn.commit();
       return { success: true, message: `Payment ${action}d successfully.` };
     } catch (err) { await conn.rollback(); throw err; } finally { conn.release(); }

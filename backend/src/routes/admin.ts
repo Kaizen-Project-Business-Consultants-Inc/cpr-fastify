@@ -10,6 +10,7 @@ import { StudentRepository } from '../repositories/StudentRepository.js';
 import { parsePagination, paginatedQuery, maybePaginate, paginatedResponse, isPaginated } from '../utils/pagination.js';
 import { toCSV } from '../utils/csv.js';
 import { CertReminderService } from '../services/CertReminderService.js';
+import { writeAudit } from '../utils/auditLog.js';
 
 const createUserSchema = z.object({
   username: z.string().min(3).max(50).regex(/^[a-zA-Z0-9_-]+$/),
@@ -78,38 +79,6 @@ class TxAbort extends Error {
     super(String(payload.error ?? 'Transaction aborted'));
     this.name = 'TxAbort';
   }
-}
-
-interface AuditEntry {
-  userId?: number;
-  username?: string;
-  action: string;
-  entityType?: string;
-  entityId?: number;
-  details?: Record<string, unknown>;
-  ipAddress?: string;
-}
-
-/**
- * Transaction-aware audit write. `logAudit` is deliberately fire-and-forget on
- * the pool, which would leave an audit row behind after a rollback; inside a
- * transaction we write through the same connection so the audit trail commits
- * or rolls back with the change it describes.
- */
-async function writeAudit(conn: PoolConnection, entry: AuditEntry): Promise<void> {
-  await conn.query(
-    `INSERT INTO audit_logs (user_id, username, action, entity_type, entity_id, details, ip_address)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`,
-    [
-      entry.userId ?? null,
-      entry.username ?? null,
-      entry.action,
-      entry.entityType ?? null,
-      entry.entityId ?? null,
-      entry.details ? JSON.stringify(entry.details) : null,
-      entry.ipAddress ?? null,
-    ]
-  );
 }
 
 export async function adminRoutes(app: FastifyInstance) {

@@ -11,6 +11,7 @@ import { toCSV } from '../utils/csv.js';
 import type { InvoicePDFRow, StudentAttendanceRow, RevenueMonthRow } from '../types/billing.js';
 import type { InvoicePDFData } from '../services/PDFService.js';
 import { httpError } from '../utils/httpError.js';
+import { logAudit } from '../utils/auditLog.js';
 import { RowDataPacket } from 'mysql2/promise';
 
 // --- Schemas ---
@@ -81,6 +82,7 @@ export async function billingRoutes(app: FastifyInstance) {
     const { organizationId, courseTypeId, pricePerStudent } = createPricingSchema.parse(request.body);
     try {
       const pricing = await service.upsertPricing(organizationId, courseTypeId, pricePerStudent);
+      logAudit({ userId: request.userId, action: 'save_course_pricing', entityType: 'course_pricing', entityId: pricing.id, details: { organizationId, courseTypeId, pricePerStudent }, ipAddress: request.ip });
       return { success: true, message: 'Pricing saved', data: pricing };
     } catch (err) { return handleError(err, reply, request); }
   });
@@ -90,6 +92,7 @@ export async function billingRoutes(app: FastifyInstance) {
     const { pricePerStudent } = updatePricingSchema.parse(request.body);
     try {
       const pricing = await service.updatePricing(parseInt(id), pricePerStudent);
+      logAudit({ userId: request.userId, action: 'update_course_pricing', entityType: 'course_pricing', entityId: pricing.id, details: { pricePerStudent }, ipAddress: request.ip });
       return { success: true, data: pricing };
     } catch (err) { return handleError(err, reply, request); }
   });
@@ -98,6 +101,7 @@ export async function billingRoutes(app: FastifyInstance) {
     const { id } = request.params as { id: string };
     try {
       await service.deletePricing(parseInt(id));
+      logAudit({ userId: request.userId, action: 'delete_course_pricing', entityType: 'course_pricing', entityId: parseInt(id), ipAddress: request.ip });
       return { success: true, message: 'Pricing deleted' };
     } catch (err) { return handleError(err, reply, request); }
   });
@@ -111,7 +115,7 @@ export async function billingRoutes(app: FastifyInstance) {
   app.post('/invoices', { preHandler: acctRole }, async (request, reply) => {
     const { courseId } = createInvoiceSchema.parse(request.body);
     try {
-      const invoice = await service.createInvoice(courseId);
+      const invoice = await service.createInvoice(courseId, { userId: request.userId, ipAddress: request.ip });
       return { success: true, message: 'Invoice created — pending approval', data: invoice };
     } catch (err) { return handleError(err, reply, request); }
   });
@@ -174,6 +178,7 @@ export async function billingRoutes(app: FastifyInstance) {
       const invoice = approvalStatus === 'approved'
         ? await service.approve(parseInt(id), request.userId)
         : await service.reject(parseInt(id), notes ?? '', request.userId);
+      logAudit({ userId: request.userId, action: approvalStatus === 'approved' ? 'approve_invoice' : 'reject_invoice', entityType: 'invoice', entityId: invoice.id, details: { notes }, ipAddress: request.ip });
       return { success: true, message: `Invoice ${approvalStatus}`, data: invoice };
     } catch (err) { return handleError(err, reply, request); }
   });
@@ -182,6 +187,7 @@ export async function billingRoutes(app: FastifyInstance) {
     const { id } = request.params as { id: string };
     try {
       const invoice = await service.resubmit(parseInt(id));
+      logAudit({ userId: request.userId, action: 'resubmit_invoice', entityType: 'invoice', entityId: invoice.id, ipAddress: request.ip });
       return { success: true, message: 'Invoice resubmitted for approval', data: invoice };
     } catch (err) { return handleError(err, reply, request); }
   });
@@ -189,7 +195,7 @@ export async function billingRoutes(app: FastifyInstance) {
   app.put('/invoices/:id/fix-calculations', { preHandler: acctRole }, async (request, reply) => {
     const { id } = request.params as { id: string };
     try {
-      const result = await service.fixCalculations(parseInt(id));
+      const result = await service.fixCalculations(parseInt(id), { userId: request.userId, ipAddress: request.ip });
       return { success: true, message: 'Calculations fixed', data: result };
     } catch (err) { return handleError(err, reply, request); }
   });
@@ -197,7 +203,7 @@ export async function billingRoutes(app: FastifyInstance) {
   app.put('/invoices/:id/post-to-org', { preHandler: acctRole }, async (request, reply) => {
     const { id } = request.params as { id: string };
     try {
-      const invoice = await service.postToOrg(parseInt(id), request.userId);
+      const invoice = await service.postToOrg(parseInt(id), request.userId, { userId: request.userId, ipAddress: request.ip });
       return { success: true, message: 'Invoice posted to organization', data: invoice };
     } catch (err) { return handleError(err, reply, request); }
   });
@@ -212,7 +218,7 @@ export async function billingRoutes(app: FastifyInstance) {
     const { id } = request.params as { id: string };
     const { amount, paymentMethod, reference, paymentDate, notes } = paymentSchema.parse(request.body);
     try {
-      const payment = await service.recordPayment(parseInt(id), amount, paymentMethod, reference, { paymentDate, notes });
+      const payment = await service.recordPayment(parseInt(id), amount, paymentMethod, reference, { paymentDate, notes }, { userId: request.userId, ipAddress: request.ip });
       return { success: true, message: 'Payment recorded', data: payment };
     } catch (err) { return handleError(err, reply, request); }
   });
@@ -550,6 +556,7 @@ export async function billingRoutes(app: FastifyInstance) {
         step: data.step,
         reset_policy: data.resetPolicy,
       });
+      logAudit({ userId: request.userId, action: 'save_invoice_sequence', entityType: 'organization', entityId: data.organizationId, details: { ...data }, ipAddress: request.ip });
       return { success: true, data: seq };
     } catch (err) {
       return reply.status(400).send({ error: httpError(err).message });
@@ -561,6 +568,7 @@ export async function billingRoutes(app: FastifyInstance) {
     const { orgId } = request.params as { orgId: string };
     const deleted = await invoiceNumberService.deleteSequence(parseInt(orgId));
     if (!deleted) return reply.status(404).send({ error: 'No sequence found for this organization' });
+    logAudit({ userId: request.userId, action: 'delete_invoice_sequence', entityType: 'organization', entityId: parseInt(orgId), ipAddress: request.ip });
     return { success: true, message: 'Sequence deleted — organization will use system default' };
   });
 }

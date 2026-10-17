@@ -10,6 +10,7 @@ import { PDFService } from '../services/PDFService.js';
 import { ObjectStorage } from '../services/ObjectStorage.js';
 import { maybePaginate, paginatedResponse } from '../utils/pagination.js';
 import { httpError } from '../utils/httpError.js';
+import { logAudit } from '../utils/auditLog.js';
 import type { RowDataPacket, ResultSetHeader } from 'mysql2/promise';
 
 /** Validate file content by checking magic bytes against expected MIME type. */
@@ -263,6 +264,7 @@ export async function vendorRoutes(app: FastifyInstance) {
          pdfFilename, data.rate, subtotal, data.hst, total, request.userId]
       );
 
+      logAudit({ userId: request.userId, action: 'create_vendor_invoice', entityType: 'vendor_invoice', entityId: result.insertId, details: { vendorId: targetVendorId, invoiceNumber: data.invoice_number, total: Number(total) }, ipAddress: request.ip });
       return { success: true, message: 'Invoice submitted successfully', invoice_id: result.insertId };
     } catch (err) {
       const { statusCode, message } = httpError(err);
@@ -329,6 +331,7 @@ export async function vendorRoutes(app: FastifyInstance) {
       [id, vendorId]
     );
     if (result.affectedRows === 0) return reply.status(404).send({ error: 'Invoice not found or not ready to submit' });
+    logAudit({ userId: request.userId, action: 'submit_vendor_invoice', entityType: 'vendor_invoice', entityId: parseInt(id), details: { vendorId }, ipAddress: request.ip });
     return { success: true, message: 'Invoice submitted to admin successfully' };
   });
 
@@ -395,6 +398,7 @@ export async function vendorRoutes(app: FastifyInstance) {
       [notes, id, vendorId]
     );
     if (result.affectedRows === 0) return reply.status(404).send({ error: 'Invoice not found or not in rejected state' });
+    logAudit({ userId: request.userId, action: 'resend_vendor_invoice', entityType: 'vendor_invoice', entityId: parseInt(id), details: { vendorId, notes }, ipAddress: request.ip });
     return { success: true, message: 'Invoice resent to admin successfully' };
   });
 }

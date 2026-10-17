@@ -7,6 +7,7 @@ import { getHSTRate } from '../utils/taxConfig.js';
 import { PaginationParams } from '../utils/pagination.js';
 import type { PaymentRow, BillingQueueRow } from '../types/billing.js';
 import type { RowDataPacket, ResultSetHeader } from 'mysql2/promise';
+import { writeAudit, type AuditActor } from '../utils/auditLog.js';
 
 const INVOICE_DUE_DAYS = 30;
 
@@ -70,7 +71,7 @@ export class BillingService {
 
   // --- Invoice creation ---
 
-  async createInvoice(courseId: number): Promise<Invoice> {
+  async createInvoice(courseId: number, actor?: AuditActor): Promise<Invoice> {
     if (!courseId) throw new BillingError('Course ID is required');
 
     const pool = getPool();
@@ -131,6 +132,9 @@ export class BillingService {
         [courseId]
       );
 
+      if (actor) {
+        await writeAudit(conn, { ...actor, action: 'create_invoice', entityType: 'invoice', entityId: result.insertId, details: { courseId, invoiceNumber, amount: totalAmount } });
+      }
       await conn.commit();
 
       const invoice = await this.invoiceRepo.findById(result.insertId);
@@ -217,7 +221,7 @@ export class BillingService {
 
   // --- Post to org ---
 
-  async postToOrg(id: number, postedBy: number): Promise<Invoice> {
+  async postToOrg(id: number, postedBy: number, actor?: AuditActor): Promise<Invoice> {
     const pool = getPool();
     const conn = await pool.getConnection();
 
@@ -252,6 +256,9 @@ export class BillingService {
         );
       }
 
+      if (actor) {
+        await writeAudit(conn, { ...actor, action: 'post_invoice_to_org', entityType: 'invoice', entityId: id, details: { invoiceNumber: invoice.invoice_number } });
+      }
       await conn.commit();
 
       logger.info({ invoiceId: id }, 'Invoice posted to org');
@@ -266,7 +273,7 @@ export class BillingService {
 
   // --- Fix calculations ---
 
-  async fixCalculations(id: number): Promise<{ oldAmount: number; newAmount: number }> {
+  async fixCalculations(id: number, actor?: AuditActor): Promise<{ oldAmount: number; newAmount: number }> {
     const pool = getPool();
     const conn = await pool.getConnection();
 
@@ -295,6 +302,9 @@ export class BillingService {
         [totalAmount, inv.price_per_student, id]
       );
 
+      if (actor) {
+        await writeAudit(conn, { ...actor, action: 'fix_invoice_calculations', entityType: 'invoice', entityId: id, details: { oldAmount: Number(inv.amount), newAmount: totalAmount } });
+      }
       await conn.commit();
       return { oldAmount: inv.amount, newAmount: totalAmount };
     } catch (err) {
@@ -317,6 +327,7 @@ export class BillingService {
     paymentMethod: string,
     reference?: string,
     extra?: { paymentDate?: string; notes?: string },
+    actor?: AuditActor,
   ): Promise<{ id: number; amount: number; totalPaid: number }> {
     if (!amount || amount <= 0) throw new BillingError('Valid payment amount is required');
 
@@ -374,6 +385,9 @@ export class BillingService {
         );
       }
 
+      if (actor) {
+        await writeAudit(conn, { ...actor, action: 'record_payment', entityType: 'payment', entityId: result.insertId, details: { invoiceId, amount, paymentMethod, reference } });
+      }
       await conn.commit();
       logger.info({ invoiceId, amount, paymentId: result.insertId }, 'Payment recorded');
       return { id: result.insertId, amount, totalPaid };

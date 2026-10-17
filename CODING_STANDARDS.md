@@ -34,12 +34,10 @@ The app runs on shared cPanel hosting (LiteSpeed lsnode) with a hard cap of
 - SQL is always parameterised (`?`). Never build SQL from request input.
 - Never log or return passwords, hashes, tokens or keys. Secrets come from env
   vars, never from code.
-- New or changed writes to money, users or permissions add an audit entry:
-  `logAudit` (fire-and-forget), or `writeAudit(conn, …)` in
-  `routes/admin.ts` inside a transaction. The money routes (billing,
-  org-billing, payroll, pay-rates, organization-pricing) have none yet
-  (TODO.md); a change there should add one for what it touches, but the
-  existing gap is not a must-fix.
+- Every write to money, users or permissions adds an audit entry, from
+  `backend/src/utils/auditLog.ts`: `logAudit` (fire-and-forget) after the
+  change succeeds, or `await writeAudit(conn, …)` before `commit()` inside a
+  transaction, so the entry rolls back with the change.
 
 ## 4. Database
 
