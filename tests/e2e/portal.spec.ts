@@ -19,6 +19,25 @@ function logoutLocator(pg: Page) {
   return pg.locator('button:has-text("Logout"), [role="button"]:has-text("Logout")');
 }
 
+/** Open the portal, click Logout and expect /login.
+ *  A full page load first re-checks the session, which on shared hosting can
+ *  take well over 15s, so wait generously and reload once if the shell never
+ *  rendered (same approach as loginAs). */
+async function logoutFrom(pg: Page, portalPath: string) {
+  test.setTimeout(150000);
+  await pg.goto(portalPath, { waitUntil: 'domcontentloaded' });
+  const btn = logoutLocator(pg).first();
+  try {
+    await expect(btn).toBeVisible({ timeout: 45000 });
+  } catch {
+    await pg.reload({ waitUntil: 'domcontentloaded' });
+    await expect(btn).toBeVisible({ timeout: 45000 });
+  }
+  await btn.click();
+  await pg.waitForURL(/login/, { timeout: 30000 });
+  await expect(pg).toHaveURL(/login/);
+}
+
 // ── Instructor ───────────────────────────────────────────────────────────────
 test.describe.serial('Instructor (login, portal, logout)', () => {
   let ctx: BrowserContext;
@@ -57,12 +76,7 @@ test.describe.serial('Instructor (login, portal, logout)', () => {
   });
 
   test('logout redirects to /login', async () => {
-    await pg.goto('/instructor/dashboard', { waitUntil: 'domcontentloaded' });
-    const btn = logoutLocator(pg);
-    await expect(btn.first()).toBeVisible({ timeout: 15000 });
-    await btn.first().click();
-    await pg.waitForURL(/login/, { timeout: 10000 });
-    await expect(pg).toHaveURL(/login/);
+    await logoutFrom(pg, '/instructor/dashboard');
   });
 });
 
@@ -103,12 +117,7 @@ test.describe.serial('Accountant (login, portal, logout)', () => {
   });
 
   test('logout redirects to /login', async () => {
-    await pg.goto('/accounting/dashboard', { waitUntil: 'domcontentloaded' });
-    const btn = logoutLocator(pg);
-    await expect(btn.first()).toBeVisible({ timeout: 15000 });
-    await btn.first().click();
-    await pg.waitForURL(/login/, { timeout: 10000 });
-    await expect(pg).toHaveURL(/login/);
+    await logoutFrom(pg, '/accounting/dashboard');
   });
 });
 
@@ -149,13 +158,7 @@ test.describe.serial('Sysadmin (login, portal, logout)', () => {
   });
 
   test('logout redirects to /login', async () => {
-    await pg.goto('/sysadmin/dashboard', { waitUntil: 'domcontentloaded' });
-    // Sysadmin has ListItem with text "Logout" in sidebar
-    const btn = logoutLocator(pg);
-    await expect(btn.first()).toBeVisible({ timeout: 15000 });
-    await btn.first().click();
-    await pg.waitForURL(/login/, { timeout: 10000 });
-    await expect(pg).toHaveURL(/login/);
+    await logoutFrom(pg, '/sysadmin/dashboard');
   });
 });
 
@@ -201,12 +204,7 @@ test.describe.serial('Admin (login, portal, logout)', () => {
   });
 
   test('logout via user menu redirects to /login', async () => {
-    await pg.goto('/admin/dashboard', { waitUntil: 'domcontentloaded' });
-    const btn = logoutLocator(pg);
-    await expect(btn.first()).toBeVisible({ timeout: 15000 });
-    await btn.first().click();
-    await pg.waitForURL(/login/, { timeout: 10000 });
-    await expect(pg).toHaveURL(/login/);
+    await logoutFrom(pg, '/admin/dashboard');
   });
 });
 
@@ -247,12 +245,7 @@ test.describe.serial('Organization (login, portal, logout)', () => {
   });
 
   test('logout redirects to /login', async () => {
-    await pg.goto('/organization/dashboard', { waitUntil: 'domcontentloaded' });
-    const btn = logoutLocator(pg);
-    await expect(btn.first()).toBeVisible({ timeout: 15000 });
-    await btn.first().click();
-    await pg.waitForURL(/login/, { timeout: 10000 });
-    await expect(pg).toHaveURL(/login/);
+    await logoutFrom(pg, '/organization/dashboard');
   });
 });
 
@@ -293,13 +286,7 @@ test.describe.serial('Vendor (login, portal, logout)', () => {
   });
 
   test('logout redirects to /login', async () => {
-    await pg.goto('/vendor/dashboard', { waitUntil: 'domcontentloaded' });
-    // Vendor has Button "Logout" in AppBar
-    const btn = pg.locator('button:has-text("Logout")');
-    await expect(btn.first()).toBeVisible({ timeout: 15000 });
-    await btn.first().click();
-    await pg.waitForURL(/login/, { timeout: 10000 });
-    await expect(pg).toHaveURL(/login/);
+    await logoutFrom(pg, '/vendor/dashboard');
   });
 });
 
@@ -338,12 +325,7 @@ test.describe.serial('HR (login, portal, logout)', () => {
   });
 
   test('logout redirects to /login', async () => {
-    await pg.goto('/hr', { waitUntil: 'domcontentloaded' });
-    const btn = logoutLocator(pg);
-    await expect(btn.first()).toBeVisible({ timeout: 15000 });
-    await btn.first().click();
-    await pg.waitForURL(/login/, { timeout: 10000 });
-    await expect(pg).toHaveURL(/login/);
+    await logoutFrom(pg, '/hr');
   });
 });
 
@@ -387,11 +369,6 @@ test.describe.serial('CourseAdmin (login, portal, logout)', () => {
   });
 
   test('logout via user menu redirects to /login', async () => {
-    await pg.goto('/admin/dashboard', { waitUntil: 'domcontentloaded' });
-    const btn = logoutLocator(pg);
-    await expect(btn.first()).toBeVisible({ timeout: 15000 });
-    await btn.first().click();
-    await pg.waitForURL(/login/, { timeout: 10000 });
-    await expect(pg).toHaveURL(/login/);
+    await logoutFrom(pg, '/admin/dashboard');
   });
 });
