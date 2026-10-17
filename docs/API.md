@@ -5,7 +5,7 @@ _Generated from the route table by `npm run docs:api` (backend/scripts/generate-
 Base URL: `/api/v1` (except the two root-level health/metrics endpoints).
 Auth: send the access token as `Authorization: Bearer <token>`. Role guards are enforced per route (`requireRole`); see the route file for the exact roles.
 
-**269 endpoints across 30 groups.**
+**270 endpoints across 30 groups.**
 
 ## Accounting
 
@@ -21,6 +21,7 @@ Billing — invoices, pricing, payments, reports
 | DELETE | `/accounting/course-pricing/{id}` | Bearer |  |
 | GET | `/accounting/course-types` | Bearer |  |
 | GET | `/accounting/dashboard` | Bearer |  |
+| GET | `/accounting/financial-summary` | Bearer |  |
 | GET | `/accounting/invoice-sequences` | Bearer |  |
 | PUT | `/accounting/invoice-sequences` | Bearer |  |
 | GET | `/accounting/invoice-sequences/{orgId}` | Bearer |  |
