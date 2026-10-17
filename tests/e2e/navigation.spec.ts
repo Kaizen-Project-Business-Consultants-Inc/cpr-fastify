@@ -41,6 +41,8 @@ for (const role of ROLES) {
       test.setTimeout(240000);
       const sidebar = pg.locator('nav[aria-label="Sidebar"]');
       await expect(sidebar).toBeVisible({ timeout: 30000 });
+      // The nav can render before its items on a slow first load; wait for them.
+      await expect(sidebar.locator('button, a, [role="button"]').first()).toBeVisible({ timeout: 45000 });
       const labels = (await sidebar.locator('button, a, [role="button"]').allInnerTexts())
         .map((t) => t.trim())
         .filter((t) => t && !/logout|sign out/i.test(t));
