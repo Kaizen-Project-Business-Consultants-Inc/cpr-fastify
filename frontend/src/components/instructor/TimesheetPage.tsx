@@ -2,7 +2,6 @@ import React, { useState } from 'react';
 import { Box, Tabs, Tab } from '@mui/material';
 import TimesheetSubmission from './TimesheetSubmission';
 import TimesheetHistory from './TimesheetHistory';
-import PaymentHistory from './PaymentHistory';
 
 interface TabPanelProps {
   children?: React.ReactNode;
@@ -45,7 +44,6 @@ const TimesheetPage: React.FC = () => {
         >
           <Tab label="Submit Timesheet" id="timesheet-tab-0" aria-controls="timesheet-tabpanel-0" />
           <Tab label="Timesheet History" id="timesheet-tab-1" aria-controls="timesheet-tabpanel-1" />
-          <Tab label="Payment History" id="timesheet-tab-2" aria-controls="timesheet-tabpanel-2" />
         </Tabs>
       </Box>
 
@@ -55,9 +53,8 @@ const TimesheetPage: React.FC = () => {
       <TabPanel value={tabValue} index={1}>
         <TimesheetHistory />
       </TabPanel>
-      <TabPanel value={tabValue} index={2}>
-        <PaymentHistory />
-      </TabPanel>
+      {/* Payment History tab hidden 2026-10-17 (owner's choice): it reads instructor payment
+          requests, which have no backend yet. PaymentHistory.tsx stays for when that is built. */}
     </Box>
   );
 };

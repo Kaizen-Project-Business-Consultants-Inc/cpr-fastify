@@ -138,7 +138,7 @@ export interface UserProfileResponse {
 class HRDashboardService {
   // Get HR Dashboard Statistics
   async getDashboardStats(): Promise<HRDashboardStats> {
-    const response = await api.get<HRDashboardResponse>('/hr-dashboard/stats');
+    const response = await api.get<HRDashboardResponse>('/hr/dashboard');
     return response.data.data;
   }
 
@@ -150,7 +150,7 @@ class HRDashboardService {
       ...(search && { search })
     });
     
-    const response = await api.get<InstructorsResponse>(`/hr-dashboard/instructors?${params}`);
+    const response = await api.get<InstructorsResponse>(`/hr/instructors?${params}`);
     return response.data.data;
   }
 
@@ -162,7 +162,7 @@ class HRDashboardService {
       ...(search && { search })
     });
     
-    const response = await api.get<OrganizationsResponse>(`/hr-dashboard/organizations?${params}`);
+    const response = await api.get<OrganizationsResponse>(`/hr/organizations?${params}`);
     return response.data.data;
   }
 
@@ -173,7 +173,7 @@ class HRDashboardService {
       limit: limit.toString()
     });
     
-    const response = await api.get<PendingChangesResponse>(`/hr-dashboard/pending-changes?${params}`);
+    const response = await api.get<PendingChangesResponse>(`/hr/profile-changes?${params}`);
     return response.data.data;
   }
 
@@ -188,7 +188,7 @@ class HRDashboardService {
 
   // Get User Profile Details
   async getUserProfile(userId: number): Promise<UserProfileResponse['data']> {
-    const response = await api.get<UserProfileResponse>(`/hr-dashboard/user/${userId}`);
+    const response = await api.get<UserProfileResponse>(`/hr/user/${userId}`);
     return response.data.data;
   }
 }

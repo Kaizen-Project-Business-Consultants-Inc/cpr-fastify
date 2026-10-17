@@ -213,9 +213,8 @@ const PersonnelManagement: React.FC<PersonnelManagementProps> = ({ onViewChange:
                     <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>
                       {org.lastCourseDate ? formatDate(org.lastCourseDate) : '—'}
                     </Typography>
-                    <Box sx={{ display: 'flex', gap: 1, justifyContent: 'flex-end' }}>
-                      <Box onClick={() => handleViewUserDetails(org.id)} sx={{ fontSize: 12, fontWeight: 600, color: '#CC1F1F', cursor: 'pointer', '&:hover': { textDecoration: 'underline' } }}>View</Box>
-                    </Box>
+                    {/* No "View": the details dialog is a user profile (GET /hr/user/:id), and org.id is not a user id. */}
+                    <Box />
                   </DataTableRow>
                 ))}
               </DataTable>

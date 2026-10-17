@@ -200,58 +200,6 @@ export const useCompleteClass = () => {
   });
 };
 
-// Flexible student attendance type for mutations
-interface StudentAttendanceInput {
-  id?: number;
-  studentid?: string;
-  attended?: boolean;
-  attendance?: boolean;
-  [key: string]: unknown;
-}
-
-export const useUpdateAttendance = () => {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: async ({ courseId, students }: { courseId: number; students: StudentAttendanceInput[] }) => {
-      // Transform to API expected format
-      const transformedStudents = students.map(s => ({
-        studentid: s.studentid || String(s.id),
-        attendance: s.attendance ?? s.attended ?? false,
-      }));
-      const response = await instructorApi.updateAttendance(courseId, transformedStudents);
-      return extractData(response);
-    },
-    onSuccess: (_, { courseId }) => {
-      queryClient.invalidateQueries({ queryKey: INSTRUCTOR_QUERY_KEYS.classStudents(courseId) });
-      queryClient.invalidateQueries({ queryKey: INSTRUCTOR_QUERY_KEYS.classes });
-    },
-    onError: (error) => handleError(error, { component: 'instructorService', action: 'update attendance' }),
-  });
-};
-
-export const useMarkAttendance = () => {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: async ({ courseId, students }: { courseId: number; students: StudentAttendanceInput[] }) => {
-      // Transform to API expected format
-      const transformedStudents = students.map(s => ({
-        studentid: s.studentid || String(s.id),
-        attendance: s.attendance ?? s.attended ?? false,
-      }));
-      const response = await instructorApi.markAttendance(courseId, transformedStudents);
-      return extractData(response);
-    },
-    onSuccess: (_, { courseId }) => {
-      queryClient.invalidateQueries({ queryKey: INSTRUCTOR_QUERY_KEYS.classStudents(courseId) });
-      queryClient.invalidateQueries({ queryKey: INSTRUCTOR_QUERY_KEYS.classes });
-      queryClient.invalidateQueries({ queryKey: INSTRUCTOR_QUERY_KEYS.attendance });
-    },
-    onError: (error) => handleError(error, { component: 'instructorService', action: 'mark attendance' }),
-  });
-};
-
 export const useUpdateClassNotes = () => {
   const queryClient = useQueryClient();
   

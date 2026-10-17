@@ -86,13 +86,13 @@ export class HRService {
     }
 
     const [rows] = await pool.query<RowDataPacket[]>(
-      `SELECT u.id, u.username, u.email, u.phone, u.created_at, u.updated_at,
-              COUNT(DISTINCT cr.id) as total_courses,
-              COUNT(DISTINCT CASE WHEN cr.status = 'completed' THEN cr.id END) as completed_courses,
-              COUNT(DISTINCT CASE WHEN cr.status = 'confirmed' THEN cr.id END) as active_courses,
-              MAX(cr.completed_at) as last_course_date
+      `SELECT u.id, u.username, u.email, u.phone, u.created_at as createdAt, u.updated_at as updatedAt,
+              COUNT(DISTINCT cr.id) as totalCourses,
+              COUNT(DISTINCT CASE WHEN cr.status IN ('completed', 'invoiced') THEN cr.id END) as completedCourses,
+              COUNT(DISTINCT CASE WHEN cr.status = 'confirmed' THEN cr.id END) as activeCourses,
+              MAX(cr.completed_at) as lastCourseDate
        FROM users u
-       LEFT JOIN course_requests cr ON u.id = cr.instructor_id
+       LEFT JOIN course_requests cr ON u.id = cr.instructor_id AND cr.deleted_at IS NULL
        WHERE u.role = 'instructor' AND u.status = 'active' ${searchClause}
        GROUP BY u.id, u.username, u.email, u.phone, u.created_at, u.updated_at
        ORDER BY u.username
@@ -166,7 +166,10 @@ export class HRService {
     const pool = getPool();
 
     const [userRows] = await pool.query<RowDataPacket[]>(
-      `SELECT u.*, o.name as organization_name
+      `SELECT u.id, u.username, u.email, u.role, u.status, u.first_name as firstName, u.last_name as lastName,
+              u.phone, u.mobile, u.address, u.organization_id as organizationId, o.name as organizationName,
+              u.date_onboarded as dateOnboarded, u.date_offboarded as dateOffboarded,
+              u.created_at as createdAt, u.updated_at as updatedAt
        FROM users u LEFT JOIN organizations o ON u.organization_id = o.id
        WHERE u.id = ?`,
       [userId]
@@ -180,7 +183,8 @@ export class HRService {
     let courseHistory: RowDataPacket[] = [];
     if (user.role === 'instructor') {
       const [courses] = await pool.query<RowDataPacket[]>(
-        `SELECT cr.*, ct.name as course_type_name, o.name as organization_name
+        `SELECT cr.id, cr.status, ct.name as courseName, COALESCE(cr.confirmed_date, cr.scheduled_date) as courseDate,
+                o.name as organizationName, cr.location
          FROM course_requests cr
          LEFT JOIN class_types ct ON cr.course_type_id = ct.id
          LEFT JOIN organizations o ON cr.organization_id = o.id

@@ -9,7 +9,6 @@ import { AdminShell, PortalNotFound, LinkButton } from '../gtacpr';
 import { formatCurrency, formatDisplayDate as formatDate } from '../../utils/formatters';
 import { getErrorMessage } from '../../utils/errorMessage';
 import AccountingDashboard from './accounting/AccountingDashboard';
-import PaymentRequestsDashboard from '../accounting/PaymentRequestsDashboard';
 import VendorInvoiceManagement from './accounting/VendorInvoiceManagement';
 import PaidVendorInvoices from './accounting/PaidVendorInvoices';
 import FinancialSummaryView from '../accounting/FinancialSummaryView';
@@ -525,7 +524,6 @@ const pageConfig: Record<string, { eyebrow: string; title: string }> = {
   'rejected-invoices': { eyebrow: 'Billing', title: 'Rejected Invoices' },
   receivables: { eyebrow: 'Billing', title: 'Organization Receivables' },
   history: { eyebrow: 'Billing', title: 'Invoice History' },
-  'payment-requests': { eyebrow: 'Payments', title: 'Instructor Payment Requests' },
   verification: { eyebrow: 'Payments', title: 'Payment Verification' },
   reversal: { eyebrow: 'Payments', title: 'Payment Reversal' },
   'vendor-invoices': { eyebrow: 'Vendors', title: 'Vendor Invoices' },
@@ -541,7 +539,9 @@ const navItems = [
   { label: 'Rejected Invoices', path: '/accounting/rejected-invoices' },
   { label: 'Organization Receivables', path: '/accounting/receivables' },
   { label: 'Invoice History', path: '/accounting/history' },
-  { label: 'Instructor Payments', path: '/accounting/payment-requests' },
+  // "Instructor Payments" (PaymentRequestsDashboard) is hidden, 2026-10-17 (owner's choice):
+  // instructor payment requests have no backend yet (nothing lists, creates or approves them).
+  // The screen stays in the code for when that is built; HR → Payroll pays instructors.
   { label: 'Payment Verification', path: '/accounting/verification' },
   { label: 'Payment Reversal', path: '/accounting/reversal' },
   { label: 'Vendor Invoices', path: '/accounting/vendor-invoices' },
@@ -602,7 +602,6 @@ const AccountingPortal: React.FC = () => {
           <Route path="rejected-invoices" element={<RejectedInvoicesView />} />
           <Route path="receivables" element={<AccountsReceivableView />} />
           <Route path="history" element={<TransactionHistoryView />} />
-          <Route path="payment-requests" element={<PaymentRequestsDashboard />} />
           <Route path="verification" element={<PaymentVerificationView />} />
           <Route path="reversal" element={<PaymentReversalView />} />
           <Route path="vendor-invoices" element={<VendorInvoiceManagement />} />

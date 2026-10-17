@@ -93,6 +93,7 @@ const InstructorDashboard: React.FC = () => {
   };
 
   const getWorkloadStatus = (totalCourses: number, avgCourses: number): { status: string; color: 'error' | 'success' | 'warning' } => {
+    if (!avgCourses) return { status: 'Normal', color: 'success' }; // no courses this month
     const ratio = totalCourses / avgCourses;
     if (ratio > 1.2) return { status: 'High', color: 'error' };
     if (ratio > 0.8) return { status: 'Normal', color: 'success' };
@@ -334,7 +335,7 @@ const InstructorDashboard: React.FC = () => {
                 {instructorStats.map(instructor => {
                   const workloadStatus = getWorkloadStatus(
                     Number(instructor.totalCourses),
-                    Number(dashboardSummary?.avgCoursesPerInstructor || 1)
+                    Number(dashboardSummary?.avgCoursesPerInstructor ?? 0)
                   );
 
                   return (

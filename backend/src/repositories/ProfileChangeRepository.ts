@@ -21,11 +21,7 @@ export interface ProfileChangeWithUser extends ProfileChange {
   organization_name: string | null;
 }
 
-// HRDashboard.tsx (via hrDashboardService.ts) reads these in camelCase —
-// currently unreachable in practice because that service calls a
-// /hr-dashboard/* path that doesn't exist (a separate routing bug, not
-// fixed here), but fixing the casing now means it's already correct
-// whenever that routing gap gets closed.
+// HRDashboard.tsx and PersonnelManagement.tsx (via hrDashboardService.ts) read these in camelCase.
 const PC_CAMEL_COLS = `pc.user_id as userId, pc.change_type as changeType, pc.field_name as fieldName,
               pc.old_value as oldValue, pc.new_value as newValue, pc.hr_comment as hrComment,
               pc.created_at as createdAt, pc.updated_at as updatedAt`;
@@ -61,8 +57,10 @@ export class ProfileChangeRepository extends BaseRepository<ProfileChange> {
     userId: number,
     pagination?: PaginationParams,
   ): Promise<ProfileChange[] | PaginatedResult<ProfileChange>> {
-    const dataSQL = `SELECT id, change_type, field_name, old_value, new_value, status, hr_comment, created_at, updated_at
-       FROM profile_changes WHERE user_id = ? ORDER BY created_at DESC`;
+    const dataSQL = `SELECT id, change_type, field_name, old_value, new_value, status, hr_comment, created_at, updated_at,
+              change_type as changeType, field_name as fieldName, old_value as oldValue, new_value as newValue,
+              hr_comment as hrComment, created_at as createdAt, updated_at as updatedAt
+       FROM profile_changes WHERE user_id = ? ORDER BY created_at DESC, id DESC`;
 
     if (pagination) {
       return paginatedQuery<ProfileChange>(

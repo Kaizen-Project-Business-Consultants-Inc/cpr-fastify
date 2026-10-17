@@ -12,12 +12,20 @@ export interface Organization {
   updated_at: Date;
 }
 
-export interface OrganizationWithStats extends Organization {
-  total_courses: number;
-  completed_courses: number;
-  active_courses: number;
-  total_users: number;
-  last_course_date: Date | null;
+/** One row of HR → Personnel → Organizations, camelCase as that screen reads it. */
+export interface OrganizationWithStats {
+  id: number;
+  name: string;
+  address: string | null;
+  contactEmail: string | null;
+  contactPhone: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+  totalCourses: number;
+  completedCourses: number;
+  activeCourses: number;
+  totalUsers: number;
+  lastCourseDate: Date | null;
 }
 
 export class OrganizationRepository extends BaseRepository<Organization> {
@@ -36,19 +44,26 @@ export class OrganizationRepository extends BaseRepository<Organization> {
 
     const rows = await this.query<OrganizationWithStats>(
       `SELECT
-         o.id, o.name, o.contact_email, o.contact_phone, o.address,
-         o.created_at, o.updated_at,
-         COUNT(DISTINCT cr.id) as total_courses,
-         COUNT(DISTINCT CASE WHEN cr.status = 'completed' THEN cr.id END) as completed_courses,
-         COUNT(DISTINCT CASE WHEN cr.status = 'confirmed' THEN cr.id END) as active_courses,
-         COUNT(DISTINCT u.id) as total_users,
-         MAX(cr.created_at) as last_course_date
+         o.id, o.name, o.contact_email as contactEmail, o.contact_phone as contactPhone, o.address,
+         o.created_at as createdAt, o.updated_at as updatedAt,
+         COALESCE(c.total, 0) as totalCourses,
+         COALESCE(c.completed, 0) as completedCourses,
+         COALESCE(c.active, 0) as activeCourses,
+         COALESCE(us.users, 0) as totalUsers,
+         c.last_course as lastCourseDate
        FROM organizations o
-       LEFT JOIN course_requests cr ON o.id = cr.organization_id
-       LEFT JOIN users u ON o.id = u.organization_id
+       LEFT JOIN (
+         SELECT organization_id, COUNT(*) as total,
+                COUNT(CASE WHEN status IN ('completed', 'invoiced') THEN 1 END) as completed,
+                COUNT(CASE WHEN status = 'confirmed' THEN 1 END) as active,
+                MAX(created_at) as last_course
+         FROM course_requests WHERE deleted_at IS NULL GROUP BY organization_id
+       ) c ON c.organization_id = o.id
+       LEFT JOIN (
+         SELECT organization_id, COUNT(*) as users FROM users WHERE status = 'active' GROUP BY organization_id
+       ) us ON us.organization_id = o.id
        WHERE 1=1 ${searchClause}
-       GROUP BY o.id, o.name, o.contact_email, o.contact_phone, o.address, o.created_at, o.updated_at
-       ORDER BY o.name
+       ORDER BY o.name, o.id
        LIMIT ? OFFSET ?`,
       [...params, options.limit, options.offset]
     );

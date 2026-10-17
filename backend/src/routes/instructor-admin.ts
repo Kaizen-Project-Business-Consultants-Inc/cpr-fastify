@@ -5,6 +5,7 @@ import { getPool } from '../config/database.js';
 import { env } from '../config/env.js';
 import { requireRole } from '../plugins/auth.js';
 import { logAudit } from '../utils/auditLog.js';
+import { monthRangeOrThrow } from '../utils/monthRange.js';
 import type { RowDataPacket, ResultSetHeader } from 'mysql2/promise';
 
 /**
@@ -314,6 +315,70 @@ export async function instructorAdminRoutes(app: FastifyInstance) {
         lastName: r.last_name,
         availabilityStatus: 'Available',
       })),
+    };
+  });
+
+  // ===== Course Admin → Instructor Fairness Dashboard (InstructorDashboard.tsx) =====
+  // A course counts in the month of its confirmed date (or requested date until confirmed).
+  async function instructorMonthStats(month: string) {
+    const [from, to] = monthRangeOrThrow(month);
+    const courseDate = 'COALESCE(cr.confirmed_date, cr.scheduled_date)';
+    const [rows] = await pool.query<RowDataPacket[]>(
+      `SELECT u.id AS instructorId,
+              COALESCE(NULLIF(TRIM(CONCAT(COALESCE(u.first_name, ''), ' ', COALESCE(u.last_name, ''))), ''), u.username) AS instructorName,
+              u.email,
+              COUNT(DISTINCT CASE WHEN cr.status IN ('completed', 'invoiced') THEN cr.id END) AS coursesCompleted,
+              COUNT(DISTINCT CASE WHEN cr.status = 'confirmed' THEN cr.id END) AS coursesScheduled,
+              AVG(CASE WHEN cr.status IN ('completed', 'invoiced') THEN
+                (SELECT COUNT(*) FROM course_students s WHERE s.course_request_id = cr.id AND s.attended = 1 AND s.deleted_at IS NULL)
+              END) AS avgStudentsPerCourse,
+              (SELECT DATE_FORMAT(MAX(COALESCE(c2.confirmed_date, c2.scheduled_date)), '%Y-%m-%d')
+                 FROM course_requests c2
+                WHERE c2.instructor_id = u.id AND c2.deleted_at IS NULL AND c2.status IN ('completed', 'invoiced')) AS lastCourseDate
+         FROM users u
+         LEFT JOIN course_requests cr ON cr.instructor_id = u.id AND cr.deleted_at IS NULL
+              AND cr.status IN ('confirmed', 'completed', 'invoiced')
+              AND ${courseDate} >= ? AND ${courseDate} < ?
+        WHERE u.role = 'instructor' AND u.status = 'active'
+        GROUP BY u.id, u.first_name, u.last_name, u.username, u.email
+        ORDER BY instructorName, u.id`,
+      [from, to]
+    );
+    return rows.map((r) => {
+      const completed = Number(r.coursesCompleted);
+      const scheduled = Number(r.coursesScheduled);
+      const total = completed + scheduled;
+      return {
+        instructorId: r.instructorId,
+        instructorName: r.instructorName,
+        email: r.email,
+        coursesCompleted: completed,
+        coursesScheduled: scheduled,
+        totalCourses: total,
+        completionRate: total ? Math.round((completed / total) * 100) : 0,
+        avgStudentsPerCourse: r.avgStudentsPerCourse == null ? 0 : Math.round(Number(r.avgStudentsPerCourse) * 10) / 10,
+        lastCourseDate: r.lastCourseDate ?? null,
+      };
+    });
+  }
+
+  // GET /admin/instructor-stats?month=YYYY-MM: one row per active instructor plus the
+  // four totals above the table, from a single query.
+  app.get('/admin/instructor-stats', { preHandler: manageRole }, async (request) => {
+    const { month } = z.object({ month: z.string() }).parse(request.query);
+    const stats = await instructorMonthStats(month);
+    const totalCourses = stats.reduce((n, r) => n + r.totalCourses, 0);
+    return {
+      success: true,
+      data: {
+        stats,
+        summary: {
+          totalInstructors: stats.length,
+          totalCoursesThisMonth: totalCourses,
+          totalCompletedThisMonth: stats.reduce((n, r) => n + r.coursesCompleted, 0),
+          avgCoursesPerInstructor: stats.length ? Math.round((totalCourses / stats.length) * 10) / 10 : 0,
+        },
+      },
     };
   });
 }

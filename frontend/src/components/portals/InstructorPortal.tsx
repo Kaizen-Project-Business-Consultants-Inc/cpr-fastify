@@ -18,14 +18,6 @@ interface AvailabilityDate {
   [key: string]: unknown;
 }
 
-export interface StudentAttendance {
-  id?: number;
-  studentid?: string;
-  attended?: boolean;
-  attendance?: boolean;
-  [key: string]: unknown;
-}
-
 // Extended class item for accessing additional properties
 interface ExtendedClassItem extends ScheduledClass {
   completed?: boolean;
@@ -85,7 +77,6 @@ interface InstructorPortalProps {
   onAddAvailability: (date: string) => Promise<void>;
   onRemoveAvailability: (date: string) => Promise<void>;
   onCompleteClass: (courseId: number) => Promise<void>;
-  onUpdateAttendance: (courseId: number, students: StudentAttendance[]) => Promise<void>;
   onRefreshData: () => void;
 }
 
@@ -100,7 +91,6 @@ const InstructorPortal: React.FC<InstructorPortalProps> = ({
   onAddAvailability,
   onRemoveAvailability,
   onCompleteClass,
-  onUpdateAttendance: _onUpdateAttendance,
   onRefreshData,
 }) => {
   // Create combined schedule from scheduled classes and availability dates

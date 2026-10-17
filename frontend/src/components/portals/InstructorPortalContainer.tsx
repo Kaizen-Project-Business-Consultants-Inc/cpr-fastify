@@ -10,12 +10,11 @@ import {
   useAddAvailability,
   useRemoveAvailability,
   useCompleteClass,
-  useUpdateAttendance,
   useRefreshInstructorData
 } from '../../services/instructorService';
 import analytics from '../../services/analytics';
 import logger from '../../utils/logger';
-import InstructorPortal, { StudentAttendance } from './InstructorPortal';
+import InstructorPortal from './InstructorPortal';
 import ErrorBoundary from '../common/ErrorBoundary';
 
 const InstructorPortalContainer: React.FC = () => {
@@ -71,7 +70,6 @@ const InstructorPortalContainer: React.FC = () => {
   const addAvailabilityMutation = useAddAvailability();
   const removeAvailabilityMutation = useRemoveAvailability();
   const completeClassMutation = useCompleteClass();
-  const updateAttendanceMutation = useUpdateAttendance();
   const refreshData = useRefreshInstructorData();
 
   // Loading state
@@ -119,16 +117,6 @@ const InstructorPortalContainer: React.FC = () => {
     }
   }, [completeClassMutation]);
 
-  const handleUpdateAttendance = useCallback(async (courseId: number, students: StudentAttendance[]) => {
-    try {
-      await updateAttendanceMutation.mutateAsync({ courseId, students });
-      setSuccessState('Attendance updated successfully');
-    } catch (error: unknown) {
-      setError('Failed to update attendance');
-      logger.error('Update attendance error:', error);
-    }
-  }, [updateAttendanceMutation]);
-
   // Handle data refresh
   const handleRefreshData = useCallback(async () => {
     try {
@@ -164,7 +152,6 @@ const InstructorPortalContainer: React.FC = () => {
           onAddAvailability={handleAddAvailability}
           onRemoveAvailability={handleRemoveAvailability}
           onCompleteClass={handleCompleteClass}
-          onUpdateAttendance={handleUpdateAttendance}
           onRefreshData={handleRefreshData}
         />
 

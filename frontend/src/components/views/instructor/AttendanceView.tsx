@@ -16,7 +16,8 @@ import {
   DialogActions,
   TextField,
 } from '@mui/material';
-import { useTodayClasses, useClassStudents, useMarkAttendance } from '../../../services/instructorService';
+import { useQueryClient } from '@tanstack/react-query';
+import { useTodayClasses, useClassStudents, INSTRUCTOR_QUERY_KEYS } from '../../../services/instructorService';
 import { instructorApi } from '../../../services/api';
 import { handleError } from '../../../services/errorHandler';
 import DataTable, { DataTableRow } from '../../gtacpr/DataTable';
@@ -39,6 +40,16 @@ interface TodayClass {
   location?: string;
 }
 
+/** A row of GET /instructor/classes/:id/students. */
+interface RosterRow {
+  studentid: string;
+  firstname: string;
+  lastname: string;
+  email?: string;
+  attendance?: boolean;
+  attendanceMarked?: boolean;
+}
+
 interface AttendanceStudent {
   studentId: number;
   firstName: string;
@@ -56,8 +67,8 @@ const AttendanceView = ({ onAttendanceUpdate }: { onAttendanceUpdate?: () => voi
   const [newStudent, setNewStudent] = useState({ firstName: '', lastName: '', email: '' });
 
   const { data: todaysClasses = [] as TodayClass[], isLoading: loading, error: classesError } = useTodayClasses();
-  const { data: classStudents = [] as AttendanceStudent[], isLoading: studentsLoading } = useClassStudents(selectedClass?.courseId as number);
-  const markAttendanceMutation = useMarkAttendance();
+  const { data: classStudents = [] as RosterRow[], isLoading: studentsLoading } = useClassStudents(selectedClass?.courseId as number);
+  const queryClient = useQueryClient();
 
   // Seeds the locally-editable roster from the query result whenever the selected
   // class (and therefore the fetched roster) changes; students are then mutated
@@ -65,7 +76,14 @@ const AttendanceView = ({ onAttendanceUpdate }: { onAttendanceUpdate?: () => voi
   useEffect(() => {
     if (classStudents && selectedClass) {
       // eslint-disable-next-line react-hooks/set-state-in-effect
-      setStudents(classStudents as AttendanceStudent[]);
+      setStudents((classStudents as RosterRow[]).map((r) => ({
+        studentId: Number(r.studentid),
+        firstName: r.firstname,
+        lastName: r.lastname,
+        email: r.email,
+        attendance: r.attendance,
+        attendanceMarked: r.attendanceMarked,
+      })));
     }
   }, [classStudents, selectedClass]);
 
@@ -84,19 +102,21 @@ const AttendanceView = ({ onAttendanceUpdate }: { onAttendanceUpdate?: () => voi
 
   const handleAttendanceChange = async (studentId: number, attended: boolean) => {
     if (!selectedClass) return;
+    const before = students.find(student => student.studentId === studentId);
+    setStudents(prev => prev.map(student =>
+      student.studentId === studentId ? { ...student, attendance: attended, attendanceMarked: true } : student
+    ));
     try {
-      setStudents(prev => prev.map(student =>
-        student.studentId === studentId ? { ...student, attendance: attended, attendanceMarked: true } : student
-      ));
-      await markAttendanceMutation.mutateAsync({
-        courseId: selectedClass.courseId,
-        students: students.map(student => ({
-          studentId: student.studentId,
-          attended: student.studentId === studentId ? attended : !!student.attendance,
-        })),
-      });
+      // One tick marks one student (the same endpoint Class Attendance uses).
+      await instructorApi.updateStudentAttendance(selectedClass.courseId, String(studentId), attended);
+      queryClient.invalidateQueries({ queryKey: INSTRUCTOR_QUERY_KEYS.classStudents(selectedClass.courseId) });
       if (onAttendanceUpdate) onAttendanceUpdate();
     } catch (error) {
+      setStudents(prev => prev.map(student =>
+        student.studentId === studentId && before
+          ? { ...student, attendance: before.attendance, attendanceMarked: before.attendanceMarked }
+          : student
+      ));
       handleError(error, { component: 'AttendanceView', action: 'update attendance' });
       setError('Failed to update attendance');
     }

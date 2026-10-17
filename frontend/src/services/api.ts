@@ -626,8 +626,6 @@ export const instructorApi = {
   getClassStudents: (courseId: number) => api.get(`/instructor/classes/${courseId}/students`),
   completeClass: (courseId: number, instructorComments?: string) =>
     api.post(`/instructor/classes/${courseId}/complete`, { instructor_comments: instructorComments || '' }),
-  updateAttendance: (courseId: number, students: StudentData[]) =>
-    api.put(`/instructor/classes/${courseId}/attendance`, { students }),
   updateStudentAttendance: (courseId: number, studentId: string, attended: boolean) =>
     api.put(`/instructor/classes/${courseId}/students/${studentId}/attendance`, { attended }),
   addStudent: (courseId: number, studentData: StudentData) =>
@@ -641,8 +639,6 @@ export const instructorApi = {
 
   // Attendance
   getAttendance: () => api.get('/instructor/attendance'),
-  markAttendance: (courseId: number, students: StudentData[]) =>
-    api.post(`/instructor/classes/${courseId}/attendance`, { students }),
 
   // Dashboard data
   getDashboardStats: () => api.get('/instructor/dashboard/stats'),
@@ -1192,14 +1188,12 @@ export const emailTemplateApi = {
 export const fetchCourseAdminDashboardData = async (month: string) => {
   devLog('[Debug] api.ts - Fetching course admin dashboard data for month:', month);
   try {
-    const [statsResponse, summaryResponse] = await Promise.all([
-      api.get<ApiResponse<Record<string, unknown>>>(`/admin/instructor-stats?month=${month}`),
-      api.get<ApiResponse<Record<string, unknown>>>(`/admin/dashboard-summary?month=${month}`)
-    ]);
+    const statsResponse = await api.get<ApiResponse<{ stats: unknown[]; summary: unknown }>>('/admin/instructor-stats', { params: { month } });
+    const { stats, summary } = extractLegacyData(statsResponse);
 
     const data: { instructorStats: unknown; dashboardSummary: unknown } = {
-      instructorStats: extractLegacyData(statsResponse) || [],
-      dashboardSummary: extractLegacyData(summaryResponse) || null
+      instructorStats: stats || [],
+      dashboardSummary: summary || null
     };
 
     devLog('[Debug] api.ts - Course admin dashboard data received:', data);

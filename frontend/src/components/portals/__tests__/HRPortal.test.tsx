@@ -91,7 +91,7 @@ describe('HRPortal', () => {
       expect(screen.getByText('Pending Approvals')).toBeInTheDocument();
     });
 
-    expect(mockGet).toHaveBeenCalledWith('/hr-dashboard/stats');
+    expect(mockGet).toHaveBeenCalledWith('/hr/dashboard');
     // Real mocked numbers, not placeholder zeros.
     expect(screen.getByText('4')).toBeInTheDocument();
     expect(screen.getByText('23')).toBeInTheDocument();

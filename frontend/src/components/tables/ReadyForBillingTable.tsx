@@ -23,7 +23,6 @@ import {
 import { Receipt as InvoiceIcon, Visibility as ViewIcon, CheckCircle as PresentIcon, Cancel as AbsentIcon } from '@mui/icons-material';
 import { formatCurrency, formatDisplayDate, getHSTRate, getHSTLabel } from '../../utils/formatters';
 import api from '../../services/api';
-import { useAuth } from '../../contexts/AuthContext';
 import { getErrorMessage } from '../../utils/errorMessage';
 
 interface BillingStudent {
@@ -60,7 +59,6 @@ const ReadyForBillingTable = ({
   isLoading: boolean;
   error?: string | null;
 }) => {
-  const { user } = useAuth();
   const [creatingInvoice, setCreatingInvoice] = useState<Record<string, boolean>>({});
   const [selectedCourse, setSelectedCourse] = useState<BillingCourse | null>(null);
   const [previewOpen, setPreviewOpen] = useState(false);
@@ -76,50 +74,21 @@ const ReadyForBillingTable = ({
     }
     
     setLoadingStudents(true);
-    let endpoint = ''; // Declare endpoint outside try block
-    
     try {
-      // Debug user information
-      
-      // Use different endpoints based on user role
-      if (user?.role === 'instructor') {
-        // For instructors, use the instructor endpoint
-        endpoint = `/instructor/classes/${courseId}/students`;
-      } else {
-        // For accounting users, use the accounting endpoint
-        endpoint = `/accounting/courses/${courseId}/students`;
-      }
-      
-      const response = await api.get(endpoint);
-      
-      // Normalize the data format based on the endpoint used
-      let normalizedStudents = response.data.data || [];
-      if (user?.role === 'instructor') {
-        // Transform instructor endpoint format to match accounting format
-        normalizedStudents = normalizedStudents.map((student: {
-          studentId: number | string;
-          firstName?: string;
-          lastName?: string;
-          email?: string;
-          attendance?: boolean;
-          attendanceMarked?: boolean;
-        }) => ({
-          id: student.studentId,
-          firstName: student.firstName,
-          lastName: student.lastName,
-          email: student.email,
-          attended: student.attendance,
-          attendanceMarked: student.attendanceMarked,
-        }));
-      }
-
-      setStudents(normalizedStudents);
+      // Accounting's roster endpoint (rows use database column names).
+      const response = await api.get(`/courses/${courseId}/students`);
+      const rows: Array<{ id: number; first_name?: string; last_name?: string; email?: string; attended?: boolean; attendance_marked?: boolean }> =
+        response.data.data || [];
+      setStudents(rows.map((r) => ({
+        id: r.id,
+        firstName: r.first_name,
+        lastName: r.last_name,
+        email: r.email,
+        attended: !!r.attended,
+        attendanceMarked: !!r.attendance_marked,
+      })));
     } catch (error) {
-      console.error('[ReadyForBillingTable] Error fetching students:', error);
-      console.error('[ReadyForBillingTable] Error details:', {
-        message: getErrorMessage(error),
-        endpoint: endpoint,
-      });
+      console.error('[ReadyForBillingTable] Error fetching students:', getErrorMessage(error));
       setStudents([]);
     } finally {
       setLoadingStudents(false);
