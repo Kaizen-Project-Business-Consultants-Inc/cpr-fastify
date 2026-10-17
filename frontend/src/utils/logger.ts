@@ -6,9 +6,7 @@ const LOG_CONFIG = {
   suppressAll: false,
   suppressApiLogs: true,  // Suppress API request/response logs
   suppressDebugLogs: true, // Suppress debug logs
-  suppressDeepTrace: false, // Enable deep trace logs
   suppressInfoLogs: true,  // Suppress info logs
-  allowedDomains: ['nswma.gov.jm'],
 };
 
 // Check if message should be suppressed
@@ -26,8 +24,6 @@ const shouldSuppress = (message: string) => {
     message.includes('availableDates') ||
     message.includes('combinedSchedule')
   )) return true;
-  
-  if (LOG_CONFIG.suppressDeepTrace && message.includes('[DEEP TRACE]')) return true;
   
   if (LOG_CONFIG.suppressInfoLogs && message.includes('[INFO]')) return true;
   

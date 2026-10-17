@@ -97,6 +97,7 @@ export async function vendorRoutes(app: FastifyInstance) {
       return { success: true, data: rows[0] };
     } catch (err) {
       const { statusCode, message } = httpError(err);
+      if (statusCode >= 500) request.log.error({ err }, 'vendor route error');
       return reply.status(statusCode).send({ error: message });
     }
   });
@@ -117,6 +118,7 @@ export async function vendorRoutes(app: FastifyInstance) {
       return { success: true, message: 'Profile updated successfully' };
     } catch (err) {
       const { statusCode, message } = httpError(err);
+      if (statusCode >= 500) request.log.error({ err }, 'vendor route error');
       return reply.status(statusCode).send({ error: message });
     }
   });
@@ -142,6 +144,7 @@ export async function vendorRoutes(app: FastifyInstance) {
       };
     } catch (err) {
       const { statusCode, message } = httpError(err);
+      if (statusCode >= 500) request.log.error({ err }, 'vendor route error');
       return reply.status(statusCode).send({ error: message });
     }
   });
@@ -180,6 +183,7 @@ export async function vendorRoutes(app: FastifyInstance) {
       return paginatedResponse(result);
     } catch (err) {
       const { statusCode, message } = httpError(err);
+      if (statusCode >= 500) request.log.error({ err }, 'vendor route error');
       return reply.status(statusCode).send({ error: message });
     }
   });
@@ -268,6 +272,7 @@ export async function vendorRoutes(app: FastifyInstance) {
       return { success: true, message: 'Invoice submitted successfully', invoice_id: result.insertId };
     } catch (err) {
       const { statusCode, message } = httpError(err);
+      if (statusCode >= 500) request.log.error({ err }, 'vendor route error');
       return reply.status(statusCode).send({ error: message });
     }
   });

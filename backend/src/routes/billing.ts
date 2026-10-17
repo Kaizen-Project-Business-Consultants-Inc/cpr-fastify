@@ -48,9 +48,8 @@ const paymentSchema = z.object({
 
 function handleError(err: unknown, reply: FastifyReply, request?: import('fastify').FastifyRequest) {
   if (err instanceof BillingError) return reply.status(err.statusCode).send({ error: err.message });
-  // Anything else (e.g. a bad column in a query) fell through to Fastify's
-  // generic handler and came back as "An unexpected error occurred" — log
-  // and surface the real message instead.
+  // Anything else (e.g. a bad column in a query) is logged in full; the
+  // client gets httpError's generic message for a 500.
   const { statusCode, message } = httpError(err);
   request?.log.error({ err }, 'billing route error');
   return reply.status(statusCode).send({ error: message });
@@ -559,7 +558,9 @@ export async function billingRoutes(app: FastifyInstance) {
       logAudit({ userId: request.userId, action: 'save_invoice_sequence', entityType: 'organization', entityId: data.organizationId, details: { ...data }, ipAddress: request.ip });
       return { success: true, data: seq };
     } catch (err) {
-      return reply.status(400).send({ error: httpError(err).message });
+      const { statusCode, message } = httpError(err);
+      if (statusCode >= 500) request.log.error({ err }, 'Failed to save invoice sequence');
+      return reply.status(statusCode).send({ error: message });
     }
   });
 

@@ -397,21 +397,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, [user, loading, navigate]);
 
   const login = useCallback(async (username: string, password: string) => {
-    log('[DEEP TRACE] AuthContext.login - Starting login process:', {
-      username,
-      timestamp: new Date().toISOString()
-    });
-    
     try {
       setLoading(true);
       setError(null);
       
-      log('[DEEP TRACE] AuthContext.login - Calling authService.login');
       const response = await authService.login(username, password);
-      log('[DEEP TRACE] AuthContext.login - Login response received:', {
-        user: response.user,
-        timestamp: new Date().toISOString()
-      });
 
       setUser(normalizeUser(response.user as Record<string, unknown>));
 
@@ -423,8 +413,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       // Update session status
       const status = authService.getSessionStatus();
       setSessionStatus(status);
-
-      log('[DEEP TRACE] AuthContext.login - User state updated');
 
       // Navigate based on user role
       const roleRoutes = {
@@ -439,27 +427,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       };
 
       const targetRoute = roleRoutes[response.user.role as keyof typeof roleRoutes] || '/';
-      log('[DEEP TRACE] AuthContext.login - Navigating to:', {
-        role: response.user.role,
-        targetRoute,
-        timestamp: new Date().toISOString()
-      });
       
       // Set flag to indicate this is from auth flow for location restoration
       sessionStorage.setItem('from_auth_flow', 'true');
       navigate(targetRoute);
-      log('[DEEP TRACE] AuthContext.login - Navigation completed');
     } catch (err) {
-      log('[DEEP TRACE] AuthContext.login - Error occurred:', {
-        error: err,
-        message: err instanceof Error ? err.message : 'Unknown error',
-        timestamp: new Date().toISOString()
-      });
       setError(err instanceof Error ? err.message : 'Login failed');
       throw err;
     } finally {
       setLoading(false);
-      log('[DEEP TRACE] AuthContext.login - Login process completed');
     }
   }, [navigate]);
 

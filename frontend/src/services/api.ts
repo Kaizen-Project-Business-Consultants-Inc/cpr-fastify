@@ -82,9 +82,7 @@ api.interceptors.request.use(
       method: config.method?.toUpperCase(),
       url: config.url,
       baseURL: config.baseURL,
-      headers: config.headers,
       params: config.params,
-      data: config.data,
     });
     return config;
   },
@@ -124,8 +122,7 @@ api.interceptors.response.use(
     devLog('\n✅ [API RESPONSE]', {
       status: response.status,
       statusText: response.statusText,
-      headers: response.headers,
-      data: response.data,
+      url: response.config?.url,
     });
     return response;
   },

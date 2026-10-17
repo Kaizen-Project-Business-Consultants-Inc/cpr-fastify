@@ -63,12 +63,6 @@ const Login = () => {
       setSuggestions([]);
     } catch (err: unknown) {
       const errObj = err as { response?: { data?: { error?: string | { message?: string; retryAfter?: string; code?: string }; code?: string; suggestions?: string[] }; status?: number } };
-      console.error('[DEEP TRACE] Login error:', {
-        error: err,
-        response: errObj.response?.data,
-        status: errObj.response?.status,
-        timestamp: new Date().toISOString()
-      });
 
       const errorData = errObj.response?.data;
       let errorMessage = 'Failed to login. Please check your credentials.';

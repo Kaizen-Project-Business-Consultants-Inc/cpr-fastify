@@ -76,7 +76,6 @@ const ResetPassword = () => {
         navigate('/login');
       }, 3000);
     } catch (err: unknown) {
-      console.error('[Debug] ResetPassword - Password reset error:', err);
       const errObj = err as { response?: { data?: { error?: string; details?: { field: string }[] } } };
       const data = errObj.response?.data;
       // The server's "Validation failed" means a bad or expired link (token) or a too-short password.
