@@ -265,7 +265,7 @@ export async function adminRoutes(app: FastifyInstance) {
         'SELECT id, username, email, role, first_name, last_name, organization_id, created_at FROM users WHERE id = ?',
         [result.insertId]
       );
-      await writeAudit(conn, { userId: request.userId, username: request.userRole, action: 'create_user', entityType: 'user', entityId: result.insertId, details: { username: data.username, role: data.role }, ipAddress: request.ip });
+      await writeAudit(conn, { userId: request.userId, action: 'create_user', entityType: 'user', entityId: result.insertId, details: { username: data.username, role: data.role }, ipAddress: request.ip });
       return { success: true, message: 'User created successfully', data: rows[0] };
     });
   });
@@ -1049,33 +1049,50 @@ export async function adminRoutes(app: FastifyInstance) {
   });
 
   // ===== Audit Logs (sysadmin only) =====
-  app.get('/audit-logs', { preHandler: sysadminRole }, async (request) => {
-    const { action, entity_type, user_id, from, to, search, startDate, endDate } = request.query as Record<string, string>;
-    const pg = parsePagination(request.query as Record<string, string>);
+  // Entity types written by the money routes; entity_type=money selects all of them.
+  // The frontend menu (AuditLogViewer ENTITY_TYPE_OPTIONS) lists the same types.
+  const MONEY_ENTITY_TYPES = ['invoice', 'payment', 'course_pricing', 'organization_pricing', 'pay_rate_tier',
+    'payroll_payment', 'vendor_invoice', 'vendor_payment', 'timesheet'];
+  const MONEY_ACTIONS = ['set_instructor_pay_rate', 'bulk_set_instructor_pay_rate', 'save_invoice_sequence', 'delete_invoice_sequence'];
 
+  // Filters shared by the audit list and its CSV export. The user's current
+  // username comes from users (most entries store only user_id).
+  const AUDIT_FROM = 'FROM audit_logs a LEFT JOIN users u ON u.id = a.user_id';
+  const AUDIT_COLS = `a.id, a.user_id, COALESCE(u.username, a.username) AS username, a.action, a.entity_type,
+       a.entity_id, a.details, a.ip_address, a.created_at`;
+  function auditFilter(query: Record<string, string>) {
+    const { action, entity_type, user_id, from, to, search, startDate, endDate } = query;
     const conditions: string[] = [];
     const params: unknown[] = [];
 
-    if (action) { conditions.push('action = ?'); params.push(action); }
-    if (entity_type) { conditions.push('entity_type = ?'); params.push(entity_type); }
-    if (user_id) { conditions.push('user_id = ?'); params.push(parseInt(user_id)); }
+    if (action) { conditions.push('a.action = ?'); params.push(action); }
+    if (entity_type === 'money') {
+      conditions.push(`(a.entity_type IN (${MONEY_ENTITY_TYPES.map(() => '?').join(', ')}) OR a.action IN (${MONEY_ACTIONS.map(() => '?').join(', ')}))`);
+      params.push(...MONEY_ENTITY_TYPES, ...MONEY_ACTIONS);
+    } else if (entity_type) { conditions.push('a.entity_type = ?'); params.push(entity_type); }
+    if (user_id) { conditions.push('a.user_id = ?'); params.push(parseInt(user_id)); }
     if (search && search.trim().length >= 2) {
-      conditions.push('(username LIKE ? OR action LIKE ? OR CAST(details AS CHAR) LIKE ?)');
+      conditions.push('(a.username LIKE ? OR u.username LIKE ? OR a.action LIKE ? OR CAST(a.details AS CHAR) LIKE ?)');
       const term = `%${search.trim()}%`;
-      params.push(term, term, term);
+      params.push(term, term, term, term);
     }
     // Support both from/to and startDate/endDate param names
     const dateFrom = from || startDate;
     const dateTo = to || endDate;
-    if (dateFrom) { conditions.push('created_at >= ?'); params.push(dateFrom); }
-    if (dateTo) { conditions.push('created_at <= ?'); params.push(`${dateTo} 23:59:59`); }
+    if (dateFrom) { conditions.push('a.created_at >= ?'); params.push(dateFrom); }
+    if (dateTo) { conditions.push('a.created_at <= ?'); params.push(`${dateTo} 23:59:59`); }
 
-    const where = conditions.length > 0 ? 'WHERE ' + conditions.join(' AND ') : '';
+    return { where: conditions.length > 0 ? 'WHERE ' + conditions.join(' AND ') : '', params };
+  }
+
+  app.get('/audit-logs', { preHandler: sysadminRole }, async (request) => {
+    const pg = parsePagination(request.query as Record<string, string>);
+    const { where, params } = auditFilter(request.query as Record<string, string>);
 
     const result = await paginatedQuery(
-      `SELECT id, user_id, username, action, entity_type, entity_id, details, ip_address, created_at
-       FROM audit_logs ${where} ORDER BY created_at DESC`,
-      `SELECT COUNT(*) as count FROM audit_logs ${where}`,
+      `SELECT ${AUDIT_COLS}
+       ${AUDIT_FROM} ${where} ORDER BY a.created_at DESC`,
+      `SELECT COUNT(*) as count ${AUDIT_FROM} ${where}`,
       params,
       pg,
     );
@@ -1109,22 +1126,11 @@ export async function adminRoutes(app: FastifyInstance) {
   });
 
   app.get('/audit-logs/export/csv', { preHandler: sysadminRole }, async (request, reply) => {
-    const { action, entity_type, user_id, from, to } = request.query as Record<string, string>;
-
-    const conditions: string[] = [];
-    const params: unknown[] = [];
-
-    if (action) { conditions.push('action = ?'); params.push(action); }
-    if (entity_type) { conditions.push('entity_type = ?'); params.push(entity_type); }
-    if (user_id) { conditions.push('user_id = ?'); params.push(parseInt(user_id)); }
-    if (from) { conditions.push('created_at >= ?'); params.push(from); }
-    if (to) { conditions.push('created_at <= ?'); params.push(`${to} 23:59:59`); }
-
-    const where = conditions.length > 0 ? 'WHERE ' + conditions.join(' AND ') : '';
+    const { where, params } = auditFilter(request.query as Record<string, string>);
 
     const [rows] = await pool.query<RowDataPacket[]>(
-      `SELECT id, user_id, username, action, entity_type, entity_id, details, ip_address, created_at
-       FROM audit_logs ${where} ORDER BY created_at DESC LIMIT 10000`,
+      `SELECT ${AUDIT_COLS}
+       ${AUDIT_FROM} ${where} ORDER BY a.created_at DESC LIMIT 10000`,
       params,
     );
 

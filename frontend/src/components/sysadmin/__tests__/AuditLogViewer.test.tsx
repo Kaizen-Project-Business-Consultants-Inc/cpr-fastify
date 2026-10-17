@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 
 // Mock the API modules
 const mockGetAuditLogs = vi.fn();
@@ -40,6 +40,16 @@ describe('AuditLogViewer', () => {
     render(<AuditLogViewer onShowSnackbar={mockSnackbar} />);
     expect(screen.getByLabelText('Action')).toBeInTheDocument();
     expect(screen.getByLabelText('Entity Type')).toBeInTheDocument();
+  });
+
+  it('filters to all money activity from the Entity Type menu', async () => {
+    render(<AuditLogViewer onShowSnackbar={mockSnackbar} />);
+    fireEvent.mouseDown(screen.getByLabelText('Entity Type'));
+    fireEvent.click(await screen.findByRole('option', { name: 'All money activity' }));
+
+    await waitFor(() => {
+      expect(mockGetAuditLogs).toHaveBeenLastCalledWith(expect.objectContaining({ entity_type: 'money' }));
+    });
   });
 
   it('renders Export CSV button', async () => {
