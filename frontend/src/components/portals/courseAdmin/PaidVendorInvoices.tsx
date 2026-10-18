@@ -11,7 +11,6 @@ import {
 } from '@mui/material';
 import { api, adminApi } from '../../../services/api';
 import { useSnackbar } from '../../../contexts/SnackbarContext';
-import { useVendorInvoiceUpdates } from '../../../hooks/useVendorInvoiceUpdates';
 import useServerPagination from '../../../hooks/useServerPagination';
 import useDebounce from '../../../hooks/useDebounce';
 import StatCard from '../../gtacpr/StatCard';
@@ -160,18 +159,6 @@ const PaidVendorInvoices: React.FC = () => {
     loadSummary();
   }, [grid.load, loadSummary]);
 
-  // Real-time updates
-  const { isConnected } = useVendorInvoiceUpdates({
-    onStatusUpdate: (update) => {
-      // Refresh if an invoice becomes paid
-      if (update.newStatus === 'paid') {
-        refresh();
-      }
-    },
-    onNotesUpdate: () => {},
-    onRefresh: refresh
-  });
-
   useEffect(() => {
     refresh();
   }, [refresh]);
@@ -244,10 +231,6 @@ const PaidVendorInvoices: React.FC = () => {
         <Typography sx={{ fontSize: 24, fontWeight: 800, color: (theme) => theme.palette.text.primary }}>
           Paid Vendor Invoices
         </Typography>
-        <StatusChip
-          kind={isConnected ? 'success' : 'danger'}
-          label={isConnected ? 'Live Updates' : 'Offline'}
-        />
       </Box>
 
       {/* Summary Cards */}

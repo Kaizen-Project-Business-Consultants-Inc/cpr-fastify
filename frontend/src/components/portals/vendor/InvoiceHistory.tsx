@@ -19,7 +19,6 @@ import {
 } from '@mui/material';
 import { Close as CloseIcon } from '@mui/icons-material';
 import api, { vendorApi } from '../../../services/api';
-import { useVendorInvoiceUpdates } from '../../../hooks/useVendorInvoiceUpdates';
 import useServerPagination from '../../../hooks/useServerPagination';
 import useDebounce from '../../../hooks/useDebounce';
 import StatCard from '../../gtacpr/StatCard';
@@ -244,12 +243,6 @@ const InvoiceHistory: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [grid.load, serverStatus, debouncedSearch]);
 
-  const { isConnected } = useVendorInvoiceUpdates({
-    onStatusUpdate: () => {},
-    onNotesUpdate: () => {},
-    onRefresh: refreshAll,
-  });
-
   if (statsLoading && grid.items.length === 0) {
     return (
       <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: 400 }}>
@@ -416,11 +409,6 @@ const InvoiceHistory: React.FC = () => {
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-      {/* Connection indicator */}
-      <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>
-        <StatusChip kind={isConnected ? 'active' : 'danger'} label={isConnected ? 'Live Updates' : 'Offline'} />
-      </Box>
-
       {/* Workflow Steps */}
       <Box sx={{ border: (theme) => `1px solid ${theme.palette.divider}`, borderRadius: '10px', p: 3, bgcolor: (theme) => theme.palette.background.default }}>
         <Typography sx={{ fontSize: 13, fontWeight: 700, color: (theme) => theme.palette.text.secondary, textTransform: 'uppercase', letterSpacing: '0.07em', mb: 2 }}>Invoice Workflow</Typography>

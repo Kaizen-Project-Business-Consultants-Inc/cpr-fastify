@@ -1,9 +1,5 @@
-import { getInvoicePayments as apiGetInvoicePayments, recordInvoicePayment } from './api';
+import { recordInvoicePayment } from './api';
 import type { InvoicePaymentData } from '../types/api';
-
-export const getInvoicePayments = async (invoiceId: number) => {
-  return apiGetInvoicePayments(invoiceId);
-};
 
 /**
  * POST /accounting/invoices/:id/payments. The backend validates the body with a
@@ -14,7 +10,3 @@ export const recordPayment = async (invoiceId: number, paymentData: InvoicePayme
   return recordInvoicePayment(invoiceId, paymentData);
 };
 
-export default {
-  getInvoicePayments,
-  recordPayment,
-};

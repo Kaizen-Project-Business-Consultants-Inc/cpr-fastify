@@ -25,7 +25,6 @@ import { LinkButton, useConfirm } from '../../gtacpr';
 import { formatCurrency, formatDisplayDate, getTodayDate } from '../../../utils/formatters';
 import { api, adminApi } from '../../../services/api';
 import { useSnackbar } from '../../../contexts/SnackbarContext';
-import { useVendorInvoiceUpdates } from '../../../hooks/useVendorInvoiceUpdates';
 import useServerPagination from '../../../hooks/useServerPagination';
 import useDebounce from '../../../hooks/useDebounce';
 
@@ -246,13 +245,6 @@ const VendorInvoiceManagement: React.FC = () => {
     loadSummary();
   }, [grid.reload, loadSummary]);
 
-  // Real-time updates
-  const { isConnected } = useVendorInvoiceUpdates({
-    onStatusUpdate: () => {},
-    onNotesUpdate: () => {},
-    onRefresh: reloadCurrentPage
-  });
-
   // Changing the status filter or the search restarts at page 1.
   useEffect(() => {
     grid.load(1);
@@ -352,10 +344,6 @@ const VendorInvoiceManagement: React.FC = () => {
         <Typography sx={{ fontSize: 22, fontWeight: 700, color: (theme) => theme.palette.text.primary }}>
           Vendor Invoice Management
         </Typography>
-        <StatusChip
-          kind={isConnected ? 'success' : 'danger'}
-          label={isConnected ? 'Live Updates' : 'Offline'}
-        />
       </Box>
 
       {/* Summary Cards */}

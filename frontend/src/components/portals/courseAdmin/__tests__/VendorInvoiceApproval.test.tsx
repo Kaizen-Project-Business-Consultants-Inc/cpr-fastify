@@ -14,10 +14,6 @@ vi.mock('../../../../services/api', () => ({
   default: { get: (...args: unknown[]) => mockGet(...args) },
 }));
 
-vi.mock('../../../../hooks/useVendorInvoiceUpdates', () => ({
-  useVendorInvoiceUpdates: () => ({ isConnected: true }),
-}));
-
 import VendorInvoiceApproval from '../VendorInvoiceApproval';
 
 const invoice = (overrides: Record<string, unknown> = {}) => ({

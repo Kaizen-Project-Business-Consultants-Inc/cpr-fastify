@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
+import React, { useState, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Box, Alert, Snackbar } from '@mui/material';
 import { useAuth } from '../../contexts/AuthContext';
 import {
@@ -12,7 +12,6 @@ import {
   useCompleteClass,
   useRefreshInstructorData
 } from '../../services/instructorService';
-import analytics from '../../services/analytics';
 import logger from '../../utils/logger';
 import InstructorPortal from './InstructorPortal';
 import ErrorBoundary from '../common/ErrorBoundary';
@@ -20,45 +19,16 @@ import ErrorBoundary from '../common/ErrorBoundary';
 const InstructorPortalContainer: React.FC = () => {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
-  const location = useLocation();
 
   // Error handling
   const [error, setError] = useState<string | null>(null);
   const [successState, setSuccessState] = useState<string | null>(null);
 
-  // Get current view from URL
-  const getCurrentView = useCallback(() => {
-    const pathSegments = location.pathname.split('/');
-    return pathSegments[pathSegments.length - 1] || 'dashboard';
-  }, [location.pathname]);
-
-  // Analytics tracking
-  useEffect(() => {
-    if (user) {
-      analytics.setUser(user.id || user.username, {
-        role: user.role,
-        portal: 'instructor',
-      });
-    }
-  }, [user]);
-
-  useEffect(() => {
-    const currentView = getCurrentView();
-    analytics.trackPageView(`instructor_${currentView}`, {
-      portal: 'instructor',
-      view: currentView,
-    });
-  }, [location.pathname, getCurrentView]);
-
   // Error handler for error boundaries
   const handleError = useCallback((error: Error, errorInfo: { componentStack?: string | null }) => {
     logger.error('Instructor Portal Error:', error, errorInfo);
-    analytics.trackError(error, 'instructor_portal', {
-      componentStack: errorInfo.componentStack,
-      view: getCurrentView(),
-    });
     setError(error.message);
-  }, [getCurrentView]);
+  }, []);
 
   // Use centralized service hooks instead of direct API calls
   const { data: availableDates = [], isLoading: availabilityLoading } = useInstructorAvailability();

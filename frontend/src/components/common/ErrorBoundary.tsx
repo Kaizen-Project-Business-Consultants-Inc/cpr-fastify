@@ -21,7 +21,6 @@ import {
   Error as ErrorIcon,
 } from '@mui/icons-material';
 import logger from '../../utils/logger';
-import analytics from '../../services/analytics';
 
 /**
  * Enhanced error types for better categorization
@@ -312,8 +311,7 @@ class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
       this.props.onError(error, errorInfo);
     }
 
-    // Track error in analytics
-    logger.error('[ErrorBoundary] Analytics tracking:', {
+    logger.error('[ErrorBoundary] Error details:', {
       type: enhancedError.type,
       severity: enhancedError.severity,
       context: this.props.context || 'error_boundary',
@@ -360,21 +358,12 @@ class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
       retryCount: prevState.retryCount + 1,
       isRetrying: false,
     }));
-
-    // Track retry attempt
-    analytics.trackInstructorAction('error_boundary_retry', {
-      retryCount: this.state.retryCount + 1,
-      errorType: this.state.enhancedError?.type,
-    });
   };
 
   /**
    * Handles page reload
    */
   handleReload = () => {
-    analytics.trackInstructorAction('error_boundary_reload', {
-      errorType: this.state.enhancedError?.type,
-    });
     window.location.reload();
   };
 

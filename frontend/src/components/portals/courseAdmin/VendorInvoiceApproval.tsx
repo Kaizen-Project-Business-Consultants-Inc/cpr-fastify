@@ -16,7 +16,6 @@ import {
 } from '@mui/material';
 import { api, adminApi } from '../../../services/api';
 import logger from '../../../utils/logger';
-import { useVendorInvoiceUpdates } from '../../../hooks/useVendorInvoiceUpdates';
 import useServerPagination from '../../../hooks/useServerPagination';
 import useDebounce from '../../../hooks/useDebounce';
 import StatCard from '../../gtacpr/StatCard';
@@ -185,16 +184,6 @@ const VendorInvoiceApproval: React.FC = () => {
     grid.reload();
     loadCounts();
   }, [grid.reload, loadCounts]);
-
-  const { isConnected } = useVendorInvoiceUpdates({
-    onStatusUpdate: (update) => {
-      logger.info(`Real-time status update: Invoice ${update.invoiceId} ${update.action}d by ${update.updatedBy}`);
-    },
-    onNotesUpdate: (update) => {
-      logger.info(`Real-time notes update: Invoice ${update.invoiceId} notes updated by ${update.updatedBy}`);
-    },
-    onRefresh: reloadCurrentPage
-  });
 
   // Status filter and search restart at page 1; `refresh` changes identity with them.
   useEffect(() => {
@@ -371,10 +360,6 @@ const VendorInvoiceApproval: React.FC = () => {
           Vendor Invoice Approval
         </Typography>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-          <StatusChip
-            kind={isConnected ? 'success' : 'danger'}
-            label={isConnected ? 'Live Updates' : 'Offline'}
-          />
           <GhostButton onClick={refresh} disabled={grid.loading}>
             Refresh
           </GhostButton>

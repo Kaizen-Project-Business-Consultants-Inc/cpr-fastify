@@ -8,7 +8,6 @@ import React, {
   ReactNode,
 } from 'react';
 import logger from '../utils/logger';
-import analytics from '../services/analytics';
 import { registerToastHandler } from '../services/toastBridge';
 
 // Toast types and priorities
@@ -43,7 +42,7 @@ export interface Toast {
   showProgress?: boolean;
   metadata?: Record<string, unknown>;
   timestamp: number;
-  context?: string; // For analytics tracking
+  context?: string;
 }
 
 // Toast context interface
@@ -102,7 +101,6 @@ interface ToastProviderProps {
   defaultDuration?: number;
   position?: ToastPosition;
   enablePersistence?: boolean;
-  enableAnalytics?: boolean;
 }
 
 export const ToastProvider: React.FC<ToastProviderProps> = ({
@@ -111,7 +109,6 @@ export const ToastProvider: React.FC<ToastProviderProps> = ({
   defaultDuration = 5000,
   position = 'top-right',
   enablePersistence = true,
-  enableAnalytics = true,
 }) => {
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [currentMaxToasts, setCurrentMaxToasts] = useState(maxToasts);
@@ -127,22 +124,9 @@ export const ToastProvider: React.FC<ToastProviderProps> = ({
   // Dismiss a specific toast
   const dismissToast = useCallback(
     (id: string) => {
-      setToasts(prevToasts => {
-        const toast = prevToasts.find(t => t.id === id);
-        if (toast && enableAnalytics) {
-          analytics.trackInstructorAction('toast_dismissed', {
-            type: toast.type,
-            priority: toast.priority,
-            context: toast.context || 'unknown',
-            duration: Date.now() - toast.timestamp,
-            timestamp: new Date().toISOString(),
-          });
-        }
-
-        return prevToasts.filter(toast => toast.id !== id);
-      });
+      setToasts(prevToasts => prevToasts.filter(toast => toast.id !== id));
     },
-    [enableAnalytics]
+    []
   );
 
   // Show a new toast
@@ -200,37 +184,19 @@ export const ToastProvider: React.FC<ToastProviderProps> = ({
         }, newToast.duration);
       }
 
-      // Analytics tracking
-      if (enableAnalytics) {
-        analytics.trackInstructorAction('toast_shown', {
-          type: newToast.type,
-          priority: newToast.priority,
-          context: newToast.context || 'unknown',
-          hasActions: (newToast.actions?.length || 0) > 0,
-          timestamp: new Date().toISOString(),
-        });
-      }
-
       logger.info(
         `[ToastContext] Toast shown: ${newToast.type} - ${newToast.message}`
       );
       return id;
     },
-    [generateId, currentDefaultDuration, currentMaxToasts, enableAnalytics, dismissToast]
+    [generateId, currentDefaultDuration, currentMaxToasts, dismissToast]
   );
 
   // Dismiss all toasts
   const dismissAll = useCallback(() => {
-    if (enableAnalytics && toasts.length > 0) {
-      analytics.trackInstructorAction('toast_dismiss_all', {
-        count: toasts.length,
-        timestamp: new Date().toISOString(),
-      });
-    }
-
     setToasts([]);
     logger.info('[ToastContext] All toasts dismissed');
-  }, [toasts.length, enableAnalytics]);
+  }, []);
 
   // Update an existing toast
   const updateToast = useCallback((id: string, updates: Partial<Toast>) => {

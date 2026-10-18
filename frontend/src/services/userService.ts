@@ -20,19 +20,3 @@ export const updateUser = async (userId: number | string, userData: Partial<User
   return response.data;
 };
 
-export const getUsers = async () => {
-  const response = await api.get('/sysadmin/users');
-  return response.data?.data || response.data || [];
-};
-
-export const deleteUser = async (userId: number | string) => {
-  const response = await api.delete(`/sysadmin/users/${userId}`);
-  return response.data;
-};
-
-export default {
-  createUser,
-  updateUser,
-  getUsers,
-  deleteUser,
-};

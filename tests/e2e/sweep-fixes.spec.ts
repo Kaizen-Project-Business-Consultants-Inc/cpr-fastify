@@ -105,30 +105,29 @@ asRole('hr', (page) => {
 
 // ── Course Admin: Instructor Fairness Dashboard (new) and paged course lists ──
 asRole('courseadmin', (page) => {
-  test('Instructor Fairness Dashboard shows totals and the instructor table', async () => {
+  // One page load for both checks: reloading the same page twice on slow hosting can time out.
+  test('Instructor Management: fairness dashboard and 25-per-page course lists', async () => {
     const pg = page();
-    const res = await openAndWaitFor(pg, '/admin/instructors', '/admin/instructor-stats');
-    expect(res.status()).toBe(200);
-    const { stats, summary } = (await res.json()).data;
-    expect(Array.isArray(stats)).toBe(true);
-    expect(summary).toMatchObject({ totalInstructors: stats.length });
-    await expect(pg.getByText('Instructor Fairness Dashboard')).toBeVisible({ timeout: 30000 });
-    await expect(pg.getByText('Workload Status', { exact: true })).toBeVisible();
-    await expect(pg.getByText(/failed to fetch dashboard data/i)).toHaveCount(0);
-  });
-
-  test('Pending and completed course lists load 25 at a time', async () => {
-    const pg = page();
-    const [pending, completed] = await Promise.all([
+    const [statsRes, pending, completed] = await Promise.all([
+      apiResponse(pg, '/admin/instructor-stats'),
       apiResponse(pg, '/courses/pending', (r) => r.url().includes('limit=25')),
       apiResponse(pg, '/courses/completed', (r) => r.url().includes('limit=25')),
       pg.goto('/admin/instructors', { waitUntil: 'domcontentloaded' }),
     ]);
+
+    expect(statsRes.status()).toBe(200);
+    const { stats, summary } = (await statsRes.json()).data;
+    expect(Array.isArray(stats)).toBe(true);
+    expect(summary).toMatchObject({ totalInstructors: stats.length });
     for (const res of [pending, completed]) {
       expect(res.status()).toBe(200);
       expect((await res.json()).pagination).toMatchObject({ page: 1, limit: 25 });
     }
+
+    await expect(pg.getByText('Instructor Fairness Dashboard')).toBeVisible({ timeout: 30000 });
+    await expect(pg.getByText('Workload Status', { exact: true })).toBeVisible();
     await expect(pg.getByRole('button', { name: 'Refresh' }).first()).toBeVisible();
+    await expect(pg.getByText(/failed to fetch dashboard data/i)).toHaveCount(0);
     await expect(pg.getByText(/real-time updates are currently using polling/i)).toHaveCount(0);
   });
 });
@@ -169,6 +168,13 @@ asRole('accountant', (page) => {
     expect(res.status()).toBe(200);
     await expect(pg.getByRole('dialog')).toBeVisible();
     await pg.keyboard.press('Escape');
+  });
+
+  test('Vendor Invoices no longer shows a permanent "Offline" badge', async () => {
+    const pg = page();
+    await pg.goto('/accounting/vendor-invoices', { waitUntil: 'domcontentloaded' });
+    await expect(pg.getByText('Vendor Invoice Management')).toBeVisible({ timeout: 60000 });
+    await expect(pg.getByText('Offline', { exact: true })).toHaveCount(0);
   });
 
   test('"Instructor Payments" is hidden from the sidebar', async () => {

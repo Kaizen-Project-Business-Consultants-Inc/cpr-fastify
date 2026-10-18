@@ -12,7 +12,6 @@ import {
 } from '@mui/material';
 import { api, adminApi } from '../../../services/api';
 import { useSnackbar } from '../../../contexts/SnackbarContext';
-import { useVendorInvoiceUpdates } from '../../../hooks/useVendorInvoiceUpdates';
 import useServerPagination from '../../../hooks/useServerPagination';
 import useDebounce from '../../../hooks/useDebounce';
 import DataTable, { DataTableRow } from '../../gtacpr/DataTable';
@@ -151,16 +150,6 @@ const PaidVendorInvoices: React.FC = () => {
     loadSummary();
   }, [grid.load, loadSummary]);
 
-  const { isConnected } = useVendorInvoiceUpdates({
-    onStatusUpdate: (update) => {
-      if (update.newStatus === 'paid') {
-        refresh();
-      }
-    },
-    onNotesUpdate: () => {},
-    onRefresh: refresh
-  });
-
   useEffect(() => {
     refresh();
   }, [refresh]);
@@ -198,11 +187,6 @@ const PaidVendorInvoices: React.FC = () => {
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-      {/* Header */}
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <StatusChip kind={isConnected ? 'success' : 'danger'} label={isConnected ? 'Live Updates' : 'Offline'} />
-      </Box>
-
       {/* Summary Cards */}
       <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'repeat(2, 1fr)', md: 'repeat(4, 1fr)' }, gap: 2 }}>
         <StatCard label="Total Paid Invoices" value={summary.total} dotColor="#16A34A" />

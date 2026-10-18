@@ -6,7 +6,6 @@ import { LocalizationProvider } from '@mui/x-date-pickers';
 import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
 import { AuthProvider } from './contexts/AuthContext';
 import { ToastProvider } from './contexts/ToastContext';
-import { NetworkProvider } from './contexts/NetworkContext';
 import { CustomThemeProvider } from './contexts/ThemeContext';
 import ErrorBoundary from './components/common/ErrorBoundary';
 import ToastContainer from './components/common/ToastContainer';
@@ -86,14 +85,12 @@ try {
                 }}
               >
                 <AuthProvider>
-                  <NetworkProvider>
-                    <ToastProvider>
-                      <TokenValidationProvider>
-                        <App />
-                      </TokenValidationProvider>
-                      <ToastContainer />
-                    </ToastProvider>
-                  </NetworkProvider>
+                  <ToastProvider>
+                    <TokenValidationProvider>
+                      <App />
+                    </TokenValidationProvider>
+                    <ToastContainer />
+                  </ToastProvider>
                 </AuthProvider>
               </BrowserRouter>
             </LocalizationProvider>

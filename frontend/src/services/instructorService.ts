@@ -11,8 +11,6 @@ export const INSTRUCTOR_QUERY_KEYS = {
   classesCompleted: ['instructor', 'classes', 'completed'],
   classesActive: ['instructor', 'classes', 'active'],
   classStudents: (courseId: number) => ['instructor', 'classes', courseId, 'students'],
-  attendance: ['instructor', 'attendance'],
-  dashboardStats: ['instructor', 'dashboard', 'stats'],
 } as const;
 
 // Data extractors
@@ -92,21 +90,6 @@ export const useCompletedClasses = () => {
   });
 };
 
-// Hook for active classes
-export const useActiveClasses = () => {
-  const { user } = useAuth();
-  
-  return useQuery({
-    queryKey: INSTRUCTOR_QUERY_KEYS.classesActive,
-    queryFn: async () => {
-      const response = await instructorApi.getClassesActive();
-      return extractData(response);
-    },
-    enabled: !!user?.id,
-    staleTime: 2 * 60 * 1000, // 2 minutes
-  });
-};
-
 // Hook for class students
 export const useClassStudents = (courseId: number) => {
   const { user } = useAuth();
@@ -119,36 +102,6 @@ export const useClassStudents = (courseId: number) => {
     },
     enabled: !!user?.id && !!courseId,
     staleTime: 2 * 60 * 1000, // 2 minutes
-  });
-};
-
-// Hook for attendance
-export const useAttendance = () => {
-  const { user } = useAuth();
-  
-  return useQuery({
-    queryKey: INSTRUCTOR_QUERY_KEYS.attendance,
-    queryFn: async () => {
-      const response = await instructorApi.getAttendance();
-      return extractData(response);
-    },
-    enabled: !!user?.id,
-    staleTime: 1 * 60 * 1000, // 1 minute
-  });
-};
-
-// Hook for dashboard stats
-export const useDashboardStats = () => {
-  const { user } = useAuth();
-  
-  return useQuery({
-    queryKey: INSTRUCTOR_QUERY_KEYS.dashboardStats,
-    queryFn: async () => {
-      const response = await instructorApi.getDashboardStats();
-      return extractData(response);
-    },
-    enabled: !!user?.id,
-    staleTime: 5 * 60 * 1000, // 5 minutes
   });
 };
 
@@ -197,21 +150,6 @@ export const useCompleteClass = () => {
       queryClient.invalidateQueries({ queryKey: INSTRUCTOR_QUERY_KEYS.classesActive });
     },
     onError: (error) => handleError(error, { component: 'instructorService', action: 'complete class' }),
-  });
-};
-
-export const useUpdateClassNotes = () => {
-  const queryClient = useQueryClient();
-  
-  return useMutation({
-    mutationFn: async ({ courseId, notes }: { courseId: number; notes: string }) => {
-      const response = await instructorApi.updateClassNotes(courseId, notes);
-      return extractData(response);
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: INSTRUCTOR_QUERY_KEYS.classes });
-    },
-    onError: (error) => handleError(error, { component: 'instructorService', action: 'update class notes' }),
   });
 };
 

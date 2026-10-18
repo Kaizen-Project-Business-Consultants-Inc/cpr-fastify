@@ -18,7 +18,7 @@ export interface ErrorContext {
 }
 
 // Centralized error handling service
-export class ErrorHandler {
+class ErrorHandler {
   private static instance: ErrorHandler;
 
   static getInstance(): ErrorHandler {
@@ -225,20 +225,8 @@ export class ErrorHandler {
 }
 
 // Export singleton instance
-export const errorHandler = ErrorHandler.getInstance();
+const errorHandler = ErrorHandler.getInstance();
 
 // Export convenience functions
 export const handleError = (error: unknown, context?: ErrorContext, options?: Record<string, unknown>) =>
   errorHandler.handleError(error, context, options as { showToast?: boolean; showConsole?: boolean; redirectToLogin?: boolean });
-
-export const showSuccessToast = (message: string) => 
-  errorHandler.showSuccessToast(message);
-
-export const showErrorToast = (message: string) => 
-  errorHandler.showErrorToast({ code: 'CUSTOM_ERROR', message, userMessage: message });
-
-export const showWarningToast = (message: string) => 
-  errorHandler.showWarningToast(message);
-
-export const showInfoToast = (message: string) => 
-  errorHandler.showInfoToast(message); 

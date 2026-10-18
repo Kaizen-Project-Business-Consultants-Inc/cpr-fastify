@@ -16,10 +16,6 @@ vi.mock('../../../../contexts/SnackbarContext', () => ({
   useSnackbar: () => ({ showSuccess: vi.fn(), showError: vi.fn() }),
 }));
 
-vi.mock('../../../../hooks/useVendorInvoiceUpdates', () => ({
-  useVendorInvoiceUpdates: () => ({ isConnected: true }),
-}));
-
 import PaidVendorInvoices from '../PaidVendorInvoices';
 
 const invoice = (overrides: Record<string, unknown> = {}) => ({

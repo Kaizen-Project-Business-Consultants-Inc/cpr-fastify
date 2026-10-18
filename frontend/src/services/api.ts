@@ -1,9 +1,6 @@
 import axios from 'axios';
 import { tokenService } from './tokenService';
 import type {
-  DashboardMetrics,
-  Class,
-  Availability,
   ApiResponse,
   CourseData,
   InstructorData,
@@ -14,33 +11,8 @@ import type {
   PaymentData,
   InvoicePaymentData,
   EmailTemplateData,
-  NotificationPreferences,
 } from '../types/api';
 import { API_URL } from '../config';
-
-// Internal types for dashboard API responses
-interface DashboardStatsResponse {
-  scheduledClasses?: number;
-  completedClasses?: number;
-  totalStudents?: number;
-  recentClasses?: Array<{ id: string; date: string; type: string; students: number }>;
-  upcomingCourses?: number;
-  completedCourses?: number;
-  recentCourses?: Array<{ id: string; date: string; type: string; students: number }>;
-  pendingInvoices?: number;
-  totalRevenue?: number;
-  completedCoursesThisMonth?: number;
-  pendingApprovals?: number;
-  activeInstructors?: number;
-  organizations?: number;
-  instructorStats?: DashboardStatsResponse;
-  summary?: {
-    totalUsers?: number;
-    totalOrganizations?: number;
-    totalCourses?: number;
-  };
-  upcomingClasses?: number;
-}
 
 // Development-only logging utility - prevents sensitive data from being logged in production
 const isDev = import.meta.env.DEV || import.meta.env.MODE === 'development';
@@ -248,250 +220,6 @@ const extractLegacyData = <T>(response: { data: ApiResponse<T> }): T => {
   return response.data.data;
 };
 
-// Dashboard endpoints
-export const fetchDashboardData = async (): Promise<DashboardMetrics> => {
-  devLog('[Debug] api.ts - Fetching dashboard data');
-
-  const defaultData: DashboardMetrics = {
-    upcomingClasses: 0,
-    totalStudents: 0,
-    completedClasses: 0,
-    recentClasses: []
-  };
-
-  try {
-    const today = new Date();
-    const year = today.getFullYear();
-    const month = String(today.getMonth() + 1).padStart(2, '0');
-    const day = String(today.getDate()).padStart(2, '0');
-    const currentDate = `${year}-${month}-${day}`;
-
-    // Try all dashboard endpoints in parallel and use the first successful one
-    // This is much faster than sequential fallbacks
-    const [genericResult, instructorResult, adminResult] = await Promise.allSettled([
-      api.get<ApiResponse<DashboardStatsResponse>>('/dashboard'),
-      api.get<ApiResponse<DashboardStatsResponse>>('/instructor/dashboard/stats'),
-      Promise.all([
-        api.get<ApiResponse<DashboardStatsResponse>>(`/admin/instructor-stats?month=${currentDate}`),
-        api.get<ApiResponse<DashboardStatsResponse>>(`/admin/dashboard-summary?month=${currentDate}`)
-      ])
-    ]);
-
-    // Check generic dashboard first
-    if (genericResult.status === 'fulfilled' && genericResult.value.data.success && genericResult.value.data.data) {
-      const dashboardStats = genericResult.value.data.data.instructorStats;
-      if (dashboardStats) {
-        devLog('[Debug] api.ts - Using generic dashboard data');
-        return {
-          upcomingClasses: dashboardStats.scheduledClasses || 0,
-          totalStudents: 0,
-          completedClasses: dashboardStats.completedClasses || 0,
-          recentClasses: []
-        };
-      }
-    }
-
-    // Check instructor dashboard
-    if (instructorResult.status === 'fulfilled' && instructorResult.value.data.success) {
-      const stats = instructorResult.value.data.data;
-      devLog('[Debug] api.ts - Using instructor dashboard data');
-      return {
-        upcomingClasses: stats.scheduledClasses || 0,
-        totalStudents: stats.totalStudents || 0,
-        completedClasses: stats.completedClasses || 0,
-        recentClasses: stats.recentClasses || []
-      };
-    }
-
-    // Check admin dashboard
-    if (adminResult.status === 'fulfilled') {
-      const [, dashboardSummary] = adminResult.value;
-      const summaryData = extractLegacyData<DashboardStatsResponse>(dashboardSummary);
-      if (summaryData) {
-        devLog('[Debug] api.ts - Using admin dashboard data');
-        return {
-          upcomingClasses: summaryData.upcomingClasses || 0,
-          totalStudents: summaryData.totalStudents || 0,
-          completedClasses: summaryData.completedClasses || 0,
-          recentClasses: summaryData.recentClasses || []
-        };
-      }
-    }
-
-    devLog('[Debug] api.ts - No dashboard data available, returning defaults');
-    return defaultData;
-  } catch (error) {
-    devLog('[Debug] api.ts - Error fetching dashboard data:', error);
-    return defaultData;
-  }
-};
-
-// Role-specific dashboard data fetching
-export const fetchRoleSpecificDashboardData = async (userRole: string): Promise<DashboardMetrics> => {
-  devLog('[Debug] api.ts - Fetching role-specific dashboard data for role:', userRole);
-
-  try {
-    const today = new Date();
-    const year = today.getFullYear();
-    const month = String(today.getMonth() + 1).padStart(2, '0');
-    const day = String(today.getDate()).padStart(2, '0');
-    const currentDate = `${year}-${month}-${day}`;
-
-    let dashboardData: DashboardMetrics = {
-      upcomingClasses: 0,
-      totalStudents: 0,
-      completedClasses: 0,
-      recentClasses: []
-    };
-
-    switch (userRole) {
-      case 'instructor':
-        try {
-          const response = await api.get<ApiResponse<DashboardStatsResponse>>('/instructor/dashboard/stats');
-          if (response.data.success) {
-            const stats = response.data.data;
-            dashboardData = {
-              upcomingClasses: stats.scheduledClasses || 0,
-              totalStudents: stats.totalStudents || 0,
-              completedClasses: stats.completedClasses || 0,
-              recentClasses: stats.recentClasses || []
-            };
-          }
-        } catch (error) {
-          devLog('[Debug] api.ts - Instructor dashboard not available, using fallback');
-        }
-        break;
-
-      case 'admin':
-      case 'courseadmin':
-        try {
-          const [, dashboardSummary] = await Promise.all([
-            api.get<ApiResponse<DashboardStatsResponse>>(`/admin/instructor-stats?month=${currentDate}`),
-            api.get<ApiResponse<DashboardStatsResponse>>(`/admin/dashboard-summary?month=${currentDate}`)
-          ]);
-
-          const summaryData = extractLegacyData<DashboardStatsResponse>(dashboardSummary);
-          dashboardData = {
-            upcomingClasses: summaryData?.upcomingClasses || 0,
-            totalStudents: summaryData?.totalStudents || 0,
-            completedClasses: summaryData?.completedClasses || 0,
-            recentClasses: summaryData?.recentClasses || []
-          };
-        } catch (error) {
-          devLog('[Debug] api.ts - Admin dashboard not available, using fallback');
-        }
-        break;
-
-      case 'organization':
-        try {
-          const response = await api.get<ApiResponse<DashboardStatsResponse>>('/organization/dashboard');
-          if (response.data.success) {
-            const stats = response.data.data;
-            dashboardData = {
-              upcomingClasses: stats.upcomingCourses || 0,
-              totalStudents: stats.totalStudents || 0,
-              completedClasses: stats.completedCourses || 0,
-              recentClasses: stats.recentCourses || []
-            };
-          }
-        } catch (error) {
-          devLog('[Debug] api.ts - Organization dashboard not available, using fallback');
-        }
-        break;
-
-      case 'accountant':
-        try {
-          const response = await api.get<ApiResponse<DashboardStatsResponse>>('/accounting/dashboard');
-          if (response.data.success) {
-            const stats = response.data.data;
-            dashboardData = {
-              upcomingClasses: stats.pendingInvoices || 0,
-              totalStudents: stats.totalRevenue || 0,
-              completedClasses: stats.completedCoursesThisMonth || 0,
-              recentClasses: []
-            };
-          }
-        } catch (error) {
-          devLog('[Debug] api.ts - Accounting dashboard not available, using fallback');
-        }
-        break;
-
-      case 'hr':
-        try {
-          const response = await api.get<ApiResponse<DashboardStatsResponse>>('/hr/dashboard');
-          if (response.data.success) {
-            const stats = response.data.data;
-            dashboardData = {
-              upcomingClasses: stats.pendingApprovals || 0,
-              totalStudents: stats.activeInstructors || 0,
-              completedClasses: stats.organizations || 0,
-              recentClasses: []
-            };
-          }
-        } catch (error) {
-          devLog('[Debug] api.ts - HR dashboard not available, using fallback');
-        }
-        break;
-
-      case 'sysadmin':
-        try {
-          const response = await api.get<ApiResponse<DashboardStatsResponse>>('/sysadmin/dashboard');
-          if (response.data.success) {
-            const summary = response.data.data.summary;
-            dashboardData = {
-              upcomingClasses: summary?.totalUsers || 0,
-              totalStudents: summary?.totalOrganizations || 0,
-              completedClasses: summary?.totalCourses || 0,
-              recentClasses: []
-            };
-          }
-        } catch (error) {
-          devLog('[Debug] api.ts - Sysadmin dashboard not available, using fallback');
-        }
-        break;
-
-      default:
-        // Try generic dashboard endpoint
-        try {
-          const response = await api.get<ApiResponse<DashboardStatsResponse>>('/dashboard');
-          if (response.data.success && response.data.data) {
-            const dashboardStats = response.data.data.instructorStats;
-            dashboardData = {
-              upcomingClasses: dashboardStats?.scheduledClasses || 0,
-              totalStudents: 0,
-              completedClasses: dashboardStats?.completedClasses || 0,
-              recentClasses: []
-            };
-          }
-        } catch (error) {
-          devLog('[Debug] api.ts - Generic dashboard not available, using default data');
-        }
-        break;
-    }
-
-    devLog('[Debug] api.ts - Role-specific dashboard data received:', dashboardData);
-    return dashboardData;
-  } catch (error) {
-    devLog('[Debug] api.ts - Error fetching role-specific dashboard data:', error);
-
-    // Return default data instead of throwing error
-    return {
-      upcomingClasses: 0,
-      totalStudents: 0,
-      completedClasses: 0,
-      recentClasses: []
-    };
-  }
-};
-
-// Auth endpoints
-export const authApi = {
-  login: (username: string, password: string) =>
-    api.post('/auth/login', { username, password }),
-  logout: () => api.post('/auth/logout'),
-  refreshToken: () => api.post('/auth/refresh'),
-};
-
 // SYSADMIN endpoints
 export const sysadminApi = {
   getConfigurations: () => api.get('/sysadmin/configurations'),
@@ -499,48 +227,6 @@ export const sysadminApi = {
     api.put(`/sysadmin/configurations/${key}`, { value }),
   getConfiguration: (key: string) =>
     api.get(`/sysadmin/configurations/${key}`),
-};
-
-// Password reset functions
-export const requestPasswordReset = async (email: string) => {
-  const response = await api.post('/auth/forgot-password', { email });
-  return response.data;
-};
-
-export const resetPassword = async (token: string, password: string) => {
-  const response = await api.post('/auth/reset-password', {
-    token,
-    password,
-  });
-  return response.data;
-};
-
-// Course admin endpoints
-export const courseAdminApi = {
-  // Courses
-  getCourses: () => api.get('/courses'),
-  createCourse: (data: CourseData) => api.post('/courses', data),
-  updateCourse: (id: number, data: CourseData) =>
-    api.put(`/courses/${id}`, data),
-  deleteCourse: (id: number) => api.delete(`/courses/${id}`),
-  assignInstructor: (courseId: number, instructorId: number) =>
-    api.put(`/courses/${courseId}/assign-instructor`, { instructorId }),
-
-  // Classes
-  getClasses: () => api.get('/classes'),
-  createClass: (data: Record<string, unknown>) => api.post('/classes', data),
-  updateClass: (id: number, data: Record<string, unknown>) =>
-    api.put(`/classes/${id}`, data),
-  deleteClass: (id: number) => api.delete(`/classes/${id}`),
-
-  // Instructors
-  getInstructors: () => api.get('/instructors'),
-  createInstructor: (data: InstructorData) => api.post('/instructors', data),
-  updateInstructor: (id: number, data: InstructorData) =>
-    api.put(`/instructors/${id}`, data),
-  deleteInstructor: (id: number) => api.delete(`/instructors/${id}`),
-  updateInstructorAvailability: (id: number, data: Record<string, unknown>) =>
-    api.put(`/instructors/${id}/availability`, data),
 };
 
 // Organization endpoints
@@ -594,15 +280,6 @@ export const organizationApi = {
   },
 };
 
-// Student endpoints
-export const studentApi = {
-  getSchedule: () => api.get('/student/classes'),
-  enrollInClass: (classId: number) =>
-    api.post(`/student/enroll/${classId}`),
-  withdrawFromClass: (classId: number) =>
-    api.delete(`/student/withdraw/${classId}`),
-};
-
 // Instructor endpoints
 export const instructorApi = {
   // Basic instructor data
@@ -630,36 +307,12 @@ export const instructorApi = {
     api.put(`/instructor/classes/${courseId}/students/${studentId}/attendance`, { attended }),
   addStudent: (courseId: number, studentData: StudentData) =>
     api.post(`/instructor/classes/${courseId}/students`, studentData),
-  updateClassNotes: (courseId: number, notes: string) =>
-    api.post('/instructor/classes/notes', { courseId, notes }),
 
   // Availability management
   addAvailability: (date: string) => api.post('/instructor/availability', { date }),
   removeAvailability: (date: string) => api.delete(`/instructor/availability/${date}`),
 
-  // Attendance
-  getAttendance: () => api.get('/instructor/attendance'),
-
-  // Dashboard data
-  getDashboardStats: () => api.get('/instructor/dashboard/stats'),
   getTodayClasses: () => api.get('/instructor/classes/today'),
-};
-
-// Additional exports for backward compatibility
-export const fetchInstructorAvailability = async (): Promise<
-  Availability[]
-> => {
-  const response = await api.get<ApiResponse<Availability[]>>(
-    '/instructor/availability'
-  );
-  return extractLegacyData(response);
-};
-
-export const fetchSchedule = async (): Promise<Class[]> => {
-  const response = await api.get<ApiResponse<Class[]>>(
-    '/instructor/schedule'
-  );
-  return extractLegacyData(response);
 };
 
 // Export the api instance for use in other services
@@ -802,21 +455,6 @@ export const getInvoiceDetails = async (invoiceId: number) => {
   return extractData(response);
 };
 
-export const updateInvoice = async (invoiceId: number, data: Record<string, unknown>) => {
-  const response = await api.put(
-    `/accounting/invoices/${invoiceId}`,
-    data
-  );
-  return extractData(response);
-};
-
-export const emailInvoice = async (invoiceId: number) => {
-  const response = await api.post(
-    `/accounting/invoices/${invoiceId}/email`
-  );
-  return response.data;
-};
-
 export const postInvoiceToOrganization = async (invoiceId: number) => {
   const response = await api.put(
     `/accounting/invoices/${invoiceId}/post-to-org`
@@ -839,11 +477,6 @@ export const recordInvoicePayment = async (
     `/accounting/invoices/${invoiceId}/payments`,
     paymentData
   );
-  return response.data;
-};
-
-export const getRevenueReport = async (year: number) => {
-  const response = await api.get(`/accounting/reports/revenue?year=${year}`);
   return response.data;
 };
 
@@ -1025,25 +658,6 @@ export const sysAdminApi = {
   },
 };
 
-// Organization Analytics API
-export const getOrganizationCourseRequestAnalytics = async (
-  timeframe: string = '12'
-) => {
-  const response = await api.get(
-    `/organization/analytics/course-requests?timeframe=${timeframe}`
-  );
-  return response.data;
-};
-
-export const getOrganizationStudentParticipationAnalytics = async (
-  timeframe: string = '12'
-) => {
-  const response = await api.get(
-    `/organization/analytics/student-participation?timeframe=${timeframe}`
-  );
-  return response.data;
-};
-
 // Admin endpoints
 export const adminApi = {
   // Dashboard
@@ -1208,27 +822,6 @@ export const fetchCourseAdminDashboardData = async (month: string) => {
   }
 };
 
-// Instructor Workload Report endpoint
-export const getInstructorWorkloadReport = async (startDate: string, endDate: string): Promise<unknown[]> => {
-  devLog('[Debug] api.ts - Fetching instructor workload report for:', { startDate, endDate });
-  try {
-    const response = await api.get<ApiResponse<Record<string, unknown>[]>>('/admin/instructor-workload-report', {
-      params: { startDate, endDate }
-    });
-    const data = extractLegacyData(response);
-
-    devLog('[Debug] api.ts - Instructor workload report data received:', data);
-    return data || [];
-  } catch (error) {
-    devLog('[Debug] api.ts - Error fetching instructor workload report:', error);
-    if (axios.isAxiosError(error)) {
-      devLog('[Debug] api.ts - Response status:', error.response?.status);
-      devLog('[Debug] api.ts - Response data:', error.response?.data);
-    }
-    throw error;
-  }
-};
-
 // Accounting Dashboard endpoints
 export const fetchAccountingDashboardData = async () => {
   devLog('[Debug] api.ts - Fetching accounting dashboard data');
@@ -1338,57 +931,6 @@ export const vendorApi = {
   },
 };
 
-// Notification API methods
-export const markNotificationAsRead = async (notificationId: number) => {
-  try {
-    const response = await api.post(`/notifications/${notificationId}/read`);
-    return extractData(response);
-  } catch (error) {
-    console.error('Error marking notification as read:', error);
-    throw error;
-  }
-};
-
-export const markAllNotificationsAsRead = async () => {
-  try {
-    const response = await api.post('/notifications/mark-all-read');
-    return extractData(response);
-  } catch (error) {
-    console.error('Error marking all notifications as read:', error);
-    throw error;
-  }
-};
-
-export const deleteNotification = async (notificationId: number) => {
-  try {
-    const response = await api.delete(`/notifications/${notificationId}`);
-    return extractData(response);
-  } catch (error) {
-    console.error('Error deleting notification:', error);
-    throw error;
-  }
-};
-
-export const getNotificationPreferences = async () => {
-  try {
-    const response = await api.get('/notifications/preferences');
-    return extractData(response);
-  } catch (error) {
-    console.error('Error fetching notification preferences:', error);
-    throw error;
-  }
-};
-
-export const updateNotificationPreferences = async (type: string, preferences: NotificationPreferences) => {
-  try {
-    const response = await api.put(`/notifications/preferences/${type}`, preferences);
-    return extractData(response);
-  } catch (error) {
-    console.error('Error updating notification preferences:', error);
-    throw error;
-  }
-};
-
 // Colleges API
 export const collegesApi = {
   getAll: () => api.get('/colleges'),
@@ -1405,22 +947,13 @@ export const collegesApi = {
 // Organization Management (wraps sysAdminApi methods)
 export const updateOrganization = sysAdminApi.updateOrganization;
 export const addOrganization = sysAdminApi.createOrganization;
-export const deleteOrganization = sysAdminApi.deleteOrganization;
-
 // Organization Locations (wraps sysAdminApi methods)
 export const getOrganizationLocations = sysAdminApi.getOrganizationLocations;
-export const getOrganizationLocation = sysAdminApi.getOrganizationLocation;
 export const createOrganizationLocation = sysAdminApi.createOrganizationLocation;
-export const updateOrganizationLocation = sysAdminApi.updateOrganizationLocation;
 export const deleteOrganizationLocation = sysAdminApi.deleteOrganizationLocation;
 
 // User Management (wraps sysAdminApi methods)
 export const getUsers = sysAdminApi.getUsers;
-export const deleteUser = async (userId: number) => {
-  const response = await api.delete(`/sysadmin/users/${userId}`);
-  return response.data;
-};
-
 // Pricing Rules (wraps organization pricing methods)
 export const getPricingRules = getOrganizationPricing;
 export const deletePricingRule = deleteOrganizationPricing;
@@ -1431,49 +964,6 @@ export const addPricingRule = createOrganizationPricing;
 export const getCourseTypes = async () => {
   const response = await api.get('/course-types');
   return response.data.data || [];
-};
-
-// Instructor Management
-export const getAllInstructors = async () => {
-  const response = await api.get('/courseadmin/instructors');
-  return response.data.data || response.data || [];
-};
-
-// Course Scheduling (Admin)
-export const scheduleCourseAdmin = async (courseId: number, scheduleData: { instructorId: number; dateScheduled: string }) => {
-  const response = await api.post(`/courseadmin/courses/${courseId}/schedule`, scheduleData);
-  return response.data;
-};
-
-// Organization Details (Admin view)
-export const getOrganizationDetails = async (orgId: number) => {
-  const response = await api.get(`/sysadmin/organizations/${orgId}`);
-  return response.data.data || response.data;
-};
-
-export const getOrganizationCoursesAdmin = async (orgId: number) => {
-  const response = await api.get(`/sysadmin/organizations/${orgId}/courses`);
-  return response.data.data || response.data || [];
-};
-
-export const getOrganizationInvoices = async (orgId: number) => {
-  const response = await api.get(`/sysadmin/organizations/${orgId}/invoices`);
-  return response.data.data || response.data || [];
-};
-
-export const getOrganizationFinancialSummary = async (orgId: number) => {
-  const response = await api.get(`/sysadmin/organizations/${orgId}/financial-summary`);
-  return response.data.data || response.data;
-};
-
-// AR Aging Report
-export const getArAgingReport = async (params?: { organizationId?: number; asOfDate?: string }) => {
-  const queryParams = new URLSearchParams();
-  if (params?.organizationId) queryParams.append('organization_id', params.organizationId.toString());
-  if (params?.asOfDate) queryParams.append('as_of_date', params.asOfDate);
-  const queryString = queryParams.toString();
-  const response = await api.get(`/accounting/reports/ar-aging${queryString ? `?${queryString}` : ''}`);
-  return response.data.data || response.data;
 };
 
 export default api;
