@@ -31,7 +31,7 @@ export default defineConfig({
       output: {
         manualChunks: {
           // Vendor chunks - split heavy dependencies
-          'vendor-react': ['react', 'react-dom', 'react-router-dom'],
+          'vendor-react': ['react', 'react-dom', 'react-router', 'react-router-dom'],
           'vendor-mui': ['@mui/material', '@mui/icons-material', '@emotion/react', '@emotion/styled'],
           'vendor-charts': ['recharts'],
           'vendor-utils': ['date-fns', 'axios', 'dompurify'],
@@ -42,7 +42,7 @@ export default defineConfig({
     chunkSizeWarningLimit: 500,
   },
   optimizeDeps: {
-    include: ['react', 'react-dom', 'react-router-dom', 'react-phone-number-input'],
+    include: ['react', 'react-dom', 'react-router', 'react-router-dom', 'react-phone-number-input'],
     esbuildOptions: {
       alias: {
         'country-flag-icons/unicode': path.resolve(__dirname, '../node_modules/country-flag-icons/unicode/index.js')

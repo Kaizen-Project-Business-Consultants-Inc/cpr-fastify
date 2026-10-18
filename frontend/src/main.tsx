@@ -78,12 +78,7 @@ try {
         <QueryClientProvider client={queryClient}>
           <CustomThemeProvider>
             <LocalizationProvider dateAdapter={AdapterDateFns}>
-              <BrowserRouter
-                future={{
-                  v7_startTransition: true,
-                  v7_relativeSplatPath: true,
-                }}
-              >
+              <BrowserRouter>
                 <AuthProvider>
                   <ToastProvider>
                     <TokenValidationProvider>

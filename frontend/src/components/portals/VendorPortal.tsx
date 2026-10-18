@@ -51,7 +51,7 @@ const VendorPortal: React.FC = () => {
         <Route path="paid-invoices" element={<Navigate to="/vendor/history" replace />} />
         <Route path="profile" element={<VendorProfile />} />
         <Route path="" element={<Navigate to="dashboard" replace />} />
-        <Route path="*" element={<Navigate to="dashboard" replace />} />
+        <Route path="*" element={<Navigate to="/vendor/dashboard" replace />} />
       </Routes>
     </VendorLayout>
   );
