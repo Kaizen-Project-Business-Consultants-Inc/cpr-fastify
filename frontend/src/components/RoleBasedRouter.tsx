@@ -1,5 +1,5 @@
 import React, { useEffect, Suspense } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Navigate, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { CircularProgress, Box, Typography } from '@mui/material';
 import { tokenService } from '../services/tokenService';
@@ -65,18 +65,8 @@ const RoleBasedRouter: React.FC = () => {
   }
 
   if (!user) {
-    // Redirect to login page instead of just showing a message
-    navigate('/login');
-    return (
-      <Box
-        display='flex'
-        justifyContent='center'
-        alignItems='center'
-        minHeight='60vh'
-      >
-        <CircularProgress />
-      </Box>
-    );
+    // Declarative redirect: navigate() during render is a no-op (React Router 6 with v7_startTransition, and 7).
+    return <Navigate to='/login' replace />;
   }
 
   // For direct access (when not redirecting), still render the appropriate portal
