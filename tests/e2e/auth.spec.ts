@@ -41,6 +41,26 @@ test.describe('Login page — public access', () => {
     await expect(page.locator('h1, h4').first()).toBeVisible();
   });
 
+  test('legal pages go Back to where the visitor came from', async ({ page }) => {
+    await page.goto('/login');
+    await page.getByRole('link', { name: 'Privacy Policy' }).click();
+    await expect(page).toHaveURL(/\/privacy$/);
+    await page.getByRole('button', { name: 'Back' }).click();
+    await expect(page).toHaveURL(/\/login/);
+  });
+
+  test('a legal page opened directly goes Back to sign-in', async ({ page }) => {
+    await page.goto('/terms');
+    await page.getByRole('button', { name: 'Back' }).click();
+    await expect(page).toHaveURL(/\/login/);
+  });
+
+  test('login page offers a course request link and link-preview tags', async ({ page }) => {
+    await page.goto('/login');
+    await expect(page.getByRole('link', { name: 'Request a course' })).toHaveAttribute('href', /^mailto:admin@kpbc\.ca\?subject=Course%20request/);
+    await expect(page.locator('meta[property="og:title"]')).toHaveAttribute('content', 'CPR Training Portal');
+  });
+
   test('unauthenticated access to protected route redirects to /login', async ({ page }) => {
     await page.goto('/instructor/dashboard');
     await page.waitForURL(/login/, { timeout: 10000 });

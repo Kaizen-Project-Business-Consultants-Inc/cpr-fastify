@@ -28,6 +28,11 @@ import PasswordField from '../components/common/PasswordField';
 const IS_STAGING = /stag/i.test(window.location.hostname);
 
 
+// For organizations without an account yet: an email to the office with the details we need.
+const REQUEST_COURSE_MAILTO = `mailto:admin@kpbc.ca?subject=${encodeURIComponent('Course request')}&body=${encodeURIComponent(
+  ['Organization:', 'Contact name and phone:', 'Course (e.g. CPR-C, First Aid):', 'Preferred date:', 'Number of students:', 'Location:'].join('\r\n')
+)}`;
+
 const Login = () => {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -275,6 +280,16 @@ const Login = () => {
       </Box>
 
       <Box sx={{ mt: 3, textAlign: 'center' }}>
+        <Typography variant="body2" color="text.secondary">
+          New organization?{' '}
+          <Link href={REQUEST_COURSE_MAILTO} sx={{ fontWeight: 600 }}>
+            Request a course
+          </Link>
+          {' '}(admin@kpbc.ca)
+        </Typography>
+      </Box>
+
+      <Box sx={{ mt: 2, textAlign: 'center' }}>
         <Typography variant="caption" color="text.secondary">
           By using this service you agree to our{' '}
           <Link component={RouterLink} to="/terms" color="inherit">

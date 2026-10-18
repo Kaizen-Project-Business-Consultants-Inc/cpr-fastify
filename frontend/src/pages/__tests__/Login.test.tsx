@@ -31,4 +31,11 @@ describe('Login', () => {
     const logged = consoleSpies.flatMap(spy => spy.mock.calls).map(args => JSON.stringify(args)).join(' ');
     expect(logged).not.toContain('S3cret-pw!');
   });
+
+  it('offers new organizations a pre-filled course request email', () => {
+    render(<MemoryRouter><Login /></MemoryRouter>);
+    const href = screen.getByRole('link', { name: 'Request a course' }).getAttribute('href') ?? '';
+    expect(href.startsWith('mailto:admin@kpbc.ca?subject=Course%20request&body=')).toBe(true);
+    expect(decodeURIComponent(href.split('body=')[1])).toContain('Number of students:\r\nLocation:');
+  });
 });

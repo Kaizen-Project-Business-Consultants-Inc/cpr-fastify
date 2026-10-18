@@ -1,5 +1,5 @@
 import React from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link as RouterLink } from 'react-router-dom';
 import {
   Box,
   Container,
@@ -7,23 +7,13 @@ import {
   Divider,
   Paper,
   Link,
-  Button,
 } from '@mui/material';
-import { ArrowBack as ArrowBackIcon } from '@mui/icons-material';
+import LegalBackButton from './LegalBackButton';
 
 const TermsOfService = () => {
-  const navigate = useNavigate();
-
   return (
     <Container maxWidth="md" sx={{ py: 6 }}>
-      <Button
-        startIcon={<ArrowBackIcon />}
-        onClick={() => navigate('/login')}
-        sx={{ mb: 3 }}
-        variant="text"
-      >
-        Back to Login
-      </Button>
+      <LegalBackButton />
 
       <Paper elevation={2} sx={{ p: { xs: 3, md: 5 } }}>
         <Typography variant="h4" component="h1" gutterBottom>
@@ -108,7 +98,7 @@ const TermsOfService = () => {
         </Typography>
         <Typography variant="body1" paragraph>
           Our collection and use of personal information is governed by our{' '}
-          <Link component="a" href="/privacy">
+          <Link component={RouterLink} to="/privacy">
             Privacy Policy
           </Link>
           , which is incorporated into these Terms by reference.

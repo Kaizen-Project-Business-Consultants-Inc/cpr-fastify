@@ -1,5 +1,4 @@
 import React from 'react';
-import { useNavigate } from 'react-router-dom';
 import {
   Box,
   Container,
@@ -7,23 +6,13 @@ import {
   Divider,
   Paper,
   Link,
-  Button,
 } from '@mui/material';
-import { ArrowBack as ArrowBackIcon } from '@mui/icons-material';
+import LegalBackButton from './LegalBackButton';
 
 const PrivacyPolicy = () => {
-  const navigate = useNavigate();
-
   return (
     <Container maxWidth="md" sx={{ py: 6 }}>
-      <Button
-        startIcon={<ArrowBackIcon />}
-        onClick={() => navigate('/login')}
-        sx={{ mb: 3 }}
-        variant="text"
-      >
-        Back to Login
-      </Button>
+      <LegalBackButton />
 
       <Paper elevation={2} sx={{ p: { xs: 3, md: 5 } }}>
         <Typography variant="h4" component="h1" gutterBottom>
