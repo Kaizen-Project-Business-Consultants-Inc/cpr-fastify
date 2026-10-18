@@ -163,7 +163,7 @@ const WSIBReporting = ({ onShowSnackbar }: WSIBReportingProps) => {
       if (courseTypeId) params.course_type_id = courseTypeId;
       if (complianceStatus) params.compliance_status = complianceStatus;
 
-      const response = await api.get('/sysadmin/wsib/export/csv', {
+      const response = await api.get('/sysadmin/wsib/training-history/export/csv', {
         params,
         responseType: 'blob',
       });

@@ -6,10 +6,9 @@ import { requireAuth } from '../plugins/auth.js';
 import { getPool } from '../config/database.js';
 import { logAudit } from '../utils/auditLog.js';
 import { env } from '../config/env.js';
-import { emailService } from '../services/EmailService.js';
+import { canReceiveReset, hashToken, sendPasswordResetLink, type ResetTarget } from '../services/passwordReset.js';
 import { logger } from '../config/logger.js';
 import bcrypt from 'bcryptjs';
-import { createHash, randomBytes } from 'node:crypto';
 import type { RowDataPacket } from 'mysql2/promise';
 
 const forgotPasswordSchema = z.object({
@@ -24,8 +23,6 @@ const resetPasswordSchema = z.object({
   password: z.string().min(8).optional(),
 }).refine((d) => d.newPassword || d.password, { message: 'Password is required' });
 
-const RESET_TOKEN_TTL_MS = 60 * 60 * 1000; // 1 hour
-const hashToken = (token: string) => createHash('sha256').update(token).digest('hex');
 
 const loginSchema = z.object({
   username: z.string().min(1),
@@ -243,23 +240,10 @@ export async function authRoutes(app: FastifyInstance) {
        WHERE ${body.email ? 'email = ?' : 'username = ?'} LIMIT 1`,
       [body.email ?? body.username]
     );
-    const user = rows[0];
+    const user = rows[0] as ResetTarget | undefined;
 
-    if (user && user.email && user.status !== 'inactive' && user.status !== 'deleted') {
-      const token = randomBytes(32).toString('hex');
-      const expiresAt = new Date(Date.now() + RESET_TOKEN_TTL_MS);
-      // Invalidate any outstanding tokens for this user, then store the new one (hashed).
-      await pool.query('UPDATE password_resets SET used_at = NOW() WHERE user_id = ? AND used_at IS NULL', [user.id]);
-      await pool.query(
-        'INSERT INTO password_resets (user_id, token_hash, expires_at) VALUES (?, ?, ?)',
-        [user.id, hashToken(token), expiresAt]
-      );
-      const resetLink = `${env.FRONTEND_URL}/reset-password?token=${token}`;
-      try {
-        await emailService.sendPasswordResetEmail(user.email, user.username, resetLink);
-      } catch (err) {
-        logger.error({ err, userId: user.id }, 'Failed to send password reset email');
-      }
+    if (user && canReceiveReset(user)) {
+      await sendPasswordResetLink(user);
       logAudit({ userId: user.id, username: user.username, action: 'password_reset_requested', ipAddress: request.ip });
     } else {
       logAudit({ username: body.username ?? body.email, action: 'password_reset_requested_unknown', ipAddress: request.ip });

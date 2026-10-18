@@ -8,6 +8,9 @@ import type { RowDataPacket } from 'mysql2/promise';
 
 // --- Error types ---
 
+/** The roster can change only before the class is taught: attendance and the invoice use it. */
+const ROSTER_OPEN_STATUSES = ['pending', 'past_due', 'confirmed'];
+
 export class CourseError extends Error {
   constructor(message: string, public statusCode: number = 400) {
     super(message);
@@ -518,6 +521,9 @@ export class CourseService {
     // Verify course belongs to org
     const course = await this.courseRepo.forOrg(orgId).findById(courseId);
     if (!course) throw new CourseError('Course not found or not authorized', 404);
+    if (!ROSTER_OPEN_STATUSES.includes(course.status)) {
+      throw new CourseError('Students can only be added before the class has been completed', 400);
+    }
 
     const result = await this.studentRepo.addStudents(courseId, students, orgId);
     await this.syncRegisteredCount(courseId, orgId);
@@ -528,6 +534,10 @@ export class CourseService {
     // Verify course belongs to org
     const course = await this.courseRepo.forOrg(orgId).findById(courseId);
     if (!course) throw new CourseError('Course not found or not authorized', 404);
+    // Once a class is taught, the roster is what attendance and the invoice are based on.
+    if (!ROSTER_OPEN_STATUSES.includes(course.status)) {
+      throw new CourseError('Students can only be removed before the class has been completed', 400);
+    }
 
     const removed = await this.studentRepo.removeFromCourse(courseId, courseStudentId);
     if (!removed) throw new CourseError('Student not found on this course', 404);

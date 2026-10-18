@@ -9,11 +9,15 @@ import bcrypt from 'bcryptjs';
 import { StudentRepository } from '../repositories/StudentRepository.js';
 import { parsePagination, paginatedQuery, maybePaginate, paginatedResponse, isPaginated } from '../utils/pagination.js';
 import { toCSV } from '../utils/csv.js';
-import { writeAudit } from '../utils/auditLog.js';
+import { writeAudit, logAudit } from '../utils/auditLog.js';
+import { canReceiveReset, sendPasswordResetLink, type ResetTarget } from '../services/passwordReset.js';
+import { randomBytes } from 'node:crypto';
+import { ERASED_EMAIL_DOMAIN, isErased, notReservedEmail, notReservedUsername } from '../utils/userAccount.js';
 
 const createUserSchema = z.object({
-  username: z.string().min(3).max(50).regex(/^[a-zA-Z0-9_-]+$/),
-  email: z.string().email(),
+  username: z.string().min(3).max(50).regex(/^[a-zA-Z0-9_-]+$/)
+    .refine(notReservedUsername, 'Usernames starting with "deleted_" are reserved'),
+  email: z.string().email().refine(notReservedEmail, 'This email domain is reserved'),
   password: z.string().min(8).optional(),
   // 'courseadmin' is intentionally absent: it has no portal, so such a user couldn't use the app.
   role: z.enum(['admin', 'instructor', 'organization', 'accountant', 'hr', 'vendor', 'sysadmin']),
@@ -273,6 +277,9 @@ export async function adminRoutes(app: FastifyInstance) {
     }
 
     return inTransaction(reply, async (conn) => {
+      const [current] = await conn.query<RowDataPacket[]>('SELECT email FROM users WHERE id = ? FOR UPDATE', [id]);
+      if (current.length === 0) throw new TxAbort(404, { error: 'User not found' });
+      if (isErased(current[0].email)) throw new TxAbort(400, { error: 'This account was erased and cannot be changed' });
       const [result] = await conn.query<ResultSetHeader>(
         `UPDATE users SET username = COALESCE(?, username), email = COALESCE(?, email),
          role = COALESCE(?, role), first_name = COALESCE(?, first_name), last_name = COALESCE(?, last_name),
@@ -294,19 +301,24 @@ export async function adminRoutes(app: FastifyInstance) {
     });
   });
 
+  // POST /users/:id/reset-password: email the user a one-hour reset link (the same
+  // email "Forgot password" sends). No password is ever set or shown by an admin.
   app.post('/users/:id/reset-password', { preHandler: adminRole }, async (request, reply) => {
-    const { id } = request.params as { id: string };
-    const { password } = z.object({ password: z.string().min(8) }).parse(request.body);
+    const { id } = z.object({ id: z.coerce.number().int().positive() }).parse(request.params);
+    const [rows] = await pool.query<RowDataPacket[]>('SELECT id, username, email, status, role FROM users WHERE id = ?', [id]);
+    const user = rows[0] as (ResetTarget & { role: string }) | undefined;
+    if (!user) return reply.status(404).send({ error: 'User not found' });
     // Only a sysadmin may reset an admin/sysadmin password
-    if (request.userRole !== 'sysadmin' && (await targetIsPrivileged(id))) {
+    if (request.userRole !== 'sysadmin' && PRIVILEGED_ROLES.includes(user.role)) {
       return reply.status(403).send({ error: 'Only a system administrator can reset admin or sysadmin passwords' });
     }
-    const hash = await bcrypt.hash(password, env.BCRYPT_SALT_ROUNDS);
-    const [result] = await pool.query<ResultSetHeader>(
-      'UPDATE users SET password_hash = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?', [hash, id]
-    );
-    if (result.affectedRows === 0) return reply.status(404).send({ error: 'User not found' });
-    return { success: true, message: 'Password reset successfully' };
+    if (!canReceiveReset(user)) {
+      return reply.status(400).send({ error: 'This account has no email address or is not active, so no reset link can be sent.' });
+    }
+    const sent = await sendPasswordResetLink(user);
+    logAudit({ userId: request.userId, action: 'admin_password_reset_link', entityType: 'user', entityId: id, details: { username: user.username, emailed: sent }, ipAddress: request.ip });
+    if (!sent) return reply.status(502).send({ error: 'The reset link was created but the email could not be sent. Try again shortly.' });
+    return { success: true, message: `A password reset link was emailed to ${user.email}.` };
   });
 
   // ===== Organization management =====
@@ -448,21 +460,50 @@ export async function adminRoutes(app: FastifyInstance) {
   });
 
   // ===== Sysadmin: PIPEDA data erasure =====
+  // DELETE /users/:userId/personal-data: privacy-law (PIPEDA) erasure. The account row stays
+  // for audit and history, but everything that identifies the person is blanked, it can no
+  // longer sign in, and its sessions and reset links are revoked. Cannot be undone.
   app.delete('/users/:userId/personal-data', { preHandler: sysadminRole }, async (request, reply) => {
     const { userId } = request.params as { userId: string };
     const id = parseInt(userId);
     if (isNaN(id) || id <= 0) return reply.status(400).send({ error: 'Invalid userId' });
+    if (id === request.userId) return reply.status(400).send({ error: 'You cannot erase your own account' });
 
-    const [check] = await pool.query<RowDataPacket[]>('SELECT id FROM users WHERE id = ?', [id]);
-    if (check.length === 0) return reply.status(404).send({ error: `User ${id} not found` });
+    return inTransaction(reply, async (conn) => {
+      const [check] = await conn.query<RowDataPacket[]>('SELECT id, username, email, role FROM users WHERE id = ? FOR UPDATE', [id]);
+      if (check.length === 0) throw new TxAbort(404, { error: `User ${id} not found` });
+      if (isErased(check[0].email)) throw new TxAbort(400, { error: 'This account was already erased' });
+      const { username: oldUsername, email: oldEmail } = check[0];
+      // A password nobody knows: even if the row were ever reactivated, the old one is gone.
+      const unusableHash = await bcrypt.hash(randomBytes(32).toString('hex'), env.BCRYPT_SALT_ROUNDS);
 
-    await pool.query(
-      `UPDATE users SET username = CONCAT('deleted_', id), email = CONCAT('deleted_', id, '@deleted.invalid'),
-       first_name = NULL, last_name = NULL, phone = NULL, status = 'deleted' WHERE id = ?`,
-      [id]
-    );
-    logger.info({ userId: id, sysadmin: request.userId }, 'PIPEDA personal data anonymised');
-    return { success: true, message: 'Personal data anonymised' };
+      await conn.query(
+        `UPDATE users SET username = CONCAT('deleted_', id), email = CONCAT('deleted_', id, '@deleted.invalid'),
+           full_name = NULL, first_name = NULL, last_name = NULL, phone = NULL, mobile = NULL, address = NULL,
+           emergency_contact_name = NULL, emergency_contact_phone = NULL, user_comments = NULL,
+           mfa_enabled = 0, mfa_secret = NULL, mfa_backup_codes = NULL, reset_token = NULL, reset_token_expires = NULL,
+           password_hash = ?, status = 'deleted', updated_at = CURRENT_TIMESTAMP
+         WHERE id = ?`,
+        [unusableHash, id]
+      );
+      // Sign out everywhere now: access tokens issued before this are refused, and refresh tokens revoked.
+      await conn.query(
+        'INSERT INTO token_blacklist (user_id, invalidated_at) VALUES (?, ?) ON DUPLICATE KEY UPDATE invalidated_at = VALUES(invalidated_at)', [id, new Date()]
+      );
+      await conn.query('UPDATE refresh_tokens SET revoked_at = NOW() WHERE user_id = ? AND revoked_at IS NULL', [id]);
+      await conn.query('UPDATE password_resets SET used_at = NOW() WHERE user_id = ? AND used_at IS NULL', [id]);
+      // Audit entries keep the account id (a key to a now-blank row) but not who it was:
+      // their name as the actor, details about them as the subject, and failed logins typed with it.
+      await conn.query('UPDATE audit_logs SET username = NULL WHERE user_id = ?', [id]);
+      await conn.query(`UPDATE audit_logs SET details = NULL WHERE entity_type = 'user' AND entity_id = ?`, [id]);
+      await conn.query('UPDATE audit_logs SET username = NULL WHERE user_id IS NULL AND username IN (?, ?)', [oldUsername, oldEmail ?? oldUsername]);
+      await conn.query('UPDATE profile_changes SET old_value = NULL, new_value = NULL WHERE user_id = ?', [id]);
+      await conn.query('UPDATE inbound_emails SET from_address = ?, body_text = NULL WHERE matched_user_id = ?', [`deleted_${id}${ERASED_EMAIL_DOMAIN}`, id]);
+      // Only the role is kept in the audit entry: the point is to forget who it was.
+      await writeAudit(conn, { userId: request.userId, action: 'erase_personal_data', entityType: 'user', entityId: id, details: { role: check[0].role }, ipAddress: request.ip });
+      logger.info({ userId: id, sysadmin: request.userId }, 'PIPEDA personal data anonymised');
+      return { success: true, message: 'Personal data erased' };
+    });
   });
 
   // ===== Organization locations =====
@@ -1237,33 +1278,6 @@ export async function adminRoutes(app: FastifyInstance) {
     ]);
     reply.header('Content-Type', 'text/csv;charset=utf-8');
     reply.header('Content-Disposition', `attachment; filename="wsib-training-history-${new Date().toISOString().split('T')[0]}.csv"`);
-    return csv;
-  });
-
-  // Dedicated WSIB CSV export endpoint (alias)
-  app.get('/wsib/export/csv', { preHandler: adminRole }, async (request, reply) => {
-    const q = request.query as Record<string, string>;
-    const { selectSQL, params } = buildWSIBQuery(q);
-
-    const [rows] = await pool.query<RowDataPacket[]>(selectSQL, params);
-
-    const csv = toCSV(rows, [
-      { key: 'first_name', label: 'First Name' },
-      { key: 'last_name', label: 'Last Name' },
-      { key: 'email', label: 'Email' },
-      { key: 'organization_name', label: 'Organization' },
-      { key: 'course_type_name', label: 'Course Type' },
-      { key: 'course_date', label: 'Course Date' },
-      { key: 'location', label: 'Location' },
-      { key: 'attended', label: 'Attended' },
-      { key: 'certificate_number', label: 'Certificate #' },
-      { key: 'certificate_issued_at', label: 'Cert Issued' },
-      { key: 'certificate_expires_at', label: 'Cert Expires' },
-      { key: 'compliance_status', label: 'Compliance Status' },
-      { key: 'instructor_name', label: 'Instructor' },
-    ]);
-    reply.header('Content-Type', 'text/csv;charset=utf-8');
-    reply.header('Content-Disposition', `attachment; filename="wsib-compliance-${new Date().toISOString().split('T')[0]}.csv"`);
     return csv;
   });
 

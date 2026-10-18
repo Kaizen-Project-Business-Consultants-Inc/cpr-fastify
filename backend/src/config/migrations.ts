@@ -1,7 +1,7 @@
 import { Pool, RowDataPacket, ResultSetHeader } from 'mysql2/promise';
 import { getPool } from './database.js';
 import { logger } from './logger.js';
-import { addColumnIfMissing, addIndexIfMissing, addForeignKeyIfMissing, dropIndexIfExists, tableExists } from './schemaHelpers.js';
+import { addColumnIfMissing, addIndexIfMissing, addForeignKeyIfMissing, dropIndexIfExists, tableExists, columnExists } from './schemaHelpers.js';
 
 interface Migration {
   version: number;
@@ -13,7 +13,7 @@ interface Migration {
  * Versioned migration runner. Each migration runs exactly once, tracked in
  * the `schema_migrations` table. Add new migrations to the end of the list.
  */
-const migrations: Migration[] = [
+export const migrations: Migration[] = [
   {
     version: 1,
     name: 'create_login_attempts',
@@ -427,6 +427,25 @@ const migrations: Migration[] = [
     // Financial Summary reads verified payments by payment_date range.
     up: async (pool: Pool) => {
       await addIndexIfMissing(pool, 'payments', 'idx_payments_status_date', ['status', 'payment_date']);
+    },
+  },
+  {
+    version: 26,
+    name: 'token_blacklist_per_user',
+    // Both live databases had an older token_blacklist (token_hash, expires_at) that
+    // v2's CREATE TABLE IF NOT EXISTS never replaced. AuthService reads and writes it
+    // by user_id, so password change and reset failed after saving the new password,
+    // and "sign out everywhere" never worked. Keep the old table (renamed), create v2's.
+    // Two DDL steps each commit on their own, so this is written to be safe to re-run
+    // if it stops between them.
+    up: async (pool: Pool) => {
+      if ((await tableExists(pool, 'token_blacklist')) && !(await columnExists(pool, 'token_blacklist', 'user_id'))) {
+        await pool.query('RENAME TABLE token_blacklist TO token_blacklist_legacy_20261017');
+      }
+      await pool.query(`CREATE TABLE IF NOT EXISTS token_blacklist (
+        user_id INT NOT NULL PRIMARY KEY,
+        invalidated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
     },
   },
 ];

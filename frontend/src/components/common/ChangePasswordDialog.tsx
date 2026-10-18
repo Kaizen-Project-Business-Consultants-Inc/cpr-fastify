@@ -11,6 +11,7 @@ import {
 import api from '../../services/api';
 import PasswordField from './PasswordField';
 import { useSnackbar } from '../../contexts/SnackbarContext';
+import { useAuth } from '../../contexts/AuthContext';
 
 export interface ChangePasswordDialogProps {
   open: boolean;
@@ -31,6 +32,7 @@ const EMPTY: FormState = { currentPassword: '', newPassword: '', confirmPassword
  * Change-password dialog shared by every portal. Calls POST /auth/change-password.
  */
 const ChangePasswordDialog: React.FC<ChangePasswordDialogProps> = ({ open, onClose }) => {
+  const { logout } = useAuth();
   const { showSuccess } = useSnackbar();
   const [form, setForm] = useState<FormState>(EMPTY);
   const [touched, setTouched] = useState<Partial<Record<keyof FormState, boolean>>>({});
@@ -73,9 +75,11 @@ const ChangePasswordDialog: React.FC<ChangePasswordDialogProps> = ({ open, onClo
         currentPassword: form.currentPassword,
         newPassword: form.newPassword,
       });
-      showSuccess('Password changed');
+      // The server signs out every session, this one included.
+      showSuccess('Password changed. Please sign in with your new password.');
       reset();
       onClose();
+      await logout();
     } catch (err: unknown) {
       const axiosErr = err as { response?: { data?: { error?: string; message?: string } }; message?: string };
       setServerError(

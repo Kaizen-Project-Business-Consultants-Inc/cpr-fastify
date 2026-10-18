@@ -13,6 +13,7 @@ import {
   Grid,
   Dialog,
   DialogTitle,
+  TextField,
   DialogContent,
   DialogActions,
   IconButton,
@@ -30,6 +31,7 @@ import LinkButton from '../../gtacpr/LinkButton';
 import { useConfirm } from '../../gtacpr/ConfirmDialog';
 import { useSnackbar } from '../../../contexts/SnackbarContext';
 import { formatCurrency, formatDisplayDate } from '../../../utils/formatters';
+import { getErrorMessage } from '../../../utils/errorMessage';
 
 interface Invoice {
   id: number;
@@ -55,6 +57,7 @@ interface Invoice {
   totalPaid?: number | string;
   balanceDue?: number | string;
   adminNotes?: string;
+  rejectionReason?: string;
   approvedByName?: string;
   approvedByEmail?: string;
   sentToAccountingAt?: string;
@@ -162,6 +165,8 @@ const InvoiceHistory: React.FC = () => {
   const [viewDialogOpen, setViewDialogOpen] = useState(false);
   const [paymentHistory, setPaymentHistory] = useState<PaymentHistory[]>([]);
   const [submitting, setSubmitting] = useState(false);
+  const [resendOpen, setResendOpen] = useState(false);
+  const [resendNote, setResendNote] = useState('');
   const { confirm, dialog: confirmDialog } = useConfirm();
   const { showSuccess, showError } = useSnackbar();
 
@@ -328,6 +333,22 @@ const InvoiceHistory: React.FC = () => {
     } catch (err: unknown) {
       const axiosErr = err as { response?: { data?: { error?: string } } };
       showError(axiosErr.response?.data?.error || 'Failed to submit invoice to admin');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleResend = async () => {
+    if (!selectedInvoice || !resendNote.trim()) return;
+    setSubmitting(true);
+    try {
+      await vendorApi.resendToAdmin(selectedInvoice.id, resendNote.trim());
+      showSuccess(`Invoice ${selectedInvoice.invoiceNumber} resent to admin`);
+      setResendOpen(false);
+      handleCloseViewDialog();
+      refreshAll();
+    } catch (err: unknown) {
+      showError(getErrorMessage(err, 'Failed to resend the invoice'));
     } finally {
       setSubmitting(false);
     }
@@ -589,6 +610,12 @@ const InvoiceHistory: React.FC = () => {
                           : '—'}
                     </Typography>
                   </Grid>
+                  {selectedInvoice.rejectionReason && (
+                    <Grid item xs={12}>
+                      <Typography sx={{ fontSize: 11, color: (theme) => theme.palette.text.secondary, textTransform: 'uppercase' }}>Reason for rejection</Typography>
+                      <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.primary, mt: 0.5, p: 2, bgcolor: (theme) => theme.palette.mode === 'dark' ? 'rgba(220, 38, 38, 0.12)' : '#FEE2E2', borderRadius: 1 }}>{selectedInvoice.rejectionReason}</Typography>
+                    </Grid>
+                  )}
                   {selectedInvoice.adminNotes && (
                     <Grid item xs={12}>
                       <Typography sx={{ fontSize: 11, color: (theme) => theme.palette.text.secondary, textTransform: 'uppercase' }}>Admin Notes</Typography>
@@ -681,8 +708,40 @@ const InvoiceHistory: React.FC = () => {
                   {submitting ? 'Submitting…' : 'Submit to Admin'}
                 </PrimaryButton>
               )}
+              {['rejected_by_admin', 'rejected_by_accountant'].includes(selectedInvoice.status) && (
+                <PrimaryButton onClick={() => { setResendNote(''); setResendOpen(true); }} disabled={submitting}>
+                  Resend to Admin
+                </PrimaryButton>
+              )}
             </>
           )}
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={resendOpen} onClose={() => !submitting && setResendOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>Resend invoice {selectedInvoice?.invoiceNumber}?</DialogTitle>
+        <DialogContent>
+          <Typography sx={{ fontSize: 14, mb: 2 }}>
+            It goes back to admin for review with your reply. If the amounts themselves are wrong, upload a
+            corrected invoice instead.
+          </Typography>
+          <TextField
+            id="vendor-resend-note"
+            label="Your reply to the rejection"
+            fullWidth
+            multiline
+            minRows={3}
+            autoFocus
+            value={resendNote}
+            onChange={(e) => setResendNote(e.target.value)}
+            disabled={submitting}
+          />
+        </DialogContent>
+        <DialogActions>
+          <GhostButton onClick={() => setResendOpen(false)} disabled={submitting}>Cancel</GhostButton>
+          <PrimaryButton onClick={handleResend} disabled={submitting || !resendNote.trim()}>
+            {submitting ? 'Sending…' : 'Resend to Admin'}
+          </PrimaryButton>
         </DialogActions>
       </Dialog>
 

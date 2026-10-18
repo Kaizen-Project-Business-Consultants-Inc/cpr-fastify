@@ -13,6 +13,7 @@ import { httpError } from '../utils/httpError.js';
 import { logAudit } from '../utils/auditLog.js';
 import type { RowDataPacket, ResultSetHeader } from 'mysql2/promise';
 import { PROCESSED_PAID_BY_VENDOR_INVOICE } from '../utils/paymentSql.js';
+import { VI_CAMEL_COLS } from '../utils/vendorInvoiceSql.js';
 
 /** Validate file content by checking magic bytes against expected MIME type. */
 function validateMagicBytes(filePath: string, declaredMime: string): boolean {
@@ -279,9 +280,10 @@ export async function vendorRoutes(app: FastifyInstance) {
     const { id } = request.params as { id: string };
     const { vendorId } = await getVendorIdForUser(pool, request.userId);
     const [invoiceRows] = await pool.query<RowDataPacket[]>(
-      `SELECT vi.*, v.name as company, COALESCE(vi.rate, 0) as rate,
-              COALESCE(payments.total_paid, 0) as total_paid,
-              (COALESCE(vi.total, vi.amount) - COALESCE(payments.total_paid, 0)) as balance_due
+      `SELECT vi.*, ${VI_CAMEL_COLS}, v.name as company, COALESCE(vi.rate, 0) as rate,
+              COALESCE(payments.total_paid, 0) as total_paid, COALESCE(payments.total_paid, 0) as totalPaid,
+              (COALESCE(vi.total, vi.amount) - COALESCE(payments.total_paid, 0)) as balance_due,
+              (COALESCE(vi.total, vi.amount) - COALESCE(payments.total_paid, 0)) as balanceDue
        FROM vendor_invoices vi LEFT JOIN vendors v ON vi.vendor_id = v.id
        LEFT JOIN ${PROCESSED_PAID_BY_VENDOR_INVOICE} payments
          ON payments.vendor_invoice_id = vi.id
@@ -362,5 +364,23 @@ export async function vendorRoutes(app: FastifyInstance) {
     reply.header('Content-Type', 'application/pdf');
     reply.header('Content-Disposition', `attachment; filename="invoice-${invoice.invoice_number}.pdf"`);
     return reply.send(pdfBuffer);
+  });
+
+  // ===== Resend a rejected invoice =====
+  // After Course Admin or Accounting rejects it, the vendor answers and sends it back to Course
+  // Admin. Their reply goes in the vendor's own `notes`; the audit log keeps the rejection history.
+  app.post('/invoices/:id/resend-to-admin', { preHandler: vendorRole }, async (request, reply) => {
+    const { id } = z.object({ id: z.coerce.number().int().positive() }).parse(request.params);
+    const { notes } = z.object({ notes: z.string().trim().min(1, 'Please say what you changed') }).parse(request.body);
+    const { vendorId } = await getVendorIdForUser(pool, request.userId);
+    const [result] = await pool.query<ResultSetHeader>(
+      `UPDATE vendor_invoices SET status = 'submitted_to_admin', notes = ?,
+       rejection_reason = NULL, rejected_at = NULL, rejected_by = NULL, updated_at = CURRENT_TIMESTAMP
+       WHERE id = ? AND vendor_id = ? AND status IN ('rejected_by_admin', 'rejected_by_accountant')`,
+      [notes, id, vendorId]
+    );
+    if (result.affectedRows === 0) return reply.status(404).send({ error: 'Invoice not found or not in a rejected state' });
+    logAudit({ userId: request.userId, action: 'resend_vendor_invoice', entityType: 'vendor_invoice', entityId: id, details: { vendorId, notes }, ipAddress: request.ip });
+    return { success: true, message: 'Invoice resent to admin' };
   });
 }

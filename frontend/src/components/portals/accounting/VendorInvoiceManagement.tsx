@@ -14,7 +14,8 @@ import {
   Grid,
   Alert,
   CircularProgress,
-  Tooltip
+  Tooltip,
+  Button,
 } from '@mui/material';
 import DataTable, { DataTableRow } from '../../gtacpr/DataTable';
 import StatusChip from '../../gtacpr/StatusChip';
@@ -25,6 +26,7 @@ import { LinkButton, useConfirm } from '../../gtacpr';
 import { formatCurrency, formatDisplayDate, getTodayDate } from '../../../utils/formatters';
 import { api, adminApi } from '../../../services/api';
 import { useSnackbar } from '../../../contexts/SnackbarContext';
+import { getErrorMessage } from '../../../utils/errorMessage';
 import useServerPagination from '../../../hooks/useServerPagination';
 import useDebounce from '../../../hooks/useDebounce';
 
@@ -180,6 +182,9 @@ const VendorInvoiceManagement: React.FC = () => {
   const [summary, setSummary] = useState<InvoiceSummary>(emptySummary);
   const { showSuccess, showError } = useSnackbar();
   const { confirm, dialog: confirmDialog } = useConfirm();
+  const [rejectOpen, setRejectOpen] = useState(false);
+  const [rejectReason, setRejectReason] = useState('');
+  const [rejecting, setRejecting] = useState(false);
 
   const debouncedSearch = useDebounce(searchTerm, 300);
   const searchParam = debouncedSearch.trim();
@@ -281,6 +286,27 @@ const VendorInvoiceManagement: React.FC = () => {
     }
 
     setViewDialog(true);
+  };
+
+  // Accounting may send an invoice back only before any money has gone out on it.
+  const canReject = (inv: VendorInvoice | null) =>
+    !!inv && inv.status === 'submitted_to_accounting' && Number(inv.totalPaid ?? 0) === 0;
+
+  const handleReject = async () => {
+    if (!selectedInvoice || !rejectReason.trim()) return;
+    setRejecting(true);
+    try {
+      const response = await adminApi.rejectVendorInvoiceAsAccounting(selectedInvoice.id, rejectReason.trim());
+      showSuccess(response.message || 'Invoice rejected');
+      setRejectOpen(false);
+      setViewDialog(false);
+      setSelectedInvoice(null);
+      reloadCurrentPage();
+    } catch (error: unknown) {
+      showError(getErrorMessage(error, 'Failed to reject the invoice'));
+    } finally {
+      setRejecting(false);
+    }
   };
 
   const handleProcessPayment = async () => {
@@ -737,9 +763,41 @@ const VendorInvoiceManagement: React.FC = () => {
           )}
         </DialogContent>
         <DialogActions>
+          {canReject(selectedInvoice) && (
+            <Button color="error" onClick={() => { setRejectReason(''); setRejectOpen(true); }} sx={{ mr: 'auto' }}>
+              Reject invoice
+            </Button>
+          )}
           <GhostButton onClick={() => setViewDialog(false)}>
             Close
           </GhostButton>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={rejectOpen} onClose={() => !rejecting && setRejectOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>Reject invoice {selectedInvoice?.invoiceNumber}?</DialogTitle>
+        <DialogContent>
+          <Typography sx={{ fontSize: 14, mb: 2 }}>
+            The invoice goes back to the vendor as &ldquo;Rejected by Accounting&rdquo;. They see your reason and can correct
+            and resend it. No payment is made.
+          </Typography>
+          <TextField
+            id="vendor-reject-reason"
+            label="Reason for the vendor"
+            fullWidth
+            multiline
+            minRows={3}
+            autoFocus
+            value={rejectReason}
+            onChange={(e) => setRejectReason(e.target.value)}
+            disabled={rejecting}
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setRejectOpen(false)} disabled={rejecting}>Cancel</Button>
+          <Button color="error" variant="contained" onClick={handleReject} disabled={rejecting || !rejectReason.trim()}>
+            {rejecting ? 'Rejecting…' : 'Reject invoice'}
+          </Button>
         </DialogActions>
       </Dialog>
       {confirmDialog}

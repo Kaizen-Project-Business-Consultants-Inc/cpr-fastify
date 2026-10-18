@@ -11,7 +11,9 @@ import {
   FormControl,
   InputLabel,
 } from '@mui/material';
-import { getInvoices, getOrganizations } from '../../services/api';
+import api, { getInvoices, getOrganizations } from '../../services/api';
+import { downloadBlob } from '../../utils/download';
+import { getTodayDate } from '../../utils/formatters';
 import InvoiceHistoryTable from '../tables/InvoiceHistoryTable';
 import InvoiceStatsDashboard from '../dashboard/InvoiceStatsDashboard';
 import StatCard from '../gtacpr/StatCard';
@@ -56,6 +58,7 @@ const TransactionHistoryView = () => {
   const [selectedOrgId, setSelectedOrgId] = useState('');
   const [selectedMonth, setSelectedMonth] = useState('');
   const [selectedStatus, setSelectedStatus] = useState('');
+  const [exportError, setExportError] = useState<string | null>(null);
 
   const debouncedSearch = useDebounce(searchTerm, 300);
 
@@ -147,6 +150,17 @@ const TransactionHistoryView = () => {
   /** Every matching invoice, for the summary figures. */
   const summaryInvoices = useMemo(() => applyFilters(allInvoices), [applyFilters, allInvoices]);
 
+  // Every invoice, from the server (the table pages through them).
+  const handleExportCSV = async () => {
+    try {
+      const response = await api.get('/accounting/invoices/export/csv', { responseType: 'blob' });
+      downloadBlob(response.data, `invoices-${getTodayDate()}.csv`);
+    } catch (err) {
+      logger.error('Error exporting invoices:', getErrorMessage(err));
+      setExportError('Failed to export invoices');
+    }
+  };
+
   const handleClearFilters = () => { setSearchTerm(''); setSelectedOrgId(''); setSelectedMonth(''); setSelectedStatus(''); };
 
   const errorMessage = grid.error
@@ -162,13 +176,15 @@ const TransactionHistoryView = () => {
         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 0.5 }}>
           <Typography sx={{ fontSize: 13, fontWeight: 700, color: (theme) => theme.palette.text.secondary, textTransform: 'uppercase', letterSpacing: '0.07em' }}>Filters</Typography>
           <Box sx={{ display: 'flex', gap: 1 }}>
+            <GhostButton onClick={handleExportCSV}>Export CSV</GhostButton>
             <GhostButton onClick={handleRefresh} disabled={grid.loading}>Refresh</GhostButton>
             <GhostButton onClick={handleClearFilters}>Clear Filters</GhostButton>
           </Box>
         </Box>
         <Typography sx={{ fontSize: 12, color: (theme) => theme.palette.text.secondary, mb: 2 }}>
-          Filters apply to the totals below (all invoices) and to the rows on the current page.
+          Filters apply to the totals below (all invoices) and to the rows on the current page. Export CSV downloads every invoice.
         </Typography>
+        {exportError && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setExportError(null)}>{exportError}</Alert>}
         <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, 1fr)', md: 'repeat(4, 1fr)' }, gap: 2 }}>
           <TextField fullWidth label="Search Invoice/Course/Org" size="small" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
           <FormControl fullWidth size="small">

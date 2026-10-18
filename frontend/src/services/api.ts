@@ -503,6 +503,16 @@ export const sysAdminApi = {
     const response = await api.put(`/sysadmin/users/${id}`, userData);
     return response.data;
   },
+  /** Emails the user a one-hour password reset link. */
+  sendPasswordResetLink: async (id: number) => {
+    const response = await api.post(`/sysadmin/users/${id}/reset-password`);
+    return response.data as { success: boolean; message: string };
+  },
+  /** Privacy-law erasure: blanks the person's details and blocks sign-in. Cannot be undone. */
+  erasePersonalData: async (id: number) => {
+    const response = await api.delete(`/sysadmin/users/${id}/personal-data`);
+    return response.data as { success: boolean; message: string };
+  },
 
   // Vendor Invoice Management
   getVendorInvoices: async (status?: string) => {
@@ -667,6 +677,11 @@ export const adminApi = {
     const response = await api.post(`/accounting/vendor-invoices/${invoiceId}/payments`, paymentData);
     return response.data;
   },
+  /** Accounting sends an unpaid vendor invoice back to the vendor with a reason. */
+  rejectVendorInvoiceAsAccounting: async (invoiceId: number, notes: string) => {
+    const response = await api.post(`/accounting/vendor-invoices/${invoiceId}/reject`, { notes });
+    return response.data;
+  },
 };
 
 // Email Template endpoints
@@ -804,6 +819,11 @@ export const vendorApi = {
   },
 
   // Workflow functions
+  /** Send a rejected invoice back to admin, saying what was changed. */
+  resendToAdmin: async (invoiceId: number, notes: string) => {
+    const response = await api.post(`/vendor/invoices/${invoiceId}/resend-to-admin`, { notes });
+    return response.data;
+  },
   submitToAdmin: async (invoiceId: number) => {
     const response = await api.post(`/vendor/invoices/${invoiceId}/submit-to-admin`);
     return response.data;

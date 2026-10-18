@@ -14,6 +14,8 @@ import {
   TextField,
   Button,
   SelectChangeEvent,
+  Menu,
+  IconButton,
 } from '@mui/material';
 import PasswordField from '../common/PasswordField';
 import type { Theme } from '@mui/material/styles';
@@ -31,6 +33,8 @@ import { useDebounce } from '../../hooks/useDebounce';
 import { useServerPagination } from '../../hooks/useServerPagination';
 import { formatDisplayDate } from '../../utils/formatters';
 import { getErrorMessage } from '../../utils/errorMessage';
+import MoreVertIcon from '@mui/icons-material/MoreVert';
+import { useAuth } from '../../contexts/AuthContext';
 
 interface OrgUser {
   id: string;
@@ -67,7 +71,7 @@ const columns = [
   { key: 'mobile', label: 'MOBILE', width: '0.9fr' },
   { key: 'status', label: 'STATUS', width: '0.7fr' },
   { key: 'onboarded', label: 'ONBOARDED', width: '0.8fr' },
-  { key: 'actions', label: '', width: '0.5fr', align: 'right' as const },
+  { key: 'actions', label: '', width: '0.7fr', align: 'right' as const },
 ];
 
 // Must match the roles the server accepts (backend/src/routes/admin.ts) and that have a portal.
@@ -98,6 +102,12 @@ const UserManagement = ({ onShowSnackbar }: { onShowSnackbar?: (message: string,
   const [roleFilter, setRoleFilter] = useState('');
   const [saving, setSaving] = useState(false);
   const { confirm, dialog: confirmDialog } = useConfirm();
+  const { user: currentUser } = useAuth();
+  // Row "More" menu and the type-the-username erase dialog.
+  const [menu, setMenu] = useState<{ anchor: HTMLElement; user: OrgUser } | null>(null);
+  const [eraseUser, setEraseUser] = useState<OrgUser | null>(null);
+  const [eraseConfirmText, setEraseConfirmText] = useState('');
+  const [erasing, setErasing] = useState(false);
 
   // Server-side paging: `/sysadmin/users` supports `search` and `role` as
   // query params, so both the search box and the role pills filter the whole
@@ -197,6 +207,41 @@ const UserManagement = ({ onShowSnackbar }: { onShowSnackbar?: (message: string,
     } catch (err) {
       logger.error('Error deactivating user:', err);
       onShowSnackbar?.('Failed to deactivate user', 'error');
+    }
+  };
+
+  const handleSendResetLink = async (user: OrgUser) => {
+    const ok = await confirm({
+      title: 'Send a password reset link?',
+      message: `${user.username} will get an email at ${user.email || 'their address on file'} with a link to choose a new password. The link works for one hour. Their current password keeps working until they use it.`,
+      confirmLabel: 'Send link',
+    });
+    if (!ok) return;
+    try {
+      const result = await sysAdminApi.sendPasswordResetLink(Number(user.id));
+      onShowSnackbar?.(result.message || 'Reset link sent', 'success');
+    } catch (err) {
+      onShowSnackbar?.(getErrorMessage(err, 'Failed to send the reset link'), 'error');
+    }
+  };
+
+  const openErase = (user: OrgUser) => {
+    setEraseConfirmText('');
+    setEraseUser(user);
+  };
+
+  const handleErase = async () => {
+    if (!eraseUser || eraseConfirmText !== eraseUser.username) return;
+    setErasing(true);
+    try {
+      await sysAdminApi.erasePersonalData(Number(eraseUser.id));
+      onShowSnackbar?.('Personal data erased', 'success');
+      setEraseUser(null);
+      grid.reload();
+    } catch (err) {
+      onShowSnackbar?.(getErrorMessage(err, 'Failed to erase personal data'), 'error');
+    } finally {
+      setErasing(false);
     }
   };
 
@@ -341,17 +386,80 @@ const UserManagement = ({ onShowSnackbar }: { onShowSnackbar?: (message: string,
             <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>{formatDisplayDate(user.dateOnboarded)}</Typography>
             {/* ACTIONS */}
             <Box sx={{ display: 'flex', gap: 0.5, justifyContent: 'flex-end' }}>
-              <LinkButton onClick={() => handleEdit(user)} aria-label={`Edit ${user.username}`}>Edit</LinkButton>
-              {user.status !== 'inactive' && (
+              {user.status !== 'deleted' && (
+                <LinkButton onClick={() => handleEdit(user)} aria-label={`Edit ${user.username}`}>Edit</LinkButton>
+              )}
+              {user.status !== 'inactive' && user.status !== 'deleted' && (
                 <>
                   <Typography sx={{ fontSize: 12, color: (theme) => theme.palette.divider }}>|</Typography>
                   <LinkButton tone="neutral" onClick={() => handleDeactivate(user)} aria-label={`Deactivate ${user.username}`}>Deactivate</LinkButton>
                 </>
               )}
+              {user.status !== 'deleted' && (
+                <IconButton
+                  size="small"
+                  aria-label={`More actions for ${user.username}`}
+                  aria-haspopup="menu"
+                  onClick={(e) => setMenu({ anchor: e.currentTarget, user })}
+                >
+                  <MoreVertIcon fontSize="small" />
+                </IconButton>
+              )}
             </Box>
           </DataTableRow>
         ))}
       </DataTable>
+
+      <Menu anchorEl={menu?.anchor} open={Boolean(menu)} onClose={() => setMenu(null)}>
+        <MenuItem
+          disabled={!menu?.user.email || menu?.user.status !== 'active'}
+          onClick={() => { const u = menu!.user; setMenu(null); handleSendResetLink(u); }}
+        >
+          Send password reset link
+        </MenuItem>
+        {String(menu?.user.id) !== String(currentUser?.id) && (
+          <MenuItem
+            sx={{ color: 'error.main' }}
+            onClick={() => { const u = menu!.user; setMenu(null); openErase(u); }}
+          >
+            Erase personal data…
+          </MenuItem>
+        )}
+      </Menu>
+
+      {/* Privacy-law erasure: typed confirmation, because it cannot be undone */}
+      <Dialog open={Boolean(eraseUser)} onClose={() => !erasing && setEraseUser(null)} maxWidth="sm" fullWidth>
+        <DialogTitle sx={{ fontWeight: 700 }}>Erase personal data?</DialogTitle>
+        <DialogContent>
+          <Typography sx={{ fontSize: 14, mb: 1.5 }}>
+            This permanently removes <strong>{eraseUser?.username}</strong>&rsquo;s name, email, phone numbers, address,
+            emergency contact and notes, signs them out everywhere and blocks sign-in. The account stays as
+            &ldquo;deleted_{eraseUser?.id}&rdquo; so course and billing history still add up. <strong>This cannot be undone.</strong>
+          </Typography>
+          <Typography sx={{ fontSize: 14, mb: 1 }}>Use this for privacy-law requests. To stop someone signing in, use Deactivate instead.</Typography>
+          <TextField
+            id="erase-confirm"
+            fullWidth
+            autoFocus
+            label={`Type ${eraseUser?.username ?? ''} to confirm`}
+            value={eraseConfirmText}
+            onChange={(e) => setEraseConfirmText(e.target.value)}
+            disabled={erasing}
+            sx={{ mt: 1 }}
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setEraseUser(null)} disabled={erasing}>Cancel</Button>
+          <Button
+            color="error"
+            variant="contained"
+            onClick={handleErase}
+            disabled={erasing || !eraseUser || eraseConfirmText !== eraseUser.username}
+          >
+            {erasing ? 'Erasing…' : 'Erase personal data'}
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       {/* Add/Edit User Dialog */}
       <Dialog open={showDialog} onClose={() => setShowDialog(false)} maxWidth="md" fullWidth>

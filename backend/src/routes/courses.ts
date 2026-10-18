@@ -4,8 +4,9 @@ import { CourseService, CourseError } from '../services/CourseService.js';
 import { CourseRequestRepository } from '../repositories/CourseRequestRepository.js';
 import { CourseStudentRepository } from '../repositories/CourseStudentRepository.js';
 import { UserRepository } from '../repositories/UserRepository.js';
-import { requireAuth, requireRole } from '../plugins/auth.js';
+import { requireRole } from '../plugins/auth.js';
 import { isPaginated, parsePagination, paginatedResponse } from '../utils/pagination.js';
+import { logAudit } from '../utils/auditLog.js';
 
 // --- Validation schemas ---
 
@@ -58,7 +59,7 @@ export async function courseRoutes(app: FastifyInstance) {
   // =====================
 
   // GET /courses/org/students/:courseId — org user views students
-  app.get('/org/students/:courseId', { preHandler: [requireAuth] }, async (request, reply) => {
+  app.get('/org/students/:courseId', { preHandler: [requireRole('organization')] }, async (request, reply) => {
     if (!request.userOrgId) return reply.status(400).send({ error: 'Must be associated with an organization' });
 
     const { courseId } = request.params as { courseId: string };
@@ -69,7 +70,7 @@ export async function courseRoutes(app: FastifyInstance) {
   });
 
   // POST /courses/org/students/:courseId — org user adds students
-  app.post('/org/students/:courseId', { preHandler: [requireAuth] }, async (request, reply) => {
+  app.post('/org/students/:courseId', { preHandler: [requireRole('organization')] }, async (request, reply) => {
     if (!request.userOrgId) return reply.status(400).send({ error: 'Must be associated with an organization' });
 
     const { courseId } = request.params as { courseId: string };
@@ -85,12 +86,16 @@ export async function courseRoutes(app: FastifyInstance) {
 
   // DELETE /courses/org/students/:courseId/:courseStudentId — org user
   // removes a student they mistakenly added (e.g. a duplicate CSV upload).
-  app.delete('/org/students/:courseId/:courseStudentId', { preHandler: [requireAuth] }, async (request, reply) => {
+  app.delete('/org/students/:courseId/:courseStudentId', { preHandler: [requireRole('organization')] }, async (request, reply) => {
     if (!request.userOrgId) return reply.status(400).send({ error: 'Must be associated with an organization' });
 
-    const { courseId, courseStudentId } = request.params as { courseId: string; courseStudentId: string };
+    const { courseId, courseStudentId } = z.object({
+      courseId: z.coerce.number().int().positive(),
+      courseStudentId: z.coerce.number().int().positive(),
+    }).parse(request.params);
     try {
-      await service.removeStudent(parseInt(courseId), request.userOrgId, parseInt(courseStudentId));
+      await service.removeStudent(courseId, request.userOrgId, courseStudentId);
+      logAudit({ userId: request.userId, action: 'remove_course_student', entityType: 'course_request', entityId: courseId, details: { courseStudentId }, ipAddress: request.ip });
       return { success: true, message: 'Student removed' };
     } catch (err) { return handleCourseError(err, reply); }
   });

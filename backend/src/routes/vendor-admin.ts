@@ -6,6 +6,7 @@ import { writeAudit } from '../utils/auditLog.js';
 import { maybePaginate, paginatedResponse } from '../utils/pagination.js';
 import type { RowDataPacket, ResultSetHeader } from 'mysql2/promise';
 import { PROCESSED_PAID_BY_VENDOR_INVOICE } from '../utils/paymentSql.js';
+import { VI_CAMEL_COLS } from '../utils/vendorInvoiceSql.js';
 
 const approveSchema = z.object({
   action: z.enum(['approve', 'reject']),
@@ -35,14 +36,6 @@ const paymentSchema = z.object({
  * row, same bug as the vendor's own invoice list (see routes/vendors.ts).
  * Every list/detail query below appends this alongside `vi.*`.
  */
-const VI_CAMEL_COLS = `vi.invoice_number as invoiceNumber, vi.due_date as dueDate,
-              vi.payment_date as paymentDate, vi.pdf_filename as pdfFilename,
-              vi.created_at as createdAt, vi.updated_at as updatedAt,
-              vi.admin_notes as adminNotes, vi.rejection_reason as rejectionReason,
-              vi.sent_to_accounting_at as sentToAccountingAt, vi.paid_at as paidAt,
-              vi.approved_by as approvedBy, vi.approved_at as approvedAt,
-              vi.vendor_id as vendorId`;
-
 /**
  * Optional `status` / `search` filter shared by the vendor-invoice list endpoints.
  * `status=paid` and `status=unpaid` are the two the UI needs (a "paid" screen and a
@@ -291,7 +284,8 @@ export async function vendorAdminRoutes(app: FastifyInstance) {
          FROM vendor_invoices vi
          LEFT JOIN ${PROCESSED_PAID_BY_VENDOR_INVOICE} payments
            ON payments.vendor_invoice_id = vi.id
-         WHERE vi.id = ? AND vi.status = 'submitted_to_accounting'`,
+         WHERE vi.id = ? AND vi.status = 'submitted_to_accounting'
+         FOR UPDATE`,
         [id]
       );
       if (invoiceRows.length === 0) { await conn.rollback(); return reply.status(404).send({ error: 'Invoice not found or not ready for payment' }); }
@@ -324,20 +318,27 @@ export async function vendorAdminRoutes(app: FastifyInstance) {
   // ===== Accounting: Reject =====
   app.post('/accounting/vendor-invoices/:id/reject', { preHandler: acctRole }, async (request, reply) => {
     const { id } = request.params as { id: string };
-    const { notes } = z.object({ notes: z.string().min(1) }).parse(request.body);
+    const { notes } = z.object({ notes: z.string().trim().min(1, 'A reason is required') }).parse(request.body);
 
     const conn = await pool.getConnection();
     try {
       await conn.beginTransaction();
       const [invoiceRows] = await conn.query<RowDataPacket[]>(
-        `SELECT * FROM vendor_invoices WHERE id = ? AND status = 'submitted_to_accounting'`, [id]
+        `SELECT * FROM vendor_invoices WHERE id = ? AND status = 'submitted_to_accounting' FOR UPDATE`, [id]
       );
       if (invoiceRows.length === 0) { await conn.rollback(); return reply.status(404).send({ error: 'Invoice not found or not ready' }); }
+      const [paid] = await conn.query<RowDataPacket[]>(
+        `SELECT COUNT(*) AS n FROM vendor_payments WHERE vendor_invoice_id = ? AND status = 'processed'`, [id]
+      );
+      if (Number(paid[0].n) > 0) {
+        await conn.rollback();
+        return reply.status(400).send({ error: 'This invoice already has payments recorded, so it can no longer be rejected.' });
+      }
 
       await conn.query(
-        `UPDATE vendor_invoices SET status = 'rejected_by_accountant', admin_notes = ?, rejection_reason = ?,
+        `UPDATE vendor_invoices SET status = 'rejected_by_accountant', rejection_reason = ?, rejected_by = ?,
          rejected_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
-        [notes, notes, id]
+        [notes, request.userId, id]
       );
       await writeAudit(conn, { userId: request.userId, action: 'accounting_reject_vendor_invoice', entityType: 'vendor_invoice', entityId: parseInt(id), details: { invoiceNumber: invoiceRows[0].invoice_number, total: Number(invoiceRows[0].total ?? invoiceRows[0].amount), notes }, ipAddress: request.ip });
       await conn.commit();

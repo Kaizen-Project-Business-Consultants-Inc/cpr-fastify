@@ -23,6 +23,8 @@ import DataTable, { DataTableRow } from '../../../gtacpr/DataTable';
 import StatusChip from '../../../gtacpr/StatusChip';
 import LinkButton from '../../../gtacpr/LinkButton';
 import { GhostButton } from '../../../gtacpr/Buttons';
+import { useConfirm } from '../../../gtacpr/ConfirmDialog';
+import { getErrorMessage } from '../../../../utils/errorMessage';
 
 interface Course {
   id: string | number;
@@ -75,7 +77,11 @@ const studentColumns = [
   { key: 'name', label: 'NAME', width: '1.2fr' },
   { key: 'email', label: 'EMAIL', width: '1.2fr' },
   { key: 'status', label: 'STATUS', width: '0.6fr' },
+  { key: 'actions', label: '', width: '0.5fr', align: 'right' as const },
 ];
+
+/** A student can be taken off the roster only before the class is taught (the server enforces it too). */
+const canEditRoster = (status?: string) => ['pending', 'past_due', 'confirmed'].includes((status || '').toLowerCase());
 
 const getStatusKind = (status: string): 'success' | 'active' | 'danger' | 'warning' | 'pending' => {
   switch (status?.toLowerCase()) {
@@ -120,6 +126,8 @@ const OrganizationCourses: React.FC<OrganizationCoursesProps> = ({
   const [students, setStudents] = useState<Student[]>([]);
   const [loadingStudents, setLoadingStudents] = useState(false);
   const [studentError, setStudentError] = useState<string | null>(null);
+  const [removingId, setRemovingId] = useState<number | null>(null);
+  const { confirm, dialog: confirmDialog } = useConfirm();
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [courseTypeFilter, setCourseTypeFilter] = useState('');
@@ -228,6 +236,28 @@ const OrganizationCourses: React.FC<OrganizationCoursesProps> = ({
     }
   };
 
+  const handleRemoveStudent = async (student: Student) => {
+    if (!selectedCourse) return;
+    const ok = await confirm({
+      title: 'Remove this student?',
+      message: `${student.firstName} ${student.lastName} will be taken off the ${selectedCourse.courseTypeName} class list. The class's registered count updates to match.`,
+      confirmLabel: 'Remove',
+      danger: true,
+    });
+    if (!ok) return;
+    setRemovingId(student.id);
+    setStudentError(null);
+    try {
+      await api.delete(`/courses/org/students/${selectedCourse.id}/${student.id}`);
+      setStudents((prev) => prev.filter((s) => s.id !== student.id));
+      gridReload(); // the registered count shown in the course list changed
+    } catch (error: unknown) {
+      setStudentError(getErrorMessage(error, 'Failed to remove the student'));
+    } finally {
+      setRemovingId(null);
+    }
+  };
+
   const handleCloseStudentDialog = () => {
     setStudentDialogOpen(false);
     setSelectedCourse(null);
@@ -318,6 +348,8 @@ const OrganizationCourses: React.FC<OrganizationCoursesProps> = ({
         })}
       </DataTable>
 
+      {confirmDialog}
+
       {/* Student Dialog */}
       <Dialog open={studentDialogOpen} onClose={handleCloseStudentDialog} maxWidth="md" fullWidth>
         <DialogTitle sx={{ fontSize: 18, fontWeight: 700, color: (theme) => theme.palette.text.primary }}>
@@ -341,6 +373,18 @@ const OrganizationCourses: React.FC<OrganizationCoursesProps> = ({
                   ) : (
                     <Typography sx={{ fontSize: 12, color: (theme) => theme.palette.text.secondary }}>—</Typography>
                   )}
+                  <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>
+                    {canEditRoster(selectedCourse?.status) && (
+                      <LinkButton
+                        tone="neutral"
+                        disabled={removingId === student.id}
+                        onClick={() => handleRemoveStudent(student)}
+                        aria-label={`Remove ${student.firstName} ${student.lastName}`}
+                      >
+                        {removingId === student.id ? 'Removing…' : 'Remove'}
+                      </LinkButton>
+                    )}
+                  </Box>
                 </DataTableRow>
               ))}
             </DataTable>

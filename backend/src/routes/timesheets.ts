@@ -314,7 +314,8 @@ export async function timesheetRoutes(app: FastifyInstance) {
                WHERE cr.instructor_id = u.id AND cr.confirmed_date >= ?
                AND cr.confirmed_date <= (? + INTERVAL 6 DAY) AND cr.status = 'completed') as completed_courses
        FROM users u
-       WHERE u.role = 'instructor' AND u.id NOT IN (SELECT instructor_id FROM timesheets WHERE week_start_date = ?)
+       WHERE u.role = 'instructor' AND u.status = 'active'
+         AND u.id NOT IN (SELECT instructor_id FROM timesheets WHERE week_start_date = ?)
        ORDER BY u.username`,
       [previousMondayStr, previousMondayStr, previousMondayStr]
     );

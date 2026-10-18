@@ -93,6 +93,15 @@ describe('AuthService', () => {
         .rejects.toThrow('Invalid username or password');
     });
 
+    it('refuses an account whose personal data was erased', async () => {
+      mockQuery.mockResolvedValueOnce([[{ cnt: 0 }]]);
+      vi.mocked(userRepo.findByUsername).mockResolvedValue({ ...mockUser, status: 'deleted' } as any);
+      mockQuery.mockResolvedValueOnce([{}]);
+
+      await expect(authService.login('deleted_7', 'correctpassword'))
+        .rejects.toThrow('Invalid username or password');
+    });
+
     it('throws 429 when account is locked out', async () => {
       // 5+ failed attempts in window
       mockQuery.mockResolvedValueOnce([[{ cnt: 5 }]]);
@@ -120,9 +129,10 @@ describe('AuthService', () => {
       await authService.changePassword(1, 'correctpassword', 'newpassword123');
 
       expect(userRepo.updatePassword).toHaveBeenCalledWith(1, expect.any(String));
+      // Stamped with the app's clock (the one that sets tokens' "issued at"), not the DB's NOW().
       expect(mockQuery).toHaveBeenCalledWith(
         expect.stringContaining('INSERT INTO token_blacklist'),
-        [1]
+        [1, expect.any(Date)]
       );
     });
 

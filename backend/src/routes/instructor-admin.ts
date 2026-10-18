@@ -7,6 +7,7 @@ import { requireRole } from '../plugins/auth.js';
 import { logAudit } from '../utils/auditLog.js';
 import { monthRangeOrThrow } from '../utils/monthRange.js';
 import type { RowDataPacket, ResultSetHeader } from 'mysql2/promise';
+import { isErased, notReservedEmail, notReservedUsername } from '../utils/userAccount.js';
 
 /**
  * Admin-side instructor management, mounted at the API root (no prefix) because
@@ -22,8 +23,8 @@ const WEEKDAY_EXPANSION_WEEKS = 8;
 const isoDate = z.string().regex(DATE_RE, 'Expected YYYY-MM-DD');
 
 const createInstructorSchema = z.object({
-  username: z.string().min(3).max(50).regex(/^[a-zA-Z0-9_.@-]+$/),
-  email: z.string().email(),
+  username: z.string().min(3).max(50).regex(/^[a-zA-Z0-9_.@-]+$/).refine(notReservedUsername, 'Usernames starting with "deleted_" are reserved'),
+  email: z.string().email().refine(notReservedEmail, 'This email domain is reserved'),
   password: z.string().min(8),
   firstName: z.string().max(100).optional(),
   lastName: z.string().max(100).optional(),
@@ -32,8 +33,8 @@ const createInstructorSchema = z.object({
 });
 
 const updateInstructorSchema = z.object({
-  username: z.string().min(3).max(50).regex(/^[a-zA-Z0-9_.@-]+$/).optional(),
-  email: z.string().email().optional(),
+  username: z.string().min(3).max(50).regex(/^[a-zA-Z0-9_.@-]+$/).refine(notReservedUsername, 'Usernames starting with "deleted_" are reserved').optional(),
+  email: z.string().email().refine(notReservedEmail, 'This email domain is reserved').optional(),
   // The edit form re-sends the password field, usually empty. Empty means "leave as is".
   password: z.union([z.literal(''), z.string().min(8)]).optional(),
   firstName: z.string().max(100).optional(),
@@ -124,6 +125,7 @@ export async function instructorAdminRoutes(app: FastifyInstance) {
 
     const existing = await findInstructor(id);
     if (!existing) return reply.status(404).send({ error: 'Instructor not found' });
+    if (isErased(existing.email)) return reply.status(400).send({ error: 'This account was erased and cannot be changed' });
 
     if (data.username || data.email) {
       const [dupes] = await pool.query<RowDataPacket[]>(

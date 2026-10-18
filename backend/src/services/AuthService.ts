@@ -34,7 +34,7 @@ export class AuthService {
     }
 
     const user = await this.userRepo.findByUsername(username);
-    if (!user || user.status === 'inactive') {
+    if (!user || user.status === 'inactive' || user.status === 'deleted') {
       await this.recordFailedAttempt(key);
       throw new AuthError('Invalid username or password');
     }
@@ -121,7 +121,7 @@ export class AuthService {
     if (new Date(record.expires_at).getTime() < Date.now()) throw new AuthError('Refresh token expired');
 
     const user = await this.userRepo.findById(payload.userId);
-    if (!user || user.status === 'inactive' || user.id !== record.user_id) {
+    if (!user || user.status === 'inactive' || user.status === 'deleted' || user.id !== record.user_id) {
       throw new AuthError('Invalid refresh token');
     }
 
@@ -177,9 +177,10 @@ export class AuthService {
     const pool = getPool();
     await pool.query(
       `INSERT INTO token_blacklist (user_id, invalidated_at)
-       VALUES (?, NOW())
-       ON DUPLICATE KEY UPDATE invalidated_at = NOW()`,
-      [userId]
+       VALUES (?, ?)
+       ON DUPLICATE KEY UPDATE invalidated_at = VALUES(invalidated_at)`,
+      // The app's clock, the same one that stamps tokens' "issued at" (not the DB server's NOW()).
+      [userId, new Date()]
     );
     // ...and revoke every outstanding refresh token so the session cannot be renewed
     await pool.query('UPDATE refresh_tokens SET revoked_at = NOW() WHERE user_id = ? AND revoked_at IS NULL', [userId]);

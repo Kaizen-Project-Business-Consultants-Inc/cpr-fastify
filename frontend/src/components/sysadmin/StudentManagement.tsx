@@ -21,7 +21,9 @@ import StatusChip from '../gtacpr/StatusChip';
 import { LinkButton } from '../gtacpr';
 import { useDebounce } from '../../hooks/useDebounce';
 import { useServerPagination } from '../../hooks/useServerPagination';
-import { formatDisplayDate } from '../../utils/formatters';
+import { formatDisplayDate, getTodayDate } from '../../utils/formatters';
+import { GhostButton } from '../gtacpr/Buttons';
+import { downloadBlob } from '../../utils/download';
 import type { Theme } from '@mui/material/styles';
 
 interface StudentManagementProps {
@@ -163,6 +165,17 @@ const StudentManagement = ({ onShowSnackbar }: StudentManagementProps) => {
     }
   };
 
+  const handleExportCSV = async () => {
+    try {
+      const params: Record<string, string> = {};
+      if (debouncedSearch.trim().length >= 2) params.q = debouncedSearch.trim();
+      const response = await api.get('/sysadmin/students/export/csv', { params, responseType: 'blob' });
+      downloadBlob(response.data, `students-${getTodayDate()}.csv`);
+    } catch {
+      onShowSnackbar('Failed to export students', 'error');
+    }
+  };
+
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
       {/* Search + count */}
@@ -177,6 +190,7 @@ const StudentManagement = ({ onShowSnackbar }: StudentManagementProps) => {
         <Typography sx={{ fontSize: 12, color: (theme) => theme.palette.text.secondary }}>
           {grid.totalCount} student{grid.totalCount !== 1 ? 's' : ''}
         </Typography>
+        <GhostButton onClick={handleExportCSV} sx={{ ml: 'auto' }}>Export CSV</GhostButton>
       </Box>
 
       {/* Table */}

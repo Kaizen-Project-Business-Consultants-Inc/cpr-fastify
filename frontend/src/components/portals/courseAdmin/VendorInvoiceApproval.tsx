@@ -47,6 +47,7 @@ interface VendorInvoice {
   vendorName: string;
   vendorEmail: string;
   adminNotes?: string;
+  notes?: string;
   approvedBy?: string;
   approvedAt?: string;
   rejectedBy?: string;
@@ -661,6 +662,14 @@ const VendorInvoiceApproval: React.FC = () => {
                   )}
                 </Grid>
               </Box>
+
+              {/* The vendor's own note, e.g. their reply when resending a rejected invoice */}
+              {selectedInvoice.notes && (
+                <Alert severity="info" sx={{ mb: 3 }}>
+                  <Typography sx={{ fontSize: 12, fontWeight: 700, textTransform: 'uppercase', mb: 0.5 }}>Vendor&rsquo;s note</Typography>
+                  <Typography sx={{ fontSize: 13, whiteSpace: 'pre-line' }}>{selectedInvoice.notes}</Typography>
+                </Alert>
+              )}
 
               {/* Admin Notes */}
               <Box sx={{ border: (theme) => `1px solid ${theme.palette.divider}`, borderRadius: '10px', bgcolor: (theme) => theme.palette.background.paper, p: 3, mb: 3 }}>

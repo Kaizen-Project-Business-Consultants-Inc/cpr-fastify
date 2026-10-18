@@ -337,7 +337,6 @@ System administration — users, organizations, course types, vendors, config
 | PUT | `/sysadmin/vendors/{id}` | Bearer |  |
 | DELETE | `/sysadmin/vendors/{id}` | Bearer |  |
 | GET | `/sysadmin/wsib/compliance-summary` | Bearer |  |
-| GET | `/sysadmin/wsib/export/csv` | Bearer |  |
 | GET | `/sysadmin/wsib/training-history` | Bearer |  |
 | GET | `/sysadmin/wsib/training-history/export/csv` | Bearer |  |
 
@@ -367,6 +366,7 @@ Vendor portal — invoice submission, profile, dashboard
 | POST | `/vendor/invoices` | Bearer |  |
 | GET | `/vendor/invoices/{id}/details` | Bearer |  |
 | GET | `/vendor/invoices/{id}/download` | Bearer |  |
+| POST | `/vendor/invoices/{id}/resend-to-admin` | Bearer |  |
 | POST | `/vendor/invoices/{id}/submit-to-admin` | Bearer |  |
 | GET | `/vendor/profile` | Bearer |  |
 | PUT | `/vendor/profile` | Bearer |  |
