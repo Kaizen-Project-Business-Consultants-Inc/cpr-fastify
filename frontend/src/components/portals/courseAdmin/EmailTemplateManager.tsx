@@ -19,7 +19,6 @@ import {
   Autocomplete,
 } from '@mui/material';
 import type { Theme } from '@mui/material/styles';
-const Editor = React.lazy(() => import('@monaco-editor/react'));
 import { emailTemplateApi } from '../../../services/api';
 import { useToast } from '../../../contexts/ToastContext';
 import StatusChip from '../../gtacpr/StatusChip';
@@ -851,23 +850,19 @@ const EmailTemplateManager: React.FC = () => {
                 </Box>
               </Box>
               {editorMode === 'html' ? (
-                <Box sx={{ border: (theme) => `1px solid ${theme.palette.divider}`, borderRadius: 1, height: 400 }}>
-                  <React.Suspense fallback={<Box sx={{ p: 2 }}>Loading editor...</Box>}>
-                    <Editor
-                      height="400px"
-                      defaultLanguage="html"
-                      value={formData.htmlContent}
-                      onChange={value =>
-                        setFormData({ ...formData, htmlContent: value || '' })
-                      }
-                      options={{
-                        minimap: { enabled: false },
-                        fontSize: 14,
-                        wordWrap: 'on',
-                      }}
-                    />
-                  </React.Suspense>
-                </Box>
+                // A plain text box: the Monaco code editor loaded from a CDN, which the
+                // site's Content-Security-Policy (script-src 'self') blocks, so it never opened.
+                <TextField
+                  id="template-html"
+                  label="HTML"
+                  fullWidth
+                  multiline
+                  minRows={16}
+                  maxRows={30}
+                  value={formData.htmlContent}
+                  onChange={e => setFormData({ ...formData, htmlContent: e.target.value })}
+                  inputProps={{ spellCheck: false, style: { fontFamily: 'ui-monospace, Consolas, monospace', fontSize: 13 } }}
+                />
               ) : editorMode === 'simple' ? (
                 <TextField
                   value={formData.textContent || ''}

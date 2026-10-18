@@ -16,6 +16,27 @@ function apiResponse(pg: Page, fragment: string, when: (r: Response) => boolean 
   return pg.waitForResponse((r) => r.url().includes(`/api/v1${fragment}`) && when(r), { timeout: 60000 });
 }
 
+/**
+ * Load `path` and collect the API responses it makes. The whole suite shares one IP, so a
+ * busy page can hit the API's 100-requests-a-minute limit (429). If any response is a 429,
+ * wait out the window and load the page once more.
+ */
+async function loadWithResponses(pg: Page, path: string, waits: Array<[string, (r: Response) => boolean]>) {
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const responses = await Promise.all([
+      ...waits.map(([fragment, when]) => apiResponse(pg, fragment, when)),
+      pg.goto(path, { waitUntil: 'domcontentloaded' }),
+    ]);
+    const apiResponses = responses.slice(0, waits.length) as Response[];
+    if (attempt === 0 && apiResponses.some((r) => r.status() === 429)) {
+      await pg.waitForTimeout(61000);
+      continue;
+    }
+    return apiResponses;
+  }
+  throw new Error('unreachable');
+}
+
 /** Open a portal page with a fresh load and wait for an API call it makes. */
 async function openAndWaitFor(pg: Page, path: string, fragment: string) {
   const [res] = await Promise.all([apiResponse(pg, fragment), pg.goto(path, { waitUntil: 'domcontentloaded' })]);
@@ -108,11 +129,10 @@ asRole('courseadmin', (page) => {
   // One page load for both checks: reloading the same page twice on slow hosting can time out.
   test('Instructor Management: fairness dashboard and 25-per-page course lists', async () => {
     const pg = page();
-    const [statsRes, pending, completed] = await Promise.all([
-      apiResponse(pg, '/admin/instructor-stats'),
-      apiResponse(pg, '/courses/pending', (r) => r.url().includes('limit=25')),
-      apiResponse(pg, '/courses/completed', (r) => r.url().includes('limit=25')),
-      pg.goto('/admin/instructors', { waitUntil: 'domcontentloaded' }),
+    const [statsRes, pending, completed] = await loadWithResponses(pg, '/admin/instructors', [
+      ['/admin/instructor-stats', () => true],
+      ['/courses/pending', (r) => r.url().includes('limit=25')],
+      ['/courses/completed', (r) => r.url().includes('limit=25')],
     ]);
 
     expect(statsRes.status()).toBe(200);
@@ -129,6 +149,22 @@ asRole('courseadmin', (page) => {
     await expect(pg.getByRole('button', { name: 'Refresh' }).first()).toBeVisible();
     await expect(pg.getByText(/failed to fetch dashboard data/i)).toHaveCount(0);
     await expect(pg.getByText(/real-time updates are currently using polling/i)).toHaveCount(0);
+  });
+
+  // The HTML mode used a CDN code editor that the site's CSP blocked ("Loading..." forever).
+  test('Email template HTML mode shows an editable box', async () => {
+    const pg = page();
+    await pg.goto('/admin/email-templates', { waitUntil: 'domcontentloaded' });
+    await pg.getByRole('button', { name: '+ Create Template' }).click({ timeout: 60000 });
+    const dialog = pg.getByRole('dialog');
+    await dialog.getByText('HTML', { exact: true }).click();
+    const html = dialog.getByLabel('HTML', { exact: true });
+    await expect(html).toBeVisible({ timeout: 15000 });
+    await html.fill('<p>E2E check, not saved</p>');
+    await expect(html).toHaveValue('<p>E2E check, not saved</p>');
+    await expect(dialog.getByText('Loading editor...')).toHaveCount(0);
+    await pg.keyboard.press('Escape');
+    await expect(dialog).toBeHidden();
   });
 });
 

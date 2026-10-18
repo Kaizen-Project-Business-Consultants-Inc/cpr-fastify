@@ -299,7 +299,7 @@ The built files are deployed to the `public/` directory on the server where Fast
 - **Charts:** Recharts
 - **Date handling:** date-fns with MUI X Date Pickers
 - **Form validation:** Zod
-- **Code editor:** Monaco Editor (for email template editing)
+- **Email template HTML:** a plain monospace text box (Monaco was removed 2026-10-17: it loaded from a CDN that the CSP blocks)
 - **Testing:** Vitest + React Testing Library + jsdom
 - **Path aliases:** `@/*` and `src/*` map to `src/` directory
 

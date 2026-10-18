@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, lazy, Suspense } from 'react';
 import {
   Box, Typography,
   CircularProgress
@@ -11,14 +11,12 @@ import { getErrorMessage } from '../../utils/errorMessage';
 import AccountingDashboard from './accounting/AccountingDashboard';
 import VendorInvoiceManagement from './accounting/VendorInvoiceManagement';
 import PaidVendorInvoices from './accounting/PaidVendorInvoices';
-import FinancialSummaryView from '../accounting/FinancialSummaryView';
 
 import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
 
 import ReadyForBillingTable, { type BillingCourse } from '../tables/ReadyForBillingTable';
 import AccountsReceivableTable, { type ReceivableInvoice } from '../tables/AccountsReceivableTable';
 import TransactionHistoryView from '../views/TransactionHistoryView';
-import AgingReportView from '../views/AgingReportView';
 import PaymentVerificationView from '../views/PaymentVerificationView';
 import PaymentReversalView from '../views/PaymentReversalView';
 import InvoiceDetailDialog from '../dialogs/InvoiceDetailDialog';
@@ -26,6 +24,15 @@ import RecordPaymentDialog, { type PaymentDialogInvoice } from '../dialogs/Recor
 import { getBillingQueue, createInvoice, getInvoices, getPendingApprovals, approveInvoice, rejectInvoice, getRejectedInvoices, resubmitInvoice } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
 import { useSnackbar } from '../../contexts/SnackbarContext';
+
+// The two chart screens load the charts library (~410 kB) only when opened.
+const FinancialSummaryView = lazy(() => import('../accounting/FinancialSummaryView'));
+const AgingReportView = lazy(() => import('../views/AgingReportView'));
+const chartFallback = (
+  <Box sx={{ display: 'flex', justifyContent: 'center', p: 4 }}>
+    <CircularProgress aria-label="Loading" />
+  </Box>
+);
 
 // Row shapes rendered by a shared table are owned by that table; the portal
 // reuses their exported types rather than keeping a second, drifting copy.
@@ -595,8 +602,8 @@ const AccountingPortal: React.FC = () => {
       >
         <Routes>
           <Route path="dashboard" element={<AccountingDashboard />} />
-          <Route path="aging" element={<AgingReportView />} />
-          <Route path="financial-summary" element={<FinancialSummaryView />} />
+          <Route path="aging" element={<Suspense fallback={chartFallback}><AgingReportView /></Suspense>} />
+          <Route path="financial-summary" element={<Suspense fallback={chartFallback}><FinancialSummaryView /></Suspense>} />
           <Route path="billing" element={<ReadyForBillingView />} />
           <Route path="pending-approvals" element={<PendingApprovalsView />} />
           <Route path="rejected-invoices" element={<RejectedInvoicesView />} />
