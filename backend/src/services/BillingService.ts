@@ -8,6 +8,7 @@ import { PaginationParams } from '../utils/pagination.js';
 import type { PaymentRow, BillingQueueRow } from '../types/billing.js';
 import type { RowDataPacket, ResultSetHeader } from 'mysql2/promise';
 import { writeAudit, type AuditActor } from '../utils/auditLog.js';
+import { verifiedPayment } from '../utils/paymentSql.js';
 
 const INVOICE_DUE_DAYS = 30;
 
@@ -340,7 +341,7 @@ export class BillingService {
       // Lock the invoice row and get current payment totals in one atomic query
       const [locked] = await conn.query<RowDataPacket[]>(
         `SELECT i.id, i.amount, i.status,
-                COALESCE(SUM(CASE WHEN p.status = 'verified' AND p.deleted_at IS NULL THEN p.amount ELSE 0 END), 0) as total_paid
+                COALESCE(SUM(CASE WHEN ${verifiedPayment('p')} THEN p.amount ELSE 0 END), 0) as total_paid
          FROM invoices i
          LEFT JOIN payments p ON i.id = p.invoice_id
          WHERE i.id = ? AND i.deleted_at IS NULL

@@ -50,29 +50,6 @@ export interface InvoiceDetailRow extends InvoiceRow {
   deleted_at: string | Date | null;
 }
 
-/** Shape returned by the PDF/preview invoice query. */
-export interface InvoicePDFRow {
-  id: number;
-  invoice_number: string;
-  organization_id: number;
-  course_request_id: number;
-  invoice_date: string | Date;
-  due_date: string | Date;
-  amount: number;
-  base_cost: number;
-  tax_amount: number;
-  students_billed: number;
-  rate_per_student: number;
-  status: string;
-  organization_name: string;
-  contact_email: string | null;
-  location: string | null;
-  date_completed: string | Date | null;
-  course_type_name: string;
-  attendance_list?: StudentAttendanceRow[];
-  invoice_id?: number;
-}
-
 /** Shape returned by the "ready for billing" queue query. */
 export interface BillingQueueRow {
   course_id: number;
@@ -102,14 +79,6 @@ export interface PaymentRow {
   status: string;
   deleted_at: string | Date | null;
   created_at: string | Date;
-}
-
-/** Shape for student attendance in PDF/preview. */
-export interface StudentAttendanceRow {
-  first_name: string;
-  last_name: string;
-  email: string;
-  attended: boolean;
 }
 
 /** Shape for revenue report month rows. */

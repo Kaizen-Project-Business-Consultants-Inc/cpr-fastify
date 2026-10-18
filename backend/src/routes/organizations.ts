@@ -10,6 +10,7 @@ import { getPool } from '../config/database.js';
 import { requireRole } from '../plugins/auth.js';
 import { toCSV } from '../utils/csv.js';
 import type { RowDataPacket } from 'mysql2/promise';
+import { verifiedPayment } from '../utils/paymentSql.js';
 
 const updateProfileSchema = z.object({
   name: z.string().min(1),
@@ -176,7 +177,7 @@ export async function organizationRoutes(app: FastifyInstance) {
       pool.query<RowDataPacket[]>(`SELECT COUNT(*) as count FROM course_requests cr WHERE cr.organization_id = ? AND cr.status = 'confirmed'${dateFilter}`, [orgId, ...dateParams]),
       pool.query<RowDataPacket[]>(`SELECT COUNT(*) as count FROM course_requests cr WHERE cr.organization_id = ? AND cr.status = 'completed'${dateFilter}`, [orgId, ...dateParams]),
       pool.query<RowDataPacket[]>(`SELECT COUNT(*) as count FROM invoices i WHERE i.organization_id = ? AND i.status IN ('posted_to_org', 'overdue')${invoiceDateFilter}`, [orgId, ...invoiceDateParams]),
-      pool.query<RowDataPacket[]>(`SELECT COALESCE(SUM(p.amount), 0) as total FROM payments p JOIN invoices i ON p.invoice_id = i.id WHERE i.organization_id = ?${invoiceDateFilter}`, [orgId, ...invoiceDateParams]),
+      pool.query<RowDataPacket[]>(`SELECT COALESCE(SUM(p.amount), 0) as total FROM payments p JOIN invoices i ON p.invoice_id = i.id WHERE i.organization_id = ? AND ${verifiedPayment('p')}${invoiceDateFilter}`, [orgId, ...invoiceDateParams]),
       // YoY: courses this year vs last year
       pool.query<RowDataPacket[]>(`SELECT COUNT(*) as count FROM course_requests WHERE organization_id = ? AND YEAR(created_at) = YEAR(CURDATE())`, [orgId]),
       pool.query<RowDataPacket[]>(`SELECT COUNT(*) as count FROM course_requests WHERE organization_id = ? AND YEAR(created_at) = YEAR(CURDATE()) - 1`, [orgId]),
@@ -184,8 +185,8 @@ export async function organizationRoutes(app: FastifyInstance) {
       pool.query<RowDataPacket[]>(`SELECT COALESCE(SUM(cr.registered_students), 0) as count FROM course_requests cr WHERE cr.organization_id = ? AND YEAR(cr.created_at) = YEAR(CURDATE())`, [orgId]),
       pool.query<RowDataPacket[]>(`SELECT COALESCE(SUM(cr.registered_students), 0) as count FROM course_requests cr WHERE cr.organization_id = ? AND YEAR(cr.created_at) = YEAR(CURDATE()) - 1`, [orgId]),
       // YoY: revenue this year vs last year
-      pool.query<RowDataPacket[]>(`SELECT COALESCE(SUM(p.amount), 0) as total FROM payments p JOIN invoices i ON p.invoice_id = i.id WHERE i.organization_id = ? AND YEAR(p.created_at) = YEAR(CURDATE())`, [orgId]),
-      pool.query<RowDataPacket[]>(`SELECT COALESCE(SUM(p.amount), 0) as total FROM payments p JOIN invoices i ON p.invoice_id = i.id WHERE i.organization_id = ? AND YEAR(p.created_at) = YEAR(CURDATE()) - 1`, [orgId]),
+      pool.query<RowDataPacket[]>(`SELECT COALESCE(SUM(p.amount), 0) as total FROM payments p JOIN invoices i ON p.invoice_id = i.id WHERE i.organization_id = ? AND ${verifiedPayment('p')} AND YEAR(p.created_at) = YEAR(CURDATE())`, [orgId]),
+      pool.query<RowDataPacket[]>(`SELECT COALESCE(SUM(p.amount), 0) as total FROM payments p JOIN invoices i ON p.invoice_id = i.id WHERE i.organization_id = ? AND ${verifiedPayment('p')} AND YEAR(p.created_at) = YEAR(CURDATE()) - 1`, [orgId]),
     ]);
 
     return {

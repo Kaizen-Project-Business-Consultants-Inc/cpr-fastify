@@ -4,9 +4,9 @@ import { RowDataPacket } from 'mysql2/promise';
 import { getHSTRate } from '../utils/taxConfig.js';
 import { PaginationParams, PaginatedResult, paginatedQuery } from '../utils/pagination.js';
 import type { PaymentRow, AgingInvoiceRow, BillingQueueRow } from '../types/billing.js';
+import { VERIFIED_PAYMENT_FILTER, VERIFIED_PAID_BY_INVOICE } from '../utils/paymentSql.js';
 
-/** Canonical WHERE clause for counting verified, non-deleted payments. */
-export const VERIFIED_PAYMENT_FILTER = "status = 'verified' AND deleted_at IS NULL";
+export { VERIFIED_PAYMENT_FILTER } from '../utils/paymentSql.js';
 
 export interface Invoice {
   id: number;
@@ -72,21 +72,20 @@ export class InvoiceRepository extends BaseRepository<Invoice> {
       ),
       pool.query<RowDataPacket[]>(
         `SELECT COALESCE(SUM(amount), 0) as total
-         FROM payments WHERE status = 'verified' AND deleted_at IS NULL`
+         FROM payments WHERE ${VERIFIED_PAYMENT_FILTER}`
       ),
       pool.query<RowDataPacket[]>(
         `SELECT COUNT(*) as count,
                 COALESCE(SUM(i.base_cost + i.tax_amount - COALESCE(p.total_paid, 0)), 0) as total
          FROM invoice_with_breakdown i
-         LEFT JOIN (SELECT invoice_id, SUM(amount) as total_paid FROM payments
-                    WHERE status = 'verified' AND deleted_at IS NULL GROUP BY invoice_id) p
+         LEFT JOIN ${VERIFIED_PAID_BY_INVOICE} p
            ON p.invoice_id = i.id
          WHERE i.posted_to_org = TRUE
          AND (i.base_cost + i.tax_amount - COALESCE(p.total_paid, 0)) > 0`
       ),
       pool.query<RowDataPacket[]>(
         `SELECT COUNT(*) as count, COALESCE(SUM(amount), 0) as total
-         FROM payments WHERE status = 'verified' AND deleted_at IS NULL
+         FROM payments WHERE ${VERIFIED_PAYMENT_FILTER}
          AND MONTH(payment_date) = MONTH(CURRENT_DATE)
          AND YEAR(payment_date) = YEAR(CURRENT_DATE)`
       ),
@@ -163,8 +162,7 @@ export class InvoiceRepository extends BaseRepository<Invoice> {
        JOIN organizations o ON i.organization_id = o.id
        LEFT JOIN course_requests cr ON i.course_request_id = cr.id
        LEFT JOIN class_types ct ON cr.course_type_id = ct.id
-       LEFT JOIN (SELECT invoice_id, SUM(amount) as total_paid FROM payments
-                  WHERE ${VERIFIED_PAYMENT_FILTER} GROUP BY invoice_id) p ON p.invoice_id = i.id
+       LEFT JOIN ${VERIFIED_PAID_BY_INVOICE} p ON p.invoice_id = i.id
        ORDER BY i.created_at DESC`;
 
     if (pg) {
@@ -196,8 +194,7 @@ export class InvoiceRepository extends BaseRepository<Invoice> {
        LEFT JOIN class_types ct ON cr.course_type_id = ct.id
        LEFT JOIN course_pricing cp ON cr.organization_id = cp.organization_id
          AND cr.course_type_id = cp.course_type_id AND cp.is_active = true
-       LEFT JOIN (SELECT invoice_id, SUM(amount) as total_paid FROM payments
-                  WHERE ${VERIFIED_PAYMENT_FILTER} GROUP BY invoice_id) p ON p.invoice_id = i.id
+       LEFT JOIN ${VERIFIED_PAID_BY_INVOICE} p ON p.invoice_id = i.id
        WHERE i.id = ?`,
       [id]
     );
@@ -217,8 +214,7 @@ export class InvoiceRepository extends BaseRepository<Invoice> {
        LEFT JOIN organizations o ON i.organization_id = o.id
        LEFT JOIN course_requests cr ON i.course_request_id = cr.id
        LEFT JOIN class_types ct ON cr.course_type_id = ct.id
-       LEFT JOIN (SELECT invoice_id, SUM(amount) as total_paid FROM payments
-                  WHERE ${VERIFIED_PAYMENT_FILTER} GROUP BY invoice_id) p ON p.invoice_id = i.id
+       LEFT JOIN ${VERIFIED_PAID_BY_INVOICE} p ON p.invoice_id = i.id
        WHERE i.approval_status = 'pending'
        ORDER BY i.created_at ASC`;
 
@@ -304,8 +300,7 @@ export class InvoiceRepository extends BaseRepository<Invoice> {
               END as aging_bucket
        FROM invoices i
        LEFT JOIN organizations o ON i.organization_id = o.id
-       LEFT JOIN (SELECT invoice_id, SUM(amount) as total_paid FROM payments
-                  WHERE ${VERIFIED_PAYMENT_FILTER} GROUP BY invoice_id) pp ON pp.invoice_id = i.id
+       LEFT JOIN ${VERIFIED_PAID_BY_INVOICE} pp ON pp.invoice_id = i.id
        WHERE i.status NOT IN ('paid', 'void', 'cancelled')
          ${postedFilter}
          AND (i.amount - COALESCE(pp.total_paid, 0)) > ?

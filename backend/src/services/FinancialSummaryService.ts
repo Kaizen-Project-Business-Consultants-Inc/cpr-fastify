@@ -1,5 +1,6 @@
 import { getPool } from '../config/database.js';
 import type { RowDataPacket } from 'mysql2/promise';
+import { verifiedPayment } from '../utils/paymentSql.js';
 
 /** Most transactions listed per side; totals and the monthly breakdown always cover every payment. */
 export const MAX_SUMMARY_TRANSACTIONS = 1000;
@@ -17,7 +18,7 @@ export class FinancialSummaryService {
     const range = [startDate, endDate];
     const limit = MAX_SUMMARY_TRANSACTIONS + 1; // one extra row tells us the list was cut
 
-    const inWhere = `p.status = 'verified' AND p.deleted_at IS NULL AND p.payment_date BETWEEN ? AND ?`;
+    const inWhere = `${verifiedPayment('p')} AND p.payment_date BETWEEN ? AND ?`;
     const vendorDate = 'COALESCE(vp.payment_date, DATE(vp.processed_at))';
     const vendorWhere = `vp.status = 'processed' AND ${vendorDate} BETWEEN ? AND ?`;
     const payrollWhere = `pp.status = 'completed' AND pp.payment_date BETWEEN ? AND ?`;

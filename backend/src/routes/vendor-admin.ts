@@ -5,6 +5,7 @@ import { requireRole } from '../plugins/auth.js';
 import { writeAudit } from '../utils/auditLog.js';
 import { maybePaginate, paginatedResponse } from '../utils/pagination.js';
 import type { RowDataPacket, ResultSetHeader } from 'mysql2/promise';
+import { PROCESSED_PAID_BY_VENDOR_INVOICE } from '../utils/paymentSql.js';
 
 const approveSchema = z.object({
   action: z.enum(['approve', 'reject']),
@@ -232,7 +233,7 @@ export async function vendorAdminRoutes(app: FastifyInstance) {
     const fromClause = `FROM vendor_invoices vi
        LEFT JOIN vendors v ON vi.vendor_id = v.id
        LEFT JOIN users u_approved ON vi.approved_by = u_approved.id
-       LEFT JOIN (SELECT vendor_invoice_id, SUM(amount) as total_paid FROM vendor_payments WHERE status = 'processed' GROUP BY vendor_invoice_id) payments
+       LEFT JOIN ${PROCESSED_PAID_BY_VENDOR_INVOICE} payments
          ON payments.vendor_invoice_id = vi.id`;
     const { where, params } = invoiceFilter(request.query as Record<string, string>);
     const result = await maybePaginate(
@@ -273,7 +274,7 @@ export async function vendorAdminRoutes(app: FastifyInstance) {
               (vi.total - COALESCE(payments.total_paid, 0)) as balanceDue
        FROM vendor_invoices vi LEFT JOIN vendors v ON vi.vendor_id = v.id
        LEFT JOIN users u_approved ON vi.approved_by = u_approved.id
-       LEFT JOIN (SELECT vendor_invoice_id, SUM(amount) as total_paid FROM vendor_payments WHERE status = 'processed' GROUP BY vendor_invoice_id) payments
+       LEFT JOIN ${PROCESSED_PAID_BY_VENDOR_INVOICE} payments
          ON payments.vendor_invoice_id = vi.id
        WHERE vi.id = ?`,
       [id]
@@ -305,7 +306,7 @@ export async function vendorAdminRoutes(app: FastifyInstance) {
         `SELECT vi.*, COALESCE(payments.total_paid, 0) as total_paid,
                 (vi.total - COALESCE(payments.total_paid, 0)) as balance_due
          FROM vendor_invoices vi
-         LEFT JOIN (SELECT vendor_invoice_id, SUM(amount) as total_paid FROM vendor_payments WHERE status = 'processed' GROUP BY vendor_invoice_id) payments
+         LEFT JOIN ${PROCESSED_PAID_BY_VENDOR_INVOICE} payments
            ON payments.vendor_invoice_id = vi.id
          WHERE vi.id = ? AND vi.status = 'submitted_to_accounting'`,
         [id]

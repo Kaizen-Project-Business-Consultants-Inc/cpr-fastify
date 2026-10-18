@@ -8,12 +8,13 @@ import { getPool } from '../config/database.js';
 import { requireAuth, requireRole } from '../plugins/auth.js';
 import { parsePagination } from '../utils/pagination.js';
 import { toCSV } from '../utils/csv.js';
-import type { InvoicePDFRow, StudentAttendanceRow, RevenueMonthRow } from '../types/billing.js';
-import type { InvoicePDFData } from '../services/PDFService.js';
+import type { RevenueMonthRow } from '../types/billing.js';
 import { httpError } from '../utils/httpError.js';
 import { logAudit } from '../utils/auditLog.js';
 import { FinancialSummaryService } from '../services/FinancialSummaryService.js';
 import { RowDataPacket } from 'mysql2/promise';
+import { VERIFIED_PAYMENT_FILTER, verifiedPayment } from '../utils/paymentSql.js';
+import { loadInvoiceForAccounting, sendInvoicePdf, sendInvoicePreview } from '../services/invoiceDocument.js';
 
 // --- Schemas ---
 
@@ -263,7 +264,7 @@ export async function billingRoutes(app: FastifyInstance) {
         `SELECT MONTH(payment_date) as m,
                 COALESCE(SUM(amount), 0) as total
          FROM payments
-         WHERE status = 'verified' AND deleted_at IS NULL
+         WHERE ${VERIFIED_PAYMENT_FILTER}
            AND YEAR(payment_date) = ?
          GROUP BY m`,
         [yearInt]
@@ -403,7 +404,7 @@ export async function billingRoutes(app: FastifyInstance) {
     const [effRows] = await pool.query<RowDataPacket[]>(
       `SELECT COALESCE(SUM(i.amount), 0) as total_invoiced,
               COALESCE((SELECT SUM(p.amount) FROM payments p JOIN invoices i2 ON p.invoice_id = i2.id
-                        WHERE p.status = 'verified' AND p.deleted_at IS NULL
+                        WHERE ${verifiedPayment('p')}
                           AND i2.invoice_date >= DATE_SUB(?, INTERVAL 90 DAY)), 0) as total_collected
        FROM invoices i WHERE i.invoice_date >= DATE_SUB(?, INTERVAL 90 DAY) AND i.posted_to_org = TRUE`,
       [asOfDate, asOfDate]
@@ -456,72 +457,17 @@ export async function billingRoutes(app: FastifyInstance) {
   // Accounting: Download invoice PDF
   app.get('/invoices/:id/pdf', { preHandler: acctRole }, async (request, reply) => {
     const { id } = request.params as { id: string };
-    const pool = getPool();
-
-    const [rows] = await pool.query<(RowDataPacket & InvoicePDFRow)[]>(
-      `SELECT i.*, o.name as organization_name, o.contact_email,
-              cr.location, cr.scheduled_date as date_completed, cr.registered_students as students_billed,
-              ct.name as course_type_name,
-              COALESCE(i.rate_per_student, op.price_per_student) as rate_per_student
-       FROM invoices i
-       JOIN organizations o ON i.organization_id = o.id
-       JOIN course_requests cr ON i.course_request_id = cr.id
-       JOIN class_types ct ON cr.course_type_id = ct.id
-       LEFT JOIN organization_pricing op ON op.organization_id = i.organization_id AND op.class_type_id = cr.course_type_id AND op.is_active = true
-       WHERE i.id = ?`,
-      [parseInt(id)]
-    );
-    if (rows.length === 0) return reply.status(404).send({ error: 'Invoice not found' });
-
-    const invoice = rows[0] as InvoicePDFRow & Record<string, unknown>;
-    const [students] = await pool.query<(RowDataPacket & StudentAttendanceRow)[]>(
-      `SELECT first_name, last_name, email, attended FROM course_students WHERE course_request_id = ? ORDER BY last_name, first_name`,
-      [invoice.course_request_id]
-    );
-    invoice.attendance_list = students;
-    invoice.invoice_id = invoice.id;
-
-    const { PDFService } = await import('../services/PDFService.js');
-    const pdfBuffer = await PDFService.generateInvoicePDF(invoice as unknown as InvoicePDFData);
-
-    reply.header('Content-Type', 'application/pdf');
-    reply.header('Content-Disposition', `attachment; filename="Invoice-${invoice.invoice_number}.pdf"`);
-    reply.header('Content-Length', pdfBuffer.length);
-    return reply.send(pdfBuffer);
+    const invoice = await loadInvoiceForAccounting(parseInt(id));
+    if (!invoice) return reply.status(404).send({ error: 'Invoice not found' });
+    return sendInvoicePdf(reply, invoice);
   });
 
   // Accounting: Invoice preview HTML
   app.get('/invoices/:id/preview', { preHandler: acctRole }, async (request, reply) => {
     const { id } = request.params as { id: string };
-    const pool = getPool();
-
-    const [rows] = await pool.query<(RowDataPacket & InvoicePDFRow)[]>(
-      `SELECT i.*, o.name as organization_name, o.contact_email,
-              cr.location, cr.scheduled_date as date_completed, cr.registered_students as students_billed,
-              ct.name as course_type_name,
-              COALESCE(i.rate_per_student, op.price_per_student) as rate_per_student
-       FROM invoices i
-       JOIN organizations o ON i.organization_id = o.id
-       JOIN course_requests cr ON i.course_request_id = cr.id
-       JOIN class_types ct ON cr.course_type_id = ct.id
-       LEFT JOIN organization_pricing op ON op.organization_id = i.organization_id AND op.class_type_id = cr.course_type_id AND op.is_active = true
-       WHERE i.id = ?`,
-      [parseInt(id)]
-    );
-    if (rows.length === 0) return reply.status(404).send({ error: 'Invoice not found' });
-
-    const invoice = rows[0] as InvoicePDFRow & Record<string, unknown>;
-    const [students] = await pool.query<(RowDataPacket & StudentAttendanceRow)[]>(
-      `SELECT first_name, last_name, email, attended FROM course_students WHERE course_request_id = ? ORDER BY last_name, first_name`,
-      [invoice.course_request_id]
-    );
-    invoice.attendance_list = students;
-    invoice.invoice_id = invoice.id;
-
-    const { PDFService } = await import('../services/PDFService.js');
-    const html = PDFService.getInvoicePreviewHTML(invoice as unknown as InvoicePDFData);
-    reply.header('Content-Type', 'text/html');
-    return reply.send(html);
+    const invoice = await loadInvoiceForAccounting(parseInt(id));
+    if (!invoice) return reply.status(404).send({ error: 'Invoice not found' });
+    return sendInvoicePreview(reply, invoice);
   });
 
   // ===== Invoice Number Sequences =====
