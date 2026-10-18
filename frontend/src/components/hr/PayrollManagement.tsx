@@ -22,6 +22,8 @@ import {
 } from '@mui/material';
 import { payrollService, PayrollPayment, PayrollStats, PayrollFilters, PayrollCalculation } from '../../services/payrollService';
 import StatCard from '../gtacpr/StatCard';
+import { getErrorMessage } from '../../utils/errorMessage';
+import { formatDisplayDate } from '../../utils/formatters';
 import StatusChip from '../gtacpr/StatusChip';
 import DataTable, { DataTableRow } from '../gtacpr/DataTable';
 import { PrimaryButton, GhostButton } from '../gtacpr/Buttons';
@@ -131,40 +133,48 @@ const PaymentDetailsDialog: React.FC<{
 const CalculatePayrollDialog: React.FC<{
   open: boolean;
   onClose: () => void;
-  onCalculate: (instructorId: number, startDate: string, endDate: string, hourlyRate: number) => void;
+  onCalculate: (instructorId: number, startDate: string, endDate: string, hourlyRate?: number) => Promise<void>;
 }> = ({ open, onClose, onCalculate }) => {
   const [instructorId, setInstructorId] = useState('');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [hourlyRate, setHourlyRate] = useState('');
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const reset = () => { setInstructorId(''); setStartDate(''); setEndDate(''); setHourlyRate(''); setError(null); };
 
   const handleSubmit = async () => {
-    if (!instructorId || !startDate || !endDate || !hourlyRate) return;
+    if (!instructorId || !startDate || !endDate) return;
     setLoading(true);
+    setError(null);
     try {
-      await onCalculate(parseInt(instructorId), startDate, endDate, parseFloat(hourlyRate));
+      // Blank rate = the instructor's own pay rate and course bonus (Pay Rates screen).
+      await onCalculate(parseInt(instructorId), startDate, endDate, hourlyRate ? parseFloat(hourlyRate) : undefined);
       onClose();
-      setInstructorId(''); setStartDate(''); setEndDate(''); setHourlyRate('');
+      reset();
+    } catch (err) {
+      setError(getErrorMessage(err, 'Failed to calculate payroll'));
     } finally { setLoading(false); }
   };
 
-  const handleClose = () => { onClose(); setInstructorId(''); setStartDate(''); setEndDate(''); setHourlyRate(''); };
+  const handleClose = () => { onClose(); reset(); };
 
   return (
     <Dialog open={open} onClose={handleClose} maxWidth="sm" fullWidth>
       <DialogTitle sx={{ fontSize: 18, fontWeight: 700, color: (theme) => theme.palette.text.primary }}>Calculate Payroll</DialogTitle>
       <DialogContent>
+        {error && <Alert severity="error" sx={{ mt: 1 }}>{error}</Alert>}
         <Grid container spacing={2} sx={{ mt: 0.5 }}>
           <Grid item xs={12}><TextField fullWidth label="Instructor ID" type="number" value={instructorId} onChange={(e) => setInstructorId(e.target.value)} required /></Grid>
           <Grid item xs={6}><TextField fullWidth label="Start Date" type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} InputLabelProps={{ shrink: true }} required /></Grid>
           <Grid item xs={6}><TextField fullWidth label="End Date" type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} InputLabelProps={{ shrink: true }} required /></Grid>
-          <Grid item xs={12}><TextField fullWidth label="Hourly Rate ($)" type="number" value={hourlyRate} onChange={(e) => setHourlyRate(e.target.value)} inputProps={{ min: 0, step: 0.01 }} required /></Grid>
+          <Grid item xs={12}><TextField fullWidth label="Hourly Rate override ($)" type="number" value={hourlyRate} onChange={(e) => setHourlyRate(e.target.value)} inputProps={{ min: 0, step: 0.01 }} helperText="Leave blank to use the instructor's pay rate. Their course bonus is used either way." /></Grid>
         </Grid>
       </DialogContent>
       <DialogActions sx={{ p: 2 }}>
         <GhostButton onClick={handleClose}>Cancel</GhostButton>
-        <PrimaryButton onClick={handleSubmit} disabled={loading || !instructorId || !startDate || !endDate || !hourlyRate}>
+        <PrimaryButton onClick={handleSubmit} disabled={loading || !instructorId || !startDate || !endDate}>
           {loading ? 'Calculating...' : 'Calculate'}
         </PrimaryButton>
       </DialogActions>
@@ -210,7 +220,7 @@ const PayrollManagement: React.FC = () => {
     await loadData();
   };
 
-  const handleCalculatePayroll = async (instructorId: number, startDate: string, endDate: string, hourlyRate: number) => {
+  const handleCalculatePayroll = async (instructorId: number, startDate: string, endDate: string, hourlyRate?: number) => {
     const result = await payrollService.calculatePayroll(instructorId, startDate, endDate, hourlyRate);
     setCalculation(result);
     setActiveTab(1);
@@ -305,9 +315,9 @@ const PayrollManagement: React.FC = () => {
             <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 2, mb: 3 }}>
               {[
                 ['Instructor', `${calculation.instructor.username} (${calculation.instructor.email})`],
-                ['Period', `${new Date(calculation.period.startDate).toLocaleDateString()} — ${new Date(calculation.period.endDate).toLocaleDateString()}`],
+                ['Period', `${formatDisplayDate(calculation.period.start_date)} — ${formatDisplayDate(calculation.period.end_date)}`],
                 ['Timesheets', `${calculation.timesheets.count} timesheets, ${calculation.timesheets.totalHours} hours, ${calculation.timesheets.totalCourses} courses`],
-                ['Rates', `$${calculation.rates.hourlyRate}/hr + $${calculation.rates.courseBonus}/course`],
+                ['Rates', `$${calculation.rates.hourlyRate}/hr + $${calculation.rates.courseBonus}/course (${calculation.rates.tierName})${calculation.rates.isDefaultRate ? ` — no pay rate on file for this period, default ${calculation.rates.tierName === 'Override' ? 'course bonus' : 'rates'} used` : ''}`],
               ].map(([label, value]) => (
                 <Box key={String(label)}>
                   <Typography sx={{ fontSize: 12, fontWeight: 600, color: (theme) => theme.palette.text.secondary }}>{label}</Typography>

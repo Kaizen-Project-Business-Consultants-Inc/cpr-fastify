@@ -126,6 +126,35 @@ asRole('hr', (page) => {
     ]);
     expect(res.status()).toBe(200);
   });
+
+  // Read-only: Calculate never saves anything. Uses the instructor's own pay rate (blank override).
+  test('Payroll calculation shows real totals from approved timesheets', async () => {
+    const pg = page();
+    const list = await openAndWaitFor(pg, '/hr/personnel', '/hr/instructors');
+    const instructors: { id: number; username: string }[] = (await list.json()).data?.instructors ?? [];
+    const target = instructors.find((i) => i.username === USERS.instructor.username) ?? instructors[0];
+    if (!target) test.skip(true, 'No instructors on staging');
+
+    await openAndWaitFor(pg, '/hr/payroll', '/payroll/payments');
+    await pg.getByRole('button', { name: 'Calculate Payroll' }).click();
+    const dialog = pg.getByRole('dialog');
+    await dialog.getByLabel('Instructor ID').fill(String(target.id));
+    await dialog.getByLabel('Start Date').fill('2025-01-01');
+    await dialog.getByLabel('End Date').fill('2026-12-31');
+    const [res] = await Promise.all([
+      apiResponse(pg, `/payroll/calculate/${target.id}`),
+      dialog.getByRole('button', { name: 'Calculate', exact: true }).click(),
+    ]);
+    expect(res.status()).toBe(200);
+    const { timesheets, rates, calculation } = (await res.json()).data;
+    expect(calculation.baseAmount).toBeCloseTo(timesheets.totalHours * rates.hourlyRate, 2);
+    expect(calculation.totalAmount).toBeCloseTo(calculation.baseAmount + calculation.courseBonus, 2);
+
+    await expect(pg.getByText('Jan 1, 2025 — Dec 31, 2026')).toBeVisible({ timeout: 30000 });
+    await expect(pg.getByText(`${timesheets.count} timesheets, ${timesheets.totalHours} hours`, { exact: false })).toBeVisible();
+    const totalCard = pg.getByText('Total payable').locator('..');
+    await expect(totalCard).toContainText(`$${Number(calculation.totalAmount).toFixed(2)}`);
+  });
 });
 
 // ── Course Admin: Instructor Fairness Dashboard (new) and paged course lists ──

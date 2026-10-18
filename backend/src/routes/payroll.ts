@@ -97,27 +97,27 @@ export async function payrollRoutes(app: FastifyInstance) {
     const totalHours = Number(ts.total_hours ?? 0);
     const totalCourses = Number(ts.total_courses ?? 0);
 
-    let payRate = overrideRate ?? 25;
+    let payRate = 25;
     let courseBonusRate = 50;
     let tierName = 'Default';
     let isDefaultRate = true;
 
-    if (!overrideRate) {
-      const [rateRows] = await pool.query<RowDataPacket[]>(
-        `SELECT ipr.hourly_rate, ipr.course_bonus, prt.name as tier_name
-         FROM instructor_pay_rates ipr LEFT JOIN pay_rate_tiers prt ON ipr.tier_id = prt.id
-         WHERE ipr.instructor_id = ? AND ipr.is_active = true AND ipr.effective_date <= ?
-         AND (ipr.end_date IS NULL OR ipr.end_date >= ?)
-         ORDER BY ipr.effective_date DESC LIMIT 1`,
-        [instructorId, start_date, start_date]
-      );
-      if (rateRows.length > 0) {
-        payRate = Number(rateRows[0].hourly_rate);
-        courseBonusRate = Number(rateRows[0].course_bonus);
-        tierName = rateRows[0].tier_name || 'Custom';
-        isDefaultRate = false;
-      }
+    // The instructor's own rate and course bonus; a typed override replaces only the hourly rate.
+    const [rateRows] = await pool.query<RowDataPacket[]>(
+      `SELECT ipr.hourly_rate, ipr.course_bonus, prt.name as tier_name
+       FROM instructor_pay_rates ipr LEFT JOIN pay_rate_tiers prt ON ipr.tier_id = prt.id
+       WHERE ipr.instructor_id = ? AND ipr.is_active = true AND ipr.effective_date <= ?
+       AND (ipr.end_date IS NULL OR ipr.end_date >= ?)
+       ORDER BY ipr.effective_date DESC LIMIT 1`,
+      [instructorId, start_date, start_date]
+    );
+    if (rateRows.length > 0) {
+      payRate = Number(rateRows[0].hourly_rate);
+      courseBonusRate = Number(rateRows[0].course_bonus);
+      tierName = rateRows[0].tier_name || 'Custom';
+      isDefaultRate = false;
     }
+    if (overrideRate !== undefined) { payRate = overrideRate; tierName = 'Override'; }
 
     const baseAmount = totalHours * payRate;
     const courseBonus = totalCourses * courseBonusRate;

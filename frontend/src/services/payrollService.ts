@@ -29,8 +29,8 @@ export interface PayrollCalculation {
     email: string;
   };
   period: {
-    startDate: string;
-    endDate: string;
+    start_date: string;
+    end_date: string;
   };
   timesheets: {
     count: number;
@@ -40,6 +40,8 @@ export interface PayrollCalculation {
   rates: {
     hourlyRate: number;
     courseBonus: number;
+    tierName: string;
+    isDefaultRate: boolean;
   };
   calculation: {
     baseAmount: number;
@@ -97,12 +99,13 @@ class PayrollService {
     instructorId: number, 
     startDate: string, 
     endDate: string, 
-    hourlyRate: number
+    // Leave out to use the instructor's own pay rate and course bonus.
+    hourlyRate?: number
   ): Promise<PayrollCalculation> {
     const response = await api.post(`/payroll/calculate/${instructorId}`, {
       start_date: startDate,
       end_date: endDate,
-      hourly_rate: hourlyRate
+      ...(hourlyRate !== undefined ? { hourly_rate: hourlyRate } : {}),
     });
     return response.data.data;
   }
