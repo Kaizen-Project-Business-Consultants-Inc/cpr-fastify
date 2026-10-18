@@ -2,7 +2,8 @@
  * Extract a human-readable message from an unknown thrown value.
  *
  * Handles the shapes we actually see in this app:
- *  - axios errors: `err.response.data.error.message` / `err.response.data.message`
+ *  - axios errors: `err.response.data.error.message`, `err.response.data.error` (a plain string,
+ *    which most routes send) or `err.response.data.message`
  *  - plain `Error` instances and anything else with a `message` string
  *  - anything else -> the supplied fallback
  *
@@ -14,14 +15,15 @@ export function getErrorMessage(err: unknown, fallback = 'Something went wrong')
 
   const e = err as
     | {
-        response?: { data?: { error?: { message?: string }; message?: string } };
+        response?: { data?: { error?: string | { message?: string }; message?: string } };
         message?: string;
       }
     | null
     | undefined;
 
+  const serverError = e?.response?.data?.error;
   return (
-    e?.response?.data?.error?.message ||
+    (typeof serverError === 'string' ? serverError : serverError?.message) ||
     e?.response?.data?.message ||
     e?.message ||
     fallback

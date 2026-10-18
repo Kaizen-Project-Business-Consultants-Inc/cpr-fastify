@@ -14,6 +14,7 @@ import StudentManagement from '../sysadmin/StudentManagement';
 import CertificationTracking from '../sysadmin/CertificationTracking';
 import WSIBReporting from '../sysadmin/WSIBReporting';
 import AuditLogViewer from '../sysadmin/AuditLogViewer';
+import CollegeManagement from '../sysadmin/CollegeManagement';
 
 const pageConfig: Record<string, { eyebrow: string; title: string }> = {
   '/sysadmin': { eyebrow: 'Overview', title: 'System Dashboard' },
@@ -23,6 +24,7 @@ const pageConfig: Record<string, { eyebrow: string; title: string }> = {
   '/sysadmin/users': { eyebrow: 'Access', title: 'User Management' },
   '/sysadmin/vendors': { eyebrow: 'Suppliers', title: 'Vendor Management' },
   '/sysadmin/students': { eyebrow: 'People', title: 'Student Directory' },
+  '/sysadmin/colleges': { eyebrow: 'People', title: 'Colleges' },
   '/sysadmin/certifications': { eyebrow: 'System Administration', title: 'Certification Tracking' },
   '/sysadmin/wsib-reporting': { eyebrow: 'Compliance', title: 'WSIB Reporting' },
   '/sysadmin/configuration': { eyebrow: 'Settings', title: 'System Configuration' },
@@ -66,6 +68,7 @@ const SystemAdminPortal = () => {
           { label: 'User Management', path: '/sysadmin/users' },
           { label: 'Vendor Management', path: '/sysadmin/vendors' },
           { label: 'Student Directory', path: '/sysadmin/students' },
+          { label: 'Colleges', path: '/sysadmin/colleges' },
           { label: 'Certification Tracking', path: '/sysadmin/certifications' },
           { label: 'WSIB Reporting', path: '/sysadmin/wsib-reporting' },
           { label: 'System Configuration', path: '/sysadmin/configuration' },
@@ -129,6 +132,14 @@ const SystemAdminPortal = () => {
             element={
               <ErrorBoundary context="system_admin_students" onError={handleError}>
                 <StudentManagement onShowSnackbar={showSnackbar} />
+              </ErrorBoundary>
+            }
+          />
+          <Route
+            path="/colleges"
+            element={
+              <ErrorBoundary context="system_admin_colleges" onError={handleError}>
+                <CollegeManagement onShowSnackbar={showSnackbar} />
               </ErrorBoundary>
             }
           />
