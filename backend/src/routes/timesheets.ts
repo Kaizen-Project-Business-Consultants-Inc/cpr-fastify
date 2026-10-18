@@ -100,32 +100,6 @@ export async function timesheetRoutes(app: FastifyInstance) {
     };
   });
 
-  // ===== Timesheet detail =====
-  app.get('/:timesheetId', { preHandler: timesheetAccess }, async (request, reply) => {
-    const { timesheetId } = request.params as { timesheetId: string };
-    let where = 'WHERE t.id = ?';
-    const params: unknown[] = [timesheetId];
-    if (request.userRole === 'instructor') {
-      where += ' AND t.instructor_id = ?';
-      params.push(request.userId);
-    }
-
-    const [rows] = await pool.query<RowDataPacket[]>(
-      `SELECT t.*, u.username as instructor_name, u.username as instructorName,
-              u.email as instructor_email, u.email as instructorEmail,
-              t.instructor_id as instructorId, t.week_start_date as weekStartDate,
-              t.total_hours as totalHours, t.courses_taught as coursesTaught,
-              t.course_details as courseDetails, t.hr_comment as hrComment,
-              t.travel_time as travelTime, t.prep_time as prepTime,
-              t.teaching_hours as teachingHours, t.is_late as isLate,
-              t.created_at as createdAt, t.updated_at as updatedAt
-       FROM timesheets t JOIN users u ON t.instructor_id = u.id ${where}`,
-      params
-    );
-    if (rows.length === 0) return reply.status(404).send({ error: 'Timesheet not found' });
-    return { success: true, data: rows[0] };
-  });
-
   // ===== Submit timesheet (instructor) =====
   app.post('/', { preHandler: [requireRole('instructor')] }, async (request, reply) => {
     const data = submitTimesheetSchema.parse(request.body);
@@ -186,30 +160,6 @@ export async function timesheetRoutes(app: FastifyInstance) {
     }
   });
 
-  // ===== Update timesheet (instructor) =====
-  app.put('/:timesheetId', { preHandler: [requireRole('instructor')] }, async (request, reply) => {
-    const { timesheetId } = request.params as { timesheetId: string };
-    const { total_hours, courses_taught, notes } = z.object({
-      total_hours: z.number().min(0),
-      courses_taught: z.number().int().min(0).default(0),
-      notes: z.string().default(''),
-    }).parse(request.body);
-
-    const [existing] = await pool.query<RowDataPacket[]>(
-      'SELECT id, status FROM timesheets WHERE id = ? AND instructor_id = ?',
-      [timesheetId, request.userId]
-    );
-    if (existing.length === 0) return reply.status(404).send({ error: 'Timesheet not found' });
-    if (existing[0].status !== 'pending') return reply.status(400).send({ error: 'Cannot update approved or rejected timesheet' });
-
-    await pool.query(
-      'UPDATE timesheets SET total_hours = ?, courses_taught = ?, notes = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND instructor_id = ?',
-      [total_hours, courses_taught ?? 0, notes ?? '', timesheetId, request.userId]
-    );
-    const [rows] = await pool.query<RowDataPacket[]>('SELECT * FROM timesheets WHERE id = ?', [timesheetId]);
-    return { success: true, message: 'Timesheet updated successfully.', data: rows[0] };
-  });
-
   // ===== Approve/reject (HR) =====
   app.post('/:timesheetId/approve', { preHandler: hrRole }, async (request, reply) => {
     const { timesheetId } = request.params as { timesheetId: string };
@@ -240,33 +190,6 @@ export async function timesheetRoutes(app: FastifyInstance) {
 
       return { success: true, message: `Timesheet ${action}d successfully.`, data: { ...tsRows[0], status: newStatus } };
     } catch (err) { await conn.rollback(); throw err; } finally { conn.release(); }
-  });
-
-  // ===== Instructor summary =====
-  app.get('/instructor/:instructorId/summary', { preHandler: timesheetAccess }, async (request, reply) => {
-    const { instructorId } = request.params as { instructorId: string };
-    // Instructors can only view their own summary
-    if (request.userRole === 'instructor' && request.userId !== parseInt(instructorId)) {
-      return reply.status(403).send({ error: 'Access denied' });
-    }
-    const [[summary], [recent]] = await Promise.all([
-      pool.query<RowDataPacket[]>(
-        `SELECT COUNT(*) as total_timesheets,
-                COUNT(CASE WHEN status = 'approved' THEN 1 END) as approved_timesheets,
-                COUNT(CASE WHEN status = 'pending' THEN 1 END) as pending_timesheets,
-                COUNT(CASE WHEN status = 'rejected' THEN 1 END) as rejected_timesheets,
-                COALESCE(SUM(CASE WHEN status = 'approved' THEN total_hours END), 0) as total_approved_hours,
-                COALESCE(SUM(CASE WHEN status = 'approved' THEN courses_taught END), 0) as total_courses_taught,
-                MAX(created_at) as last_submission_date
-         FROM timesheets WHERE instructor_id = ?`,
-        [instructorId]
-      ),
-      pool.query<RowDataPacket[]>(
-        'SELECT * FROM timesheets WHERE instructor_id = ? ORDER BY created_at DESC LIMIT 5',
-        [instructorId]
-      ),
-    ]);
-    return { success: true, data: { summary: summary[0], recentTimesheets: recent } };
   });
 
   // ===== Week courses =====

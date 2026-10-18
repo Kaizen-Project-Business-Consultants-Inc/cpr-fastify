@@ -3,17 +3,15 @@ import { z } from 'zod';
 import { BillingService, BillingError } from '../services/BillingService.js';
 import { InvoiceRepository } from '../repositories/InvoiceRepository.js';
 import { CoursePricingRepository } from '../repositories/CoursePricingRepository.js';
-import { InvoiceNumberService } from '../services/InvoiceNumberService.js';
 import { getPool } from '../config/database.js';
 import { requireAuth, requireRole } from '../plugins/auth.js';
 import { parsePagination } from '../utils/pagination.js';
 import { toCSV } from '../utils/csv.js';
-import type { RevenueMonthRow } from '../types/billing.js';
 import { httpError } from '../utils/httpError.js';
 import { logAudit } from '../utils/auditLog.js';
 import { FinancialSummaryService } from '../services/FinancialSummaryService.js';
 import { RowDataPacket } from 'mysql2/promise';
-import { VERIFIED_PAYMENT_FILTER, verifiedPayment } from '../utils/paymentSql.js';
+import { verifiedPayment } from '../utils/paymentSql.js';
 import { loadInvoiceForAccounting, sendInvoicePdf, sendInvoicePreview } from '../services/invoiceDocument.js';
 
 // --- Schemas ---
@@ -193,14 +191,6 @@ export async function billingRoutes(app: FastifyInstance) {
     } catch (err) { return handleError(err, reply, request); }
   });
 
-  app.put('/invoices/:id/fix-calculations', { preHandler: acctRole }, async (request, reply) => {
-    const { id } = request.params as { id: string };
-    try {
-      const result = await service.fixCalculations(parseInt(id), { userId: request.userId, ipAddress: request.ip });
-      return { success: true, message: 'Calculations fixed', data: result };
-    } catch (err) { return handleError(err, reply, request); }
-  });
-
   app.put('/invoices/:id/post-to-org', { preHandler: acctRole }, async (request, reply) => {
     const { id } = request.params as { id: string };
     try {
@@ -231,97 +221,6 @@ export async function billingRoutes(app: FastifyInstance) {
       'SELECT id, name, contact_email, contact_phone FROM organizations ORDER BY name LIMIT 500'
     );
     return { success: true, data: rows };
-  });
-
-  // ===== Course types (for pricing dropdowns) =====
-  app.get('/course-types', { preHandler: [requireAuth] }, async () => {
-    const pool = getPool();
-    const [rows] = await pool.query<RowDataPacket[]>(
-      'SELECT id, name, description, duration_minutes FROM class_types ORDER BY name LIMIT 200'
-    );
-    return { success: true, data: rows };
-  });
-
-  // ===== Revenue report =====
-  app.get('/reports/revenue', { preHandler: acctRole }, async (request, reply) => {
-    const { year } = request.query as { year?: string };
-    if (!year) return reply.status(400).send({ error: 'Year parameter is required' });
-
-    const pool = getPool();
-    const yearInt = parseInt(year);
-
-    // Two queries with GROUP BY MONTH instead of 24 sequential queries
-    const [[invoicedRows], [paidRows]] = await Promise.all([
-      pool.query<(RowDataPacket & RevenueMonthRow)[]>(
-        `SELECT MONTH(COALESCE(invoice_date, created_at)) as m,
-                COALESCE(SUM(amount), 0) as total
-         FROM invoices
-         WHERE YEAR(COALESCE(invoice_date, created_at)) = ?
-         GROUP BY m`,
-        [yearInt]
-      ),
-      pool.query<(RowDataPacket & RevenueMonthRow)[]>(
-        `SELECT MONTH(payment_date) as m,
-                COALESCE(SUM(amount), 0) as total
-         FROM payments
-         WHERE ${VERIFIED_PAYMENT_FILTER}
-           AND YEAR(payment_date) = ?
-         GROUP BY m`,
-        [yearInt]
-      ),
-    ]);
-
-    const invoicedMap = new Map(invoicedRows.map((r) => [r.m, Number(r.total)]));
-    const paidMap = new Map(paidRows.map((r) => [r.m, Number(r.total)]));
-
-    const months = [];
-    for (let m = 1; m <= 12; m++) {
-      months.push({
-        month: `${yearInt}-${String(m).padStart(2, '0')}`,
-        total_invoiced: invoicedMap.get(m) ?? 0,
-        total_paid_in_month: paidMap.get(m) ?? 0,
-      });
-    }
-    return { success: true, data: months };
-  });
-
-  // ===== AR Aging report (simple) =====
-  app.get('/reports/ar-aging', { preHandler: acctRole }, async (request) => {
-    const { organization_id, as_of_date } = request.query as Record<string, string>;
-    const invoiceRepo = new InvoiceRepository();
-    const asOfDate = as_of_date || new Date().toISOString().split('T')[0];
-
-    const rows = await invoiceRepo.getAgingReport({
-      asOfDate,
-      organizationId: organization_id ? parseInt(organization_id) : undefined,
-    });
-
-    // Map to legacy field names for backwards compatibility
-    const mappedRows = rows.map((row) => ({
-      invoice_id: row.id,
-      invoice_number: row.invoice_number,
-      organization_id: row.organization_id,
-      organization_name: row.organization_name,
-      amount: row.amount,
-      paid_amount: Number(row.paid_amount),
-      balance: Number(row.balance_due),
-      invoice_date: row.invoice_date,
-      due_date: row.due_date,
-      days_overdue: row.days_outstanding,
-      status: row.status,
-      aging_bucket: row.aging_bucket.replace(' Days', ''),
-    }));
-
-    // Calculate summary
-    const summary: Record<string, number> = { current: 0, '1-30': 0, '31-60': 0, '61-90': 0, '90+': 0, total: 0 };
-    mappedRows.forEach((row) => {
-      const balance = Number(row.balance) || 0;
-      const key = row.aging_bucket === 'Current' ? 'current' : row.aging_bucket;
-      if (summary[key] !== undefined) summary[key] += balance;
-      summary.total += balance;
-    });
-
-    return { success: true, data: { asOfDate, invoices: mappedRows, summary } };
   });
 
   // ===== Financial summary: money in / money out by payment date =====
@@ -468,67 +367,5 @@ export async function billingRoutes(app: FastifyInstance) {
     const invoice = await loadInvoiceForAccounting(parseInt(id));
     if (!invoice) return reply.status(404).send({ error: 'Invoice not found' });
     return sendInvoicePreview(reply, invoice);
-  });
-
-  // ===== Invoice Number Sequences =====
-  const invoiceNumberService = new InvoiceNumberService();
-
-  const sequenceSchema = z.object({
-    organizationId: z.number().int().positive(),
-    prefix: z.string().min(1).max(20).optional(),
-    formatString: z.string().min(1).max(100).optional(),
-    padding: z.number().int().min(1).max(10).optional(),
-    nextNumber: z.number().int().min(1).optional(),
-    step: z.number().int().min(1).max(100).optional(),
-    resetPolicy: z.enum(['none', 'yearly', 'monthly']).optional(),
-  });
-
-  // List all configured sequences
-  app.get('/invoice-sequences', { preHandler: acctRole }, async () => {
-    return { success: true, data: await invoiceNumberService.getAllSequences() };
-  });
-
-  // Get sequence for a specific org
-  app.get('/invoice-sequences/:orgId', { preHandler: acctRole }, async (request, _reply) => {
-    const { orgId } = request.params as { orgId: string };
-    const seq = await invoiceNumberService.getSequence(parseInt(orgId));
-    return { success: true, data: seq };
-  });
-
-  // Preview next invoice number for an org
-  app.get('/invoice-sequences/:orgId/preview', { preHandler: acctRole }, async (request) => {
-    const { orgId } = request.params as { orgId: string };
-    const preview = await invoiceNumberService.preview(parseInt(orgId));
-    return { success: true, data: { nextInvoiceNumber: preview } };
-  });
-
-  // Create or update a sequence
-  app.put('/invoice-sequences', { preHandler: acctRole }, async (request, reply) => {
-    const data = sequenceSchema.parse(request.body);
-    try {
-      const seq = await invoiceNumberService.upsert(data.organizationId, {
-        prefix: data.prefix,
-        format_string: data.formatString,
-        padding: data.padding,
-        next_number: data.nextNumber,
-        step: data.step,
-        reset_policy: data.resetPolicy,
-      });
-      logAudit({ userId: request.userId, action: 'save_invoice_sequence', entityType: 'organization', entityId: data.organizationId, details: { ...data }, ipAddress: request.ip });
-      return { success: true, data: seq };
-    } catch (err) {
-      const { statusCode, message } = httpError(err);
-      if (statusCode >= 500) request.log.error({ err }, 'Failed to save invoice sequence');
-      return reply.status(statusCode).send({ error: message });
-    }
-  });
-
-  // Delete a sequence (org reverts to system default)
-  app.delete('/invoice-sequences/:orgId', { preHandler: acctRole }, async (request, reply) => {
-    const { orgId } = request.params as { orgId: string };
-    const deleted = await invoiceNumberService.deleteSequence(parseInt(orgId));
-    if (!deleted) return reply.status(404).send({ error: 'No sequence found for this organization' });
-    logAudit({ userId: request.userId, action: 'delete_invoice_sequence', entityType: 'organization', entityId: parseInt(orgId), ipAddress: request.ip });
-    return { success: true, message: 'Sequence deleted — organization will use system default' };
   });
 }

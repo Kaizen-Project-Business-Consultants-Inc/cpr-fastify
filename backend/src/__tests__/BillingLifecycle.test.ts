@@ -263,56 +263,6 @@ describe('BillingLifecycle (T-3)', () => {
   });
 
   // =========================================================
-  // fixCalculations — recalculate from current pricing
-  // =========================================================
-  describe('fixCalculations', () => {
-    it('recalculates amount from current pricing', async () => {
-      // 10 students x $90/student = $900 base, total = $900 * 1.13 = $1017
-      const row = { id: 1, students_billed: 10, amount: 500, price_per_student: 90 };
-      mockConnQuery.mockResolvedValueOnce([[row]]); // SELECT
-      mockConnQuery.mockResolvedValueOnce([{}]); // UPDATE
-
-      const result = await service.fixCalculations(1);
-
-      expect(result.oldAmount).toBe(500);
-      expect(result.newAmount).toBeCloseTo(1017, 2);
-      expect(mockConn.commit).toHaveBeenCalled();
-
-      // Verify UPDATE sets correct amount and rate
-      const updateCall = mockConnQuery.mock.calls[1];
-      expect(updateCall[1][0]).toBeCloseTo(1017, 2); // new amount
-      expect(updateCall[1][1]).toBe(90); // rate_per_student
-    });
-
-    it('throws 404 when invoice not found', async () => {
-      mockConnQuery.mockResolvedValueOnce([[]]); // empty
-
-      await expect(service.fixCalculations(999))
-        .rejects.toThrow('Invoice not found');
-      expect(mockConn.rollback).toHaveBeenCalled();
-    });
-
-    it('throws when no pricing configured', async () => {
-      const row = { id: 1, students_billed: 5, amount: 200, price_per_student: null };
-      mockConnQuery.mockResolvedValueOnce([[row]]);
-
-      await expect(service.fixCalculations(1))
-        .rejects.toThrow('Pricing not found for this invoice');
-      expect(mockConn.rollback).toHaveBeenCalled();
-    });
-
-    it('rolls back on error', async () => {
-      const row = { id: 1, students_billed: 5, amount: 200, price_per_student: 80 };
-      mockConnQuery.mockResolvedValueOnce([[row]]);
-      mockConnQuery.mockRejectedValueOnce(new Error('DB error'));
-
-      await expect(service.fixCalculations(1)).rejects.toThrow('DB error');
-      expect(mockConn.rollback).toHaveBeenCalled();
-      expect(mockConn.release).toHaveBeenCalled();
-    });
-  });
-
-  // =========================================================
   // updatePricing / deletePricing — coverage gaps
   // =========================================================
   describe('updatePricing', () => {

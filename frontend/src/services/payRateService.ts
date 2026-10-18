@@ -161,18 +161,6 @@ class PayRateService {
     return response.data.data;
   }
 
-  async getCurrentRate(instructorId: number, date?: string): Promise<{
-    hourlyRate: number;
-    courseBonus: number;
-    tierName?: string;
-    isDefault: boolean;
-  }> {
-    const response = await api.get(`/pay-rates/instructors/${instructorId}/current`, {
-      params: { date }
-    });
-    return response.data.data;
-  }
-
   // Bulk Operations
   async bulkUpdateRates(update: BulkPayRateUpdate): Promise<InstructorPayRate[]> {
     const response = await api.post('/pay-rates/bulk-update', update);

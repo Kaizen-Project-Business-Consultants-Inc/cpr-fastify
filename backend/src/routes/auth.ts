@@ -268,8 +268,6 @@ export async function authRoutes(app: FastifyInstance) {
     return reply.send({ success: true, message: GENERIC_MESSAGE });
   }
   app.post('/forgot-password', authRateLimit, handleForgotPassword);
-  // Alias used by the /recover-password page
-  app.post('/recover-password', authRateLimit, handleForgotPassword);
 
   // POST /api/v1/auth/reset-password — consume a reset token and set a new password
   app.post('/reset-password', authRateLimit, async (request, reply) => {

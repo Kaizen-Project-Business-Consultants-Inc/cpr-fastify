@@ -220,27 +220,6 @@ export async function payRateRoutes(app: FastifyInstance) {
     } finally { conn.release(); }
   });
 
-  // ===== Current rate for payroll =====
-  app.get('/instructors/:instructorId/current', { preHandler: hrRole }, async (request) => {
-    const { instructorId } = request.params as { instructorId: string };
-    const { date = new Date().toISOString().split('T')[0] } = request.query as { date?: string };
-
-    const [rows] = await pool.query<RowDataPacket[]>(
-      `SELECT ipr.hourly_rate, ipr.course_bonus, prt.name as tier_name
-       FROM instructor_pay_rates ipr
-       LEFT JOIN pay_rate_tiers prt ON ipr.tier_id = prt.id
-       WHERE ipr.instructor_id = ? AND ipr.is_active = true AND ipr.effective_date <= ?
-       AND (ipr.end_date IS NULL OR ipr.end_date >= ?)
-       ORDER BY ipr.effective_date DESC LIMIT 1`,
-      [instructorId, date, date]
-    );
-
-    if (rows.length === 0) {
-      return { success: true, data: { hourly_rate: 25.00, course_bonus: 50.00, tier_name: 'Default', is_default: true } };
-    }
-    return { success: true, data: { ...rows[0], is_default: false } };
-  });
-
   // ===== Bulk update =====
   app.post('/bulk-update', { preHandler: hrRole }, async (request) => {
     const data = bulkUpdateSchema.parse(request.body);

@@ -2,18 +2,9 @@ import { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { getPool } from '../config/database.js';
 import { requireRole } from '../plugins/auth.js';
-import { httpError } from '../utils/httpError.js';
 import { monthRangeOrThrow } from '../utils/monthRange.js';
-import { logAudit, writeAudit } from '../utils/auditLog.js';
-import type { RowDataPacket, ResultSetHeader } from 'mysql2/promise';
-
-const createPaymentSchema = z.object({
-  instructor_id: z.number().int().positive(),
-  amount: z.number().positive(),
-  payment_date: z.string(),
-  payment_method: z.string().default('direct_deposit'),
-  notes: z.string().optional().default(''),
-});
+import { writeAudit } from '../utils/auditLog.js';
+import type { RowDataPacket } from 'mysql2/promise';
 
 const processPaymentSchema = z.object({
   action: z.enum(['approve', 'reject']),
@@ -86,22 +77,6 @@ export async function payrollRoutes(app: FastifyInstance) {
     };
   });
 
-  // ===== Payment detail =====
-  app.get('/payments/:paymentId', { preHandler: hrRole }, async (request, reply) => {
-    const { paymentId } = request.params as { paymentId: string };
-    const [rows] = await pool.query<RowDataPacket[]>(
-      `SELECT p.*, u.username as instructor_name, u.username as instructorName,
-              u.email as instructor_email, u.email as instructorEmail,
-              p.instructor_id as instructorId, p.payment_date as paymentDate,
-              p.payment_method as paymentMethod, p.transaction_id as transactionId,
-              p.hr_notes as hrNotes, p.created_at as createdAt
-       FROM payroll_payments p JOIN users u ON p.instructor_id = u.id WHERE p.id = ?`,
-      [paymentId]
-    );
-    if (rows.length === 0) return reply.status(404).send({ error: 'Payment not found' });
-    return { success: true, data: rows[0] };
-  });
-
   // ===== Calculate payroll =====
   app.post('/calculate/:instructorId', { preHandler: hrRole }, async (request, reply) => {
     const { instructorId } = request.params as { instructorId: string };
@@ -159,30 +134,6 @@ export async function payrollRoutes(app: FastifyInstance) {
     };
   });
 
-  // ===== Create payment =====
-  app.post('/payments', { preHandler: hrRole }, async (request, reply) => {
-    const data = createPaymentSchema.parse(request.body);
-    try {
-    const [instrCheck] = await pool.query<RowDataPacket[]>(
-      "SELECT id FROM users WHERE id = ? AND role = 'instructor'", [data.instructor_id]
-    );
-    if (instrCheck.length === 0) return reply.status(404).send({ error: 'Instructor not found' });
-
-    const [result] = await pool.query<ResultSetHeader>(
-      `INSERT INTO payroll_payments (instructor_id, amount, payment_date, payment_method, notes, status)
-       VALUES (?, ?, ?, ?, ?, 'pending')`,
-      [data.instructor_id, data.amount, data.payment_date, data.payment_method, data.notes]
-    );
-    logAudit({ userId: request.userId, action: 'create_payroll_payment', entityType: 'payroll_payment', entityId: result.insertId, details: { instructorId: data.instructor_id, amount: data.amount, paymentMethod: data.payment_method }, ipAddress: request.ip });
-    const [rows] = await pool.query<RowDataPacket[]>('SELECT * FROM payroll_payments WHERE id = ?', [result.insertId]);
-    return { success: true, message: 'Payment created successfully.', data: rows[0] };
-    } catch (err) {
-      const { statusCode, message } = httpError(err);
-      request.log.error({ err }, 'Failed to create payroll payment');
-      return reply.status(statusCode).send({ error: message });
-    }
-  });
-
   // ===== Process payment =====
   app.post('/payments/:paymentId/process', { preHandler: hrRole }, async (request, reply) => {
     const { paymentId } = request.params as { paymentId: string };
@@ -205,70 +156,5 @@ export async function payrollRoutes(app: FastifyInstance) {
       await conn.commit();
       return { success: true, message: `Payment ${action}d successfully.` };
     } catch (err) { await conn.rollback(); throw err; } finally { conn.release(); }
-  });
-
-  // ===== Report =====
-  app.get('/report', { preHandler: hrRole }, async (request) => {
-    const { start_date, end_date, instructor_id } = request.query as Record<string, string>;
-    let where = 'WHERE 1=1';
-    const params: unknown[] = [];
-    if (start_date) { where += ' AND p.payment_date >= ?'; params.push(start_date); }
-    if (end_date) { where += ' AND p.payment_date <= ?'; params.push(end_date); }
-    if (instructor_id) { where += ' AND p.instructor_id = ?'; params.push(instructor_id); }
-
-    const [[summary], [byInstructor], [byMonth]] = await Promise.all([
-      pool.query<RowDataPacket[]>(
-        `SELECT COUNT(*) as total_payments,
-                COUNT(CASE WHEN status = 'completed' THEN 1 END) as completed_payments,
-                COUNT(CASE WHEN status = 'pending' THEN 1 END) as pending_payments,
-                COUNT(CASE WHEN status = 'rejected' THEN 1 END) as rejected_payments,
-                COALESCE(SUM(CASE WHEN status = 'completed' THEN amount END), 0) as total_paid,
-                COALESCE(AVG(CASE WHEN status = 'completed' THEN amount END), 0) as average_payment
-         FROM payroll_payments p ${where}`,
-        params
-      ),
-      pool.query<RowDataPacket[]>(
-        `SELECT p.instructor_id, u.username as instructor_name, COUNT(*) as payment_count,
-                COALESCE(SUM(CASE WHEN p.status = 'completed' THEN p.amount END), 0) as total_paid,
-                COALESCE(AVG(CASE WHEN p.status = 'completed' THEN p.amount END), 0) as average_payment
-         FROM payroll_payments p JOIN users u ON p.instructor_id = u.id
-         ${where} GROUP BY p.instructor_id, u.username ORDER BY total_paid DESC`,
-        params
-      ),
-      pool.query<RowDataPacket[]>(
-        `SELECT YEAR(payment_date) as year, MONTH(payment_date) as month,
-                COUNT(*) as payment_count,
-                COALESCE(SUM(CASE WHEN status = 'completed' THEN amount END), 0) as total_paid
-         FROM payroll_payments p ${where}
-         GROUP BY YEAR(payment_date), MONTH(payment_date) ORDER BY year DESC, month DESC`,
-        params
-      ),
-    ]);
-
-    return { success: true, data: { summary: summary[0], byInstructor, byMonth } };
-  });
-
-  // ===== Instructor payroll summary =====
-  app.get('/instructor/:instructorId/summary', { preHandler: hrRole }, async (request, reply) => {
-    const { instructorId } = request.params as { instructorId: string };
-    const [[instrRows], [summary], [recent]] = await Promise.all([
-      pool.query<RowDataPacket[]>('SELECT username, email FROM users WHERE id = ?', [instructorId]),
-      pool.query<RowDataPacket[]>(
-        `SELECT COUNT(*) as total_payments,
-                COUNT(CASE WHEN status = 'completed' THEN 1 END) as completed_payments,
-                COUNT(CASE WHEN status = 'pending' THEN 1 END) as pending_payments,
-                COALESCE(SUM(CASE WHEN status = 'completed' THEN amount END), 0) as total_paid,
-                COALESCE(AVG(CASE WHEN status = 'completed' THEN amount END), 0) as average_payment,
-                MAX(payment_date) as last_payment_date
-         FROM payroll_payments WHERE instructor_id = ?`,
-        [instructorId]
-      ),
-      pool.query<RowDataPacket[]>(
-        'SELECT * FROM payroll_payments WHERE instructor_id = ? ORDER BY payment_date DESC LIMIT 5',
-        [instructorId]
-      ),
-    ]);
-    if (instrRows.length === 0) return reply.status(404).send({ error: 'Instructor not found' });
-    return { success: true, data: { instructor: instrRows[0], summary: summary[0], recentPayments: recent } };
   });
 }

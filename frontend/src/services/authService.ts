@@ -288,18 +288,4 @@ export const authService = {
   getSessionStatus() {
     return tokenService.getSessionStatus();
   },
-
-  async recoverPassword(email: string): Promise<void> {
-    log('[AUTH] Password recovery request');
-    try {
-      const response = await api.post('/auth/recover-password', { email });
-      log('[AUTH] Password recovery sent');
-      return response.data;
-    } catch (error: unknown) {
-      logError('[AUTH] Password recovery error');
-      const errObj = error as { response?: { data?: { message?: string } } };
-      // eslint-disable-next-line preserve-caught-error
-      throw new Error(errObj.response?.data?.message || 'Failed to send recovery email');
-    }
-  },
 };

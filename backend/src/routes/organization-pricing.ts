@@ -2,7 +2,6 @@ import { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { getPool } from '../config/database.js';
 import { requireAuth, requireRole } from '../plugins/auth.js';
-import { getHSTRate } from '../utils/taxConfig.js';
 import { logAudit } from '../utils/auditLog.js';
 import type { RowDataPacket, ResultSetHeader } from 'mysql2/promise';
 
@@ -15,12 +14,6 @@ const createPricingSchema = z.object({
 const updatePricingSchema = z.object({
   pricePerStudent: z.number().min(0).optional(),
   isActive: z.boolean().optional(),
-});
-
-const calculateCostSchema = z.object({
-  organizationId: z.coerce.number().int().positive(),
-  classTypeId: z.coerce.number().int().positive(),
-  studentCount: z.coerce.number().int().min(0),
 });
 
 export async function organizationPricingRoutes(app: FastifyInstance) {
@@ -54,50 +47,6 @@ export async function organizationPricingRoutes(app: FastifyInstance) {
     return { success: true, data: rows };
   });
 
-  // Get pricing for a specific course at an org
-  app.get('/course-pricing/:organizationId/:classTypeId', { preHandler: [requireAuth] }, async (request, reply) => {
-    const { organizationId, classTypeId } = request.params as { organizationId: string; classTypeId: string };
-    const orgId = parseInt(organizationId);
-
-    if (request.userRole !== 'sysadmin' && request.userOrgId !== orgId) {
-      return reply.status(403).send({ error: 'Access denied to this organization' });
-    }
-
-    const [rows] = await pool.query<RowDataPacket[]>(
-      `SELECT op.*, ct.name as class_type_name, ct.name as classTypeName,
-              o.name as organization_name, o.name as organizationName,
-              op.price_per_student as pricePerStudent, op.is_active as isActive
-       FROM organization_pricing op
-       JOIN class_types ct ON op.class_type_id = ct.id
-       JOIN organizations o ON op.organization_id = o.id
-       WHERE op.organization_id = ? AND op.class_type_id = ?`,
-      [orgId, parseInt(classTypeId)]
-    );
-    return { success: true, data: rows[0] ?? null };
-  });
-
-  // Calculate course cost
-  app.post('/calculate-cost', { preHandler: [requireAuth] }, async (request, reply) => {
-    const { organizationId, classTypeId, studentCount } = calculateCostSchema.parse(request.body);
-
-    if (request.userRole !== 'sysadmin' && request.userOrgId !== organizationId) {
-      return reply.status(403).send({ error: 'Access denied to this organization' });
-    }
-
-    const [rows] = await pool.query<RowDataPacket[]>(
-      'SELECT price_per_student FROM organization_pricing WHERE organization_id = ? AND class_type_id = ? AND is_active = true',
-      [organizationId, classTypeId]
-    );
-    if (rows.length === 0) return reply.status(404).send({ error: 'Pricing not found' });
-
-    const pricePerStudent = Number(rows[0].price_per_student);
-    const subtotal = pricePerStudent * studentCount;
-    const hst = subtotal * getHSTRate();
-    const total = subtotal + hst;
-
-    return { success: true, data: { pricePerStudent, studentCount, subtotal, hst, total } };
-  });
-
   // ===== Admin CRUD (sysadmin only) =====
 
   // Get all org pricing (with optional filters)
@@ -124,23 +73,6 @@ export async function organizationPricingRoutes(app: FastifyInstance) {
       params
     );
     return { success: true, data: rows };
-  });
-
-  // Get single pricing by id
-  app.get('/admin/:id', { preHandler: sysadminRole }, async (request, reply) => {
-    const { id } = request.params as { id: string };
-    const [rows] = await pool.query<RowDataPacket[]>(
-      `SELECT op.*, ct.name as class_type_name, ct.name as classTypeName,
-              o.name as organization_name, o.name as organizationName,
-              op.price_per_student as pricePerStudent, op.is_active as isActive
-       FROM organization_pricing op
-       JOIN class_types ct ON op.class_type_id = ct.id
-       JOIN organizations o ON op.organization_id = o.id
-       WHERE op.id = ?`,
-      [parseInt(id)]
-    );
-    if (rows.length === 0) return reply.status(404).send({ error: 'Organization pricing not found' });
-    return { success: true, data: rows[0] };
   });
 
   // Create pricing

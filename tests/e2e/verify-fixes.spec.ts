@@ -171,42 +171,6 @@ test.describe('Verify: pay rate fields render', () => {
   });
 });
 
-test.describe('Verify: payroll fields render', () => {
-  test('a payroll payment created via API shows real values on the HR screen', async ({ browser }) => {
-    test.setTimeout(120000);
-    const ctx = await browser.newContext({ ignoreHTTPSErrors: true });
-    const pg = await ctx.newPage();
-    await loginAs(pg, USERS.hr.username, USERS.hr.password);
-
-    // PayrollManagement.tsx has no "create payment" UI (Calculate Payroll
-    // only previews a figure) — seed a real row the same way the backend's
-    // own createPayment path would, then verify the *display*, which is
-    // what today's fix actually touches.
-    const instructors = await apiGet(pg, '/api/v1/pay-rates/instructors?limit=5');
-    const instrBody = await instructors.json();
-    const instructorId = (instrBody.data?.instructors ?? [])[0]?.id;
-    expect(instructorId, 'need at least one instructor user to seed a payment for').toBeTruthy();
-
-    const created = await apiPost(pg, '/api/v1/payroll/payments', {
-      instructor_id: instructorId,
-      amount: 250.75,
-      payment_date: new Date().toISOString().slice(0, 10),
-      payment_method: 'direct_deposit',
-      notes: TEST_MARKER,
-    });
-    expect(created.ok(), `seed POST /payroll/payments -> ${created.status()}: ${await created.text().catch(() => '')}`).toBeTruthy();
-
-    await pg.goto('/hr/payroll');
-    await pg.waitForLoadState('domcontentloaded');
-    await pg.getByRole('button', { name: 'Refresh' }).click();
-
-    await expect(pg.getByText('$250.75', { exact: false }).first()).toBeVisible({ timeout: 20000 });
-    await expect(pg.getByText('direct_deposit', { exact: false }).first()).toBeVisible({ timeout: 20000 });
-
-    await ctx.close();
-  });
-});
-
 test.describe('Verify: timesheet fields render', () => {
   const lastMonday = (() => {
     const d = new Date();

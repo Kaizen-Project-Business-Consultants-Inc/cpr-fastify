@@ -13,14 +13,12 @@ const PREFIX_TAG_MAP: Record<string, string> = {
   '/organization': 'Organization',
   '/hr': 'HR',
   '/profile-changes': 'Profile Changes',
-  '/student': 'Students',
   '/instructor': 'Instructor',
   '/timesheet': 'Timesheets',
   '/pay-rates': 'Pay Rates',
   '/payroll': 'Payroll',
   '/vendor': 'Vendor',
   '/sysadmin': 'Sysadmin',
-  '/courseadmin': 'Course Admin',
   '/notifications': 'Notifications',
   '/organization-pricing': 'Organization Pricing',
   '/email-templates': 'Email Templates',
@@ -114,7 +112,7 @@ export async function registerSwagger(app: FastifyInstance) {
     } else if (path.startsWith('/invoices/') || path.startsWith('/payments/')) {
       routeOptions.schema = routeOptions.schema || {};
       routeOptions.schema.tags = ['Organization Billing'];
-    } else if (['/course-types', '/classes', '/instructors', '/dashboard'].includes(path)) {
+    } else if (['/course-types', '/instructors'].includes(path)) {
       routeOptions.schema = routeOptions.schema || {};
       routeOptions.schema.tags = ['Misc'];
     }

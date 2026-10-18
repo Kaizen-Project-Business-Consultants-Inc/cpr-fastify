@@ -6,10 +6,6 @@ import { emailService } from '../services/EmailService.js';
 import { env } from '../config/env.js';
 import type { RowDataPacket, ResultSetHeader } from 'mysql2/promise';
 
-const previewSchema = z.object({
-  variables: z.record(z.string()).default({}),
-});
-
 const cloneSchema = z.object({
   name: z.string().min(1, 'New template name is required'),
 });
@@ -62,14 +58,6 @@ export async function emailTemplateRoutes(app: FastifyInstance) {
     return { success: true, data: rows, pagination: { page: pageNum, limit: limitNum, total, pages: Math.ceil(total / limitNum) } };
   });
 
-  // Get single template
-  app.get('/:id', { preHandler: adminRole }, async (request, reply) => {
-    const { id } = request.params as { id: string };
-    const [rows] = await pool.query<RowDataPacket[]>('SELECT * FROM email_templates WHERE id = ?', [parseInt(id)]);
-    if (rows.length === 0) return reply.status(404).send({ error: 'Template not found' });
-    return { success: true, data: rows[0] };
-  });
-
   // Create template
   app.post('/', { preHandler: adminRole }, async (request) => {
     const data = templateSchema.parse(request.body);
@@ -114,20 +102,6 @@ export async function emailTemplateRoutes(app: FastifyInstance) {
     const [result] = await pool.query<ResultSetHeader>('DELETE FROM email_templates WHERE id = ?', [parseInt(id)]);
     if (result.affectedRows === 0) return reply.status(404).send({ error: 'Template not found' });
     return { success: true, message: 'Email template deleted successfully' };
-  });
-
-  // Preview template
-  app.post('/:id/preview', { preHandler: adminRole }, async (request, reply) => {
-    const { id } = request.params as { id: string };
-    const [rows] = await pool.query<RowDataPacket[]>('SELECT * FROM email_templates WHERE id = ?', [parseInt(id)]);
-    if (rows.length === 0) return reply.status(404).send({ error: 'Template not found' });
-
-    const { variables } = previewSchema.parse(request.body);
-    let rendered = rows[0].body || '';
-    for (const [key, value] of Object.entries(variables)) {
-      rendered = rendered.replace(new RegExp(`\\{\\{${key}\\}\\}`, 'g'), value);
-    }
-    return { success: true, data: { subject: rows[0].subject, body: rendered } };
   });
 
   // Clone template
@@ -196,12 +170,6 @@ export async function emailTemplateRoutes(app: FastifyInstance) {
     } catch (err) {
       return reply.status(500).send({ error: 'Failed to send test email', details: (err as Error).message });
     }
-  });
-
-  // Verify email service connection
-  app.get('/status', { preHandler: adminRole }, async () => {
-    const connected = await emailService.verifyConnection();
-    return { success: true, data: { configured: connected, provider: 'resend' } };
   });
 
   // Get event triggers metadata

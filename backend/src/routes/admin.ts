@@ -9,7 +9,6 @@ import bcrypt from 'bcryptjs';
 import { StudentRepository } from '../repositories/StudentRepository.js';
 import { parsePagination, paginatedQuery, maybePaginate, paginatedResponse, isPaginated } from '../utils/pagination.js';
 import { toCSV } from '../utils/csv.js';
-import { CertReminderService } from '../services/CertReminderService.js';
 import { writeAudit } from '../utils/auditLog.js';
 
 const createUserSchema = z.object({
@@ -158,16 +157,6 @@ export async function adminRoutes(app: FastifyInstance) {
     if (result.affectedRows === 0) return reply.status(404).send({ error: 'Course not found' });
     const [rows] = await pool.query<RowDataPacket[]>('SELECT * FROM class_types WHERE id = ?', [id]);
     return { success: true, message: 'Course updated successfully', data: rows[0] };
-  });
-
-  app.put('/courses/:id/toggle-active', { preHandler: adminRole }, async (request, reply) => {
-    const { id } = request.params as { id: string };
-    const [result] = await pool.query<ResultSetHeader>(
-      'UPDATE class_types SET is_active = NOT COALESCE(is_active, true), updated_at = CURRENT_TIMESTAMP WHERE id = ?', [id]
-    );
-    if (result.affectedRows === 0) return reply.status(404).send({ error: 'Course not found' });
-    const [rows] = await pool.query<RowDataPacket[]>('SELECT * FROM class_types WHERE id = ?', [id]);
-    return { success: true, message: `Course ${rows[0].is_active ? 'activated' : 'deactivated'} successfully`, data: rows[0] };
   });
 
   app.delete('/courses/:id', { preHandler: adminRole }, async (request, reply) => {
@@ -458,23 +447,6 @@ export async function adminRoutes(app: FastifyInstance) {
     });
   });
 
-  // DELETE /users/:userId — soft delete (status = 'inactive'); the account is kept for audit history.
-  app.delete('/users/:userId', { preHandler: adminRole }, async (request, reply) => {
-    const { userId } = z.object({ userId: z.coerce.number().int().positive() }).parse(request.params);
-    if (userId === request.userId) return reply.status(400).send({ error: 'You cannot deactivate your own account' });
-    if (request.userRole !== 'sysadmin' && (await targetIsPrivileged(userId))) {
-      return reply.status(403).send({ error: 'Only a system administrator can deactivate admin or sysadmin users' });
-    }
-    return inTransaction(reply, async (conn) => {
-      const [result] = await conn.query<ResultSetHeader>(
-        `UPDATE users SET status = 'inactive', updated_at = CURRENT_TIMESTAMP WHERE id = ?`, [userId]
-      );
-      if (result.affectedRows === 0) throw new TxAbort(404, { error: 'User not found' });
-      await writeAudit(conn, { userId: request.userId, action: 'deactivate_user', entityType: 'user', entityId: userId, ipAddress: request.ip });
-      return { success: true, message: 'User deactivated successfully' };
-    });
-  });
-
   // ===== Sysadmin: PIPEDA data erasure =====
   app.delete('/users/:userId/personal-data', { preHandler: sysadminRole }, async (request, reply) => {
     const { userId } = request.params as { userId: string };
@@ -491,19 +463,6 @@ export async function adminRoutes(app: FastifyInstance) {
     );
     logger.info({ userId: id, sysadmin: request.userId }, 'PIPEDA personal data anonymised');
     return { success: true, message: 'Personal data anonymised' };
-  });
-
-  // ===== Instructor list for dropdowns =====
-  app.get('/instructors', { preHandler: adminRole }, async (request) => {
-    const where = `WHERE role = 'instructor' AND status = 'active'`;
-    const result = await maybePaginate(
-      `SELECT id, username, email, first_name, last_name FROM users
-       ${where} ORDER BY username`,
-      `SELECT COUNT(*) as count FROM users ${where}`,
-      [],
-      request.query as Record<string, string>,
-    );
-    return paginatedResponse(result);
   });
 
   // ===== Organization locations =====
@@ -662,31 +621,6 @@ export async function adminRoutes(app: FastifyInstance) {
       'SELECT * FROM system_configurations ORDER BY category, config_key LIMIT 500'
     );
     return { success: true, data: rows };
-  });
-
-  app.get('/configurations/categories', { preHandler: sysadminRole }, async () => {
-    const [rows] = await pool.query<RowDataPacket[]>(
-      'SELECT DISTINCT category FROM system_configurations ORDER BY category'
-    );
-    return { success: true, data: rows.map((r) => r.category) };
-  });
-
-  app.get('/configurations/category/:category', { preHandler: sysadminRole }, async (request) => {
-    const { category } = request.params as { category: string };
-    const [rows] = await pool.query<RowDataPacket[]>(
-      'SELECT * FROM system_configurations WHERE category = ? ORDER BY config_key',
-      [category]
-    );
-    return { success: true, data: rows };
-  });
-
-  app.get('/configurations/:key', { preHandler: sysadminRole }, async (request, reply) => {
-    const { key } = request.params as { key: string };
-    const [rows] = await pool.query<RowDataPacket[]>(
-      'SELECT * FROM system_configurations WHERE config_key = ?', [key]
-    );
-    if (rows.length === 0) return reply.status(404).send({ error: `Configuration key '${key}' not found` });
-    return { success: true, data: { key, value: rows[0].config_value } };
   });
 
   app.put('/configurations/:key', { preHandler: sysadminRole }, async (request, reply) => {
@@ -974,13 +908,6 @@ export async function adminRoutes(app: FastifyInstance) {
       WHERE cs.certificate_expires_at IS NOT NULL AND cs.attended = true
     `);
     return { success: true, data: rows[0] };
-  });
-
-  // Manual trigger for cert reminders (sysadmin only)
-  app.post('/certifications/send-reminders', { preHandler: sysadminRole }, async () => {
-    const service = new CertReminderService();
-    const result = await service.sendReminders();
-    return { success: true, message: `Sent ${result.sent} reminders`, ...result };
   });
 
   // ===== CSV Exports =====

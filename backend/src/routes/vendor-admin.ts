@@ -165,23 +165,6 @@ export async function vendorAdminRoutes(app: FastifyInstance) {
     data: await vendorInvoiceSummary(request.query as Record<string, string>),
   }));
 
-  // ===== Admin: Ready for processing =====
-  app.get('/admin/vendor-invoices/ready-for-processing', { preHandler: adminRole }, async (request) => {
-    const result = await maybePaginate(
-      `SELECT vi.*, ${VI_CAMEL_COLS},
-              v.name as vendor_name, v.name as vendorName,
-              v.contact_email as vendor_email, v.contact_email as vendorEmail
-       FROM vendor_invoices vi LEFT JOIN vendors v ON vi.vendor_id = v.id
-       WHERE vi.status = 'submitted_to_admin' ORDER BY vi.created_at ASC`,
-      `SELECT COUNT(*) as count
-       FROM vendor_invoices vi LEFT JOIN vendors v ON vi.vendor_id = v.id
-       WHERE vi.status = 'submitted_to_admin'`,
-      [],
-      request.query as Record<string, string>,
-    );
-    return paginatedResponse(result);
-  });
-
   // ===== Admin: Update notes =====
   app.put('/admin/vendor-invoices/:id/notes', { preHandler: adminRole }, async (request, reply) => {
     const { id } = request.params as { id: string };
@@ -360,27 +343,5 @@ export async function vendorAdminRoutes(app: FastifyInstance) {
       await conn.commit();
       return { success: true, message: 'Invoice rejected successfully.', data: { invoiceId: id, status: 'rejected_by_accountant' } };
     } catch (err) { await conn.rollback(); throw err; } finally { conn.release(); }
-  });
-
-  // ===== Accounting: Payment history =====
-  app.get('/accounting/vendor-payments', { preHandler: acctRole }, async (request) => {
-    const fromClause = `FROM vendor_payments vp
-       JOIN vendor_invoices vi ON vp.vendor_invoice_id = vi.id
-       JOIN vendors v ON vi.vendor_id = v.id
-       LEFT JOIN users u_processed ON vp.processed_by = u_processed.id`;
-    const result = await maybePaginate(
-      `SELECT vp.*, vp.payment_date as paymentDate, vp.payment_method as paymentMethod,
-              vp.reference_number as referenceNumber, vp.processed_at as processedAt,
-              vi.invoice_number, vi.invoice_number as invoiceNumber,
-              vi.amount as invoice_amount, vi.amount as invoiceAmount,
-              v.name as vendor_name, v.name as vendorName,
-              u_processed.username as processed_by_name, u_processed.username as processedByName
-       ${fromClause}
-       ORDER BY vp.payment_date DESC`,
-      `SELECT COUNT(*) as count ${fromClause}`,
-      [],
-      request.query as Record<string, string>,
-    );
-    return paginatedResponse(result);
   });
 }

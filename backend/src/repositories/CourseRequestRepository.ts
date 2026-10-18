@@ -214,12 +214,4 @@ export class CourseRequestRepository extends BaseRepository<CourseRequest> {
     );
     return this.findById(id);
   }
-
-  async updateReminder(id: number): Promise<CourseRequest | null> {
-    await this.execute(
-      `UPDATE course_requests SET last_reminder_at = CURRENT_TIMESTAMP WHERE id = ?`,
-      [id]
-    );
-    return this.findById(id);
-  }
 }

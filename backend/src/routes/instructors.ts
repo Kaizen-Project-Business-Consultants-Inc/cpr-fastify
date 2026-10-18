@@ -16,16 +16,9 @@ const addStudentSchema = z.object({
   college: z.string().optional(),
 });
 
-const availabilitySchema = z.object({
-  availability: z.array(z.object({
-    date: z.string(),
-    status: z.string(),
-  })),
-});
-
 const instructorRole = ['instructor', 'admin', 'sysadmin'];
 
-// Shared query for class listings — DRY across 5 endpoints
+// Shared query for the class-list endpoints
 const CLASS_QUERY_BASE = `
   SELECT
     cr.id, cr.id as course_id, cr.instructor_id,
@@ -64,53 +57,6 @@ function formatClassRows(rows: RowDataPacket[]) {
 export async function instructorRoutes(app: FastifyInstance) {
   const role = [requireRole(...instructorRole)];
   const pool = getPool();
-
-  // ===== Dashboard Stats =====
-  app.get('/dashboard/stats', { preHandler: role }, async (request) => {
-    const [statsRows] = await pool.query<RowDataPacket[]>(
-      `SELECT
-         COUNT(*) as total_courses,
-         SUM(CASE WHEN cr.status = 'confirmed' THEN 1 ELSE 0 END) as scheduled_courses,
-         SUM(CASE WHEN cr.status = 'completed' THEN 1 ELSE 0 END) as completed_courses,
-         SUM(CASE WHEN cr.status = 'cancelled' THEN 1 ELSE 0 END) as cancelled_courses,
-         COALESCE(SUM(sc.student_count), 0) as total_students
-       FROM course_requests cr
-       LEFT JOIN (SELECT course_request_id, COUNT(*) as student_count FROM course_students GROUP BY course_request_id) sc
-         ON sc.course_request_id = cr.id
-       WHERE cr.instructor_id = ?`,
-      [request.userId]
-    );
-
-    const [recentRows] = await pool.query<RowDataPacket[]>(
-      `SELECT cr.id, cr.confirmed_date as date, ct.name as type,
-              COALESCE(sc.student_count, 0) as students
-       FROM course_requests cr
-       JOIN class_types ct ON cr.course_type_id = ct.id
-       LEFT JOIN (SELECT course_request_id, COUNT(*) as student_count FROM course_students GROUP BY course_request_id) sc
-         ON sc.course_request_id = cr.id
-       WHERE cr.instructor_id = ? AND cr.status IN ('confirmed', 'completed')
-       ORDER BY cr.confirmed_date DESC LIMIT 5`,
-      [request.userId]
-    );
-
-    const s = statsRows[0] ?? {};
-    return {
-      success: true,
-      data: {
-        totalCourses: Number(s.total_courses ?? 0),
-        scheduledClasses: Number(s.scheduled_courses ?? 0),
-        completedClasses: Number(s.completed_courses ?? 0),
-        cancelledClasses: Number(s.cancelled_courses ?? 0),
-        totalStudents: Number(s.total_students ?? 0),
-        recentClasses: recentRows.map(r => ({
-          id: r.id,
-          date: r.date ? new Date(r.date).toISOString().split('T')[0] : null,
-          type: r.type,
-          students: Number(r.students ?? 0),
-        })),
-      },
-    };
-  });
 
   // ===== Availability =====
   app.get('/availability', { preHandler: role }, async (request) => {
@@ -174,30 +120,6 @@ export async function instructorRoutes(app: FastifyInstance) {
     return { success: true, message: 'Availability removed successfully' };
   });
 
-  app.put('/availability', { preHandler: role }, async (request) => {
-    const { availability } = availabilitySchema.parse(request.body);
-    const conn = await pool.getConnection();
-    try {
-      await conn.beginTransaction();
-      await conn.query('DELETE FROM instructor_availability WHERE instructor_id = ?', [request.userId]);
-      for (const item of availability) {
-        if (item.date && item.status && !isNaN(new Date(item.date).getTime())) {
-          await conn.query(
-            'INSERT INTO instructor_availability (instructor_id, date, status) VALUES (?, ?, ?)',
-            [request.userId, item.date, item.status]
-          );
-        }
-      }
-      await conn.commit();
-    } catch (err) { await conn.rollback(); throw err; } finally { conn.release(); }
-
-    const [rows] = await pool.query<RowDataPacket[]>(
-      'SELECT * FROM instructor_availability WHERE instructor_id = ? ORDER BY date ASC',
-      [request.userId]
-    );
-    return { success: true, data: rows };
-  });
-
   // ===== Classes =====
   /** One opt-in-paginated class list. `where` is shared by data and count. */
   async function classList(query: Record<string, string>, where: string, orderBy: string, params: unknown[]) {
@@ -209,15 +131,6 @@ export async function instructorRoutes(app: FastifyInstance) {
     );
     return paginatedResponse(result, formatClassRows);
   }
-
-  app.get('/classes', { preHandler: role }, async (request) => {
-    return classList(
-      request.query as Record<string, string>,
-      `WHERE cr.instructor_id = ? AND cr.status = 'confirmed'`,
-      'cr.confirmed_date DESC',
-      [request.userId],
-    );
-  });
 
   app.get('/classes/active', { preHandler: role }, async (request) => {
     return classList(
@@ -253,34 +166,6 @@ export async function instructorRoutes(app: FastifyInstance) {
       'cr.confirmed_date ASC',
       [request.userId, todayStr],
     );
-  });
-
-  // ===== Schedule =====
-  app.get('/schedule', { preHandler: role }, async (request) => {
-    return classList(
-      request.query as Record<string, string>,
-      `WHERE cr.instructor_id = ? AND cr.status = 'confirmed'`,
-      'cr.confirmed_date ASC',
-      [request.userId],
-    );
-  });
-
-  // ===== Class detail =====
-  app.get('/classes/:classId', { preHandler: role }, async (request, reply) => {
-    const { classId } = request.params as { classId: string };
-    const [rows] = await pool.query<RowDataPacket[]>(
-      `SELECT c.id, c.class_type_id, c.instructor_id, c.start_time, c.end_time, c.status,
-              c.location, c.max_students, CASE WHEN c.status = 'completed' THEN true ELSE false END as completed,
-              c.created_at, c.updated_at, ct.name as course_name, ct.name as coursetypename,
-              COALESCE(o.name, 'Unassigned') as organizationname, COALESCE(c.location, '') as notes
-       FROM classes c
-       JOIN class_types ct ON c.class_type_id = ct.id
-       LEFT JOIN organizations o ON c.organization_id = o.id
-       WHERE c.id = ? AND c.instructor_id = ?`,
-      [classId, request.userId]
-    );
-    if (rows.length === 0) return reply.status(404).send({ error: 'Class not found or not authorized' });
-    return { success: true, data: rows[0] };
   });
 
   // ===== Students for a class =====
@@ -541,29 +426,5 @@ export async function instructorRoutes(app: FastifyInstance) {
     );
     if (rows.length === 0) return reply.status(404).send({ error: 'User not found' });
     return { success: true, data: rows[0] };
-  });
-
-  // ===== Attendance data =====
-  app.get('/attendance', { preHandler: role }, async (request) => {
-    const result = await maybePaginate(
-      `SELECT c.id as class_id, c.start_time, c.end_time, c.status, ct.name as course_name,
-              COUNT(cs.id) as total_students,
-              COUNT(CASE WHEN cs.attended = true THEN 1 END) as attended_students,
-              COUNT(CASE WHEN cs.attended = false THEN 1 END) as absent_students
-       FROM classes c
-       JOIN class_types ct ON c.class_type_id = ct.id
-       LEFT JOIN course_requests cr ON cr.instructor_id = c.instructor_id AND DATE(cr.confirmed_date) = DATE(c.start_time)
-       LEFT JOIN course_students cs ON cs.course_request_id = cr.id
-       WHERE c.instructor_id = ?
-       GROUP BY c.id, c.start_time, c.end_time, c.status, ct.name
-       ORDER BY c.start_time DESC`,
-      // One row per class after the GROUP BY, so count classes over the same WHERE.
-      `SELECT COUNT(*) as count FROM classes c
-       JOIN class_types ct ON c.class_type_id = ct.id
-       WHERE c.instructor_id = ?`,
-      [request.userId],
-      request.query as Record<string, string>,
-    );
-    return paginatedResponse(result);
   });
 }

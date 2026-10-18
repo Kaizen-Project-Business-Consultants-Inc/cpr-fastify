@@ -546,12 +546,4 @@ export class CourseService {
     const roster = await this.studentRepo.findByCourse(courseId);
     await this.courseRepo.forOrg(orgId).update(courseId, { registered_students: roster.length });
   }
-
-  // --- Reminder ---
-
-  async updateReminder(courseId: number): Promise<CourseRequest> {
-    const updated = await this.courseRepo.updateReminder(courseId);
-    if (!updated) throw new CourseError('Course request not found', 404);
-    return updated;
-  }
 }

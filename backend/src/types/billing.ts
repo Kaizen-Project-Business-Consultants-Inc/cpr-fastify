@@ -81,12 +81,6 @@ export interface PaymentRow {
   created_at: string | Date;
 }
 
-/** Shape for revenue report month rows. */
-export interface RevenueMonthRow {
-  m: number;
-  total: number;
-}
-
 /** Shape for AR aging invoice rows. */
 export interface AgingInvoiceRow {
   invoice_id?: number;

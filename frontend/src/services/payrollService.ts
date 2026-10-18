@@ -56,58 +56,10 @@ export interface PayrollFilters {
   month?: string;
 }
 
-export interface PaymentCreation {
-  instructor_id: number;
-  amount: number;
-  payment_date: string;
-  payment_method?: string;
-  notes?: string;
-}
-
 export interface PaymentProcessing {
   action: 'approve' | 'reject';
   transaction_id?: string;
   notes?: string;
-}
-
-export interface PayrollReport {
-  summary: {
-    totalPayments: number;
-    completedPayments: number;
-    pendingPayments: number;
-    rejectedPayments: number;
-    totalPaid: number;
-    averagePayment: number;
-  };
-  byInstructor: Array<{
-    instructorId: number;
-    instructorName: string;
-    paymentCount: number;
-    totalPaid: number;
-    averagePayment: number;
-  }>;
-  byMonth: Array<{
-    year: number;
-    month: number;
-    paymentCount: number;
-    totalPaid: number;
-  }>;
-}
-
-export interface InstructorPayrollSummary {
-  instructor: {
-    username: string;
-    email: string;
-  };
-  summary: {
-    totalPayments: number;
-    completedPayments: number;
-    pendingPayments: number;
-    totalPaid: number;
-    averagePayment: number;
-    lastPaymentDate: string;
-  };
-  recentPayments: PayrollPayment[];
 }
 
 class PayrollService {
@@ -140,12 +92,6 @@ class PayrollService {
     return response.data.data;
   }
 
-  // Get payment details
-  async getPayment(paymentId: number): Promise<PayrollPayment> {
-    const response = await api.get(`/payroll/payments/${paymentId}`);
-    return response.data.data;
-  }
-
   // Calculate payroll for instructor
   async calculatePayroll(
     instructorId: number, 
@@ -161,37 +107,9 @@ class PayrollService {
     return response.data.data;
   }
 
-  // Create payment
-  async createPayment(data: PaymentCreation): Promise<PayrollPayment> {
-    const response = await api.post('/payroll/payments', data);
-    return response.data.data;
-  }
-
   // Process payment (approve/reject)
   async processPayment(paymentId: number, data: PaymentProcessing): Promise<void> {
     await api.post(`/payroll/payments/${paymentId}/process`, data);
-  }
-
-  // Get payroll report
-  async getReport(filters: {
-    start_date?: string;
-    end_date?: string;
-    instructor_id?: string;
-  } = {}): Promise<PayrollReport> {
-    const params = new URLSearchParams();
-    
-    if (filters.start_date) params.append('start_date', filters.start_date);
-    if (filters.end_date) params.append('end_date', filters.end_date);
-    if (filters.instructor_id) params.append('instructor_id', filters.instructor_id);
-
-    const response = await api.get(`/payroll/report?${params.toString()}`);
-    return response.data.data;
-  }
-
-  // Get instructor payroll summary
-  async getInstructorSummary(instructorId: number): Promise<InstructorPayrollSummary> {
-    const response = await api.get(`/payroll/instructor/${instructorId}/summary`);
-    return response.data.data;
   }
 }
 

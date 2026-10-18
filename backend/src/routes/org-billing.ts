@@ -9,7 +9,7 @@ import { maybePaginate, rowsOf, metaOf } from '../utils/pagination.js';
 import type { RowDataPacket, ResultSetHeader } from 'mysql2/promise';
 import type { PaymentPDFData } from '../services/PDFService.js';
 import { VERIFIED_PAYMENT_FILTER, VERIFIED_PAID_BY_INVOICE, verifiedPayment, pendingPayment } from '../utils/paymentSql.js';
-import { loadInvoiceForOrganization, sendInvoicePdf, sendInvoicePreview } from '../services/invoiceDocument.js';
+import { loadInvoiceForOrganization, sendInvoicePdf } from '../services/invoiceDocument.js';
 
 const INVOICE_SORT_COLS = new Set(['created_at', 'due_date', 'amount', 'status', 'invoice_date', 'invoice_number']);
 const PAID_SORT_COLS = new Set(['paid_date', 'created_at', 'amount', 'invoice_number']);
@@ -120,49 +120,6 @@ export async function orgBillingRoutes(app: FastifyInstance) {
     return reply.send(csv);
   });
 
-  // ===== Organization: Invoice detail =====
-  app.get('/organization/invoices/:id', { preHandler: orgRole }, async (request, reply) => {
-    const { id } = request.params as { id: string };
-
-    const [rows] = await pool.query<RowDataPacket[]>(
-      `SELECT i.id, i.invoice_number, i.created_at as invoice_date, i.due_date, i.amount,
-              i.status, i.students_billed, i.paid_date,
-              o.name as organization_name, o.contact_email, o.contact_phone, o.address,
-              cr.location, ct.name as course_type_name, cr.completed_at as course_date,
-              cr.id as course_request_id,
-              COALESCE(SUM(CASE WHEN ${verifiedPayment('p')} THEN p.amount ELSE 0 END), 0) as amount_paid,
-              GREATEST(0, (i.base_cost + i.tax_amount) - COALESCE(SUM(CASE WHEN ${verifiedPayment('p')} THEN p.amount ELSE 0 END), 0)) as balance_due,
-              cp.price_per_student as rate_per_student,
-              i.base_cost, i.tax_amount,
-              CASE
-                WHEN COALESCE(SUM(CASE WHEN ${verifiedPayment('p')} THEN p.amount ELSE 0 END), 0) >= (i.base_cost + i.tax_amount) THEN 'paid'
-                WHEN CURRENT_DATE > i.due_date THEN 'overdue'
-                ELSE 'pending'
-              END as payment_status
-       FROM invoice_with_breakdown i
-       JOIN organizations o ON i.organization_id = o.id
-       LEFT JOIN course_requests cr ON i.course_request_id = cr.id
-       LEFT JOIN class_types ct ON cr.course_type_id = ct.id
-       LEFT JOIN course_pricing cp ON cr.organization_id = cp.organization_id AND cr.course_type_id = cp.course_type_id AND cp.is_active = true
-       LEFT JOIN payments p ON i.id = p.invoice_id
-       WHERE i.id = ? AND i.organization_id = ?
-       GROUP BY i.id, i.invoice_number, i.due_date, i.amount, i.status, i.students_billed, i.paid_date, i.base_cost, i.tax_amount, o.id, cr.id, ct.id, cp.price_per_student`,
-      [id, request.userOrgId]
-    );
-    if (rows.length === 0) return reply.status(404).send({ error: 'Invoice not found' });
-
-    const [paymentRows] = await pool.query<RowDataPacket[]>(
-      `SELECT id, invoice_id, amount as amount_paid, payment_date, payment_method,
-              reference_number, notes, status, created_at,
-              submitted_by_org_at, verified_by_accounting_at, reversed_at, reversed_by
-       FROM payments WHERE invoice_id = ? ORDER BY payment_date DESC`,
-      [id]
-    );
-
-    const invoice = { ...rows[0], rate_per_student: rows[0].rate_per_student ? parseFloat(rows[0].rate_per_student) : null, payments: paymentRows };
-    return { success: true, data: invoice };
-  });
-
   // ===== Organization: Invoice payment history =====
   app.get('/organization/invoices/:id/payments', { preHandler: orgRole }, async (request, reply) => {
     const { id } = request.params as { id: string };
@@ -178,48 +135,6 @@ export async function orgBillingRoutes(app: FastifyInstance) {
       [id]
     );
     return { success: true, data: rows };
-  });
-
-  // ===== Organization: Balance calculation =====
-  app.get('/organization/invoices/:id/balance-calculation', { preHandler: orgRole }, async (request, reply) => {
-    const { id } = request.params as { id: string };
-    const { payment_amount = '0' } = request.query as Record<string, string>;
-
-    const [rows] = await pool.query<RowDataPacket[]>(
-      `SELECT i.id, i.invoice_number, i.amount, i.status, i.base_cost, i.tax_amount,
-              COALESCE(SUM(CASE WHEN ${verifiedPayment('p')} THEN p.amount ELSE 0 END), 0) as verified_payments,
-              COALESCE(SUM(CASE WHEN ${pendingPayment('p')} THEN p.amount ELSE 0 END), 0) as pending_payments
-       FROM invoices i LEFT JOIN payments p ON i.id = p.invoice_id
-       WHERE i.id = ? AND i.organization_id = ?
-       GROUP BY i.id, i.invoice_number, i.amount, i.status, i.base_cost, i.tax_amount`,
-      [id, request.userOrgId]
-    );
-    if (rows.length === 0) return reply.status(404).send({ error: 'Invoice not found' });
-
-    const inv = rows[0];
-    const totalAmount = parseFloat(inv.amount) || 0;
-    const verified = parseFloat(inv.verified_payments) || 0;
-    const pending = parseFloat(inv.pending_payments) || 0;
-    const proposed = parseFloat(payment_amount) || 0;
-    const outstanding = totalAmount - verified;
-    const remaining = outstanding - proposed;
-
-    return {
-      success: true,
-      data: {
-        invoice_number: inv.invoice_number,
-        total_invoice_amount: totalAmount,
-        verified_payments: verified,
-        pending_payments: pending,
-        current_outstanding_balance: outstanding,
-        proposed_payment: proposed,
-        remaining_balance_after_payment: Math.max(0, remaining),
-        is_valid_payment: proposed > 0 && proposed <= outstanding,
-        is_overpayment: proposed > outstanding,
-        is_full_payment: proposed >= outstanding,
-        can_submit_payment: proposed > 0 && proposed <= outstanding && inv.status !== 'paid',
-      },
-    };
   });
 
   // ===== Calculate balance (any authenticated user) =====
@@ -482,32 +397,6 @@ export async function orgBillingRoutes(app: FastifyInstance) {
     } catch (err) { await conn.rollback(); throw err; } finally { conn.release(); }
   });
 
-  // ===== Organization: Payment summary =====
-  app.get('/organization/payment-summary', { preHandler: orgRole }, async (request) => {
-    const [[summaryRows], [recentRows]] = await Promise.all([
-      pool.query<RowDataPacket[]>(
-        `SELECT COUNT(*) as total_payments,
-                COALESCE(SUM(CASE WHEN ${verifiedPayment('p')} THEN p.amount ELSE 0 END), 0) as total_amount_paid,
-                COUNT(CASE WHEN ${verifiedPayment('p')} THEN 1 END) as verified_payments,
-                COUNT(CASE WHEN ${pendingPayment('p')} THEN 1 END) as pending_payments
-         FROM payments p JOIN invoices i ON p.invoice_id = i.id
-         WHERE i.organization_id = ? AND p.deleted_at IS NULL`,
-        [request.userOrgId]
-      ),
-      pool.query<RowDataPacket[]>(
-        `SELECT p.id, p.invoice_id, p.amount as amount_paid, p.payment_date, p.payment_method,
-                p.reference_number, p.status, i.invoice_number, ct.name as course_type_name
-         FROM payments p JOIN invoices i ON p.invoice_id = i.id
-         LEFT JOIN course_requests cr ON i.course_request_id = cr.id
-         LEFT JOIN class_types ct ON cr.course_type_id = ct.id
-         WHERE i.organization_id = ? ORDER BY p.payment_date DESC LIMIT 10`,
-        [request.userOrgId]
-      ),
-    ]);
-
-    return { success: true, data: { ...summaryRows[0], recent_payments: recentRows } };
-  });
-
   // ===== Accounting: Pending payment verifications =====
   app.get('/accounting/payment-verifications', { preHandler: acctRole }, async (request) => {
     const fromClause = `FROM payments p JOIN invoices i ON p.invoice_id = i.id JOIN organizations o ON i.organization_id = o.id
@@ -710,13 +599,5 @@ export async function orgBillingRoutes(app: FastifyInstance) {
     reply.header('Content-Disposition', `attachment; filename="Payment-Receipt-${rows[0].payment_id}.pdf"`);
     reply.header('Content-Length', pdfBuffer.length);
     return reply.send(pdfBuffer);
-  });
-
-  // Invoice preview HTML
-  app.get('/invoices/:id/preview', { preHandler: orgRole }, async (request, reply) => {
-    const { id } = request.params as { id: string };
-    const invoice = await loadInvoiceForOrganization(parseInt(id), request.userOrgId);
-    if (!invoice) return reply.status(404).send({ error: 'Invoice not found' });
-    return sendInvoicePreview(reply, invoice);
   });
 }

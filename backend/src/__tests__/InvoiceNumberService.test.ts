@@ -1,18 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-// Mock database
-const mockQuery = vi.fn();
+// allocate() runs inside the caller's transaction, so only the connection is mocked.
 const mockConnQuery = vi.fn();
 const mockConn = {
   query: mockConnQuery,
 };
-vi.mock('../config/database.js', () => ({
-  getPool: () => ({ query: mockQuery, getConnection: () => Promise.resolve(mockConn) }),
-}));
-
-vi.mock('../config/logger.js', () => ({
-  logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
-}));
 
 import { InvoiceNumberService } from '../services/InvoiceNumberService.js';
 
@@ -177,63 +169,6 @@ describe('InvoiceNumberService', () => {
       const result = await service.allocate(1, mockConn as any);
 
       expect(result).toBe('P-00000003'); // 8 digits from 8 Ns
-    });
-  });
-
-  describe('preview', () => {
-    it('returns default when no sequence', async () => {
-      mockQuery.mockResolvedValueOnce([[]]); // no rows
-
-      const result = await service.preview(99);
-
-      expect(result).toMatch(/^INV-\d{4}-\d{8}$/);
-    });
-
-    it('previews next number without allocating', async () => {
-      const year = new Date().getFullYear();
-      const seq = {
-        id: 1, organization_id: 1, prefix: 'TEST',
-        format_string: '{PREFIX}-{YYYY}-{NNN}', padding: 3,
-        next_number: 15, step: 1,
-        reset_policy: 'none', last_reset_period: null,
-      };
-      mockQuery.mockResolvedValueOnce([[seq]]);
-
-      const result = await service.preview(1);
-
-      expect(result).toBe(`TEST-${year}-015`);
-      // Should NOT call any UPDATE
-      expect(mockConnQuery).not.toHaveBeenCalled();
-    });
-  });
-
-  describe('upsert', () => {
-    it('creates or updates sequence', async () => {
-      mockQuery.mockResolvedValueOnce([{}]); // INSERT ON DUPLICATE KEY
-      mockQuery.mockResolvedValueOnce([[{ id: 1, organization_id: 5, prefix: 'NEW' }]]); // SELECT
-
-      const result = await service.upsert(5, { prefix: 'NEW' });
-
-      expect(result.prefix).toBe('NEW');
-      expect(mockQuery.mock.calls[0][0]).toContain('ON DUPLICATE KEY UPDATE');
-    });
-  });
-
-  describe('deleteSequence', () => {
-    it('returns true when deleted', async () => {
-      mockQuery.mockResolvedValueOnce([{ affectedRows: 1 }]);
-
-      const result = await service.deleteSequence(1);
-
-      expect(result).toBe(true);
-    });
-
-    it('returns false when not found', async () => {
-      mockQuery.mockResolvedValueOnce([{ affectedRows: 0 }]);
-
-      const result = await service.deleteSequence(999);
-
-      expect(result).toBe(false);
     });
   });
 });

@@ -220,6 +220,14 @@ which the original audit would have caught:
   one screen does not appear on the org's own pricing view, and vice versa. Not silently
   merged; needs a decision on which table is authoritative (or whether both are needed).
 
+## 🟡 After the 2026-10-17 code sweep
+
+- [ ] **Add screens for finished server features (owner chose to keep them).** Add a sysadmin "Reset password" button (`POST /sysadmin/users/:id/reset-password`) and an "Erase personal data" action (`DELETE /sysadmin/users/:userId/personal-data`, for privacy-law requests). Let Accounting reject a vendor invoice (`POST /accounting/vendor-invoices/:id/reject`). Let organizations remove a student from a roster (`DELETE /courses/org/students/:courseId/:courseStudentId`). Add download buttons for the student, WSIB training-history and invoice CSV exports.
+- [ ] **Colleges admin screen (low priority).** The add/edit/remove endpoints exist (`/colleges/*`), but there is no screen.
+- [ ] **Profile changes can't be submitted.** HR has a screen to approve profile changes, but nothing in the app lets an instructor or organization submit one (`POST /profile-changes` has no caller), so the list is always empty. Decide whether to add a "request a change" form or remove the HR approval screen.
+- [ ] **No browser test shows real payroll values.** The old check created a payment through `POST /payroll/payments`, which was removed. Seed one through the real flow (approve a timesheet, then calculate/process) to bring it back.
+- [ ] **Instructor payment requests (Payment Requests / Payment History).** These are hidden for now; the screens are kept but have no backend. Build them as a separate project if Accounting should approve instructor pay.
+
 ## 🟢 Features (unchanged from before; not started)
 
 - Real-time dashboards (WebSocket/SSE; the unused `/events` stream was removed 2026-10-17); predictive analytics

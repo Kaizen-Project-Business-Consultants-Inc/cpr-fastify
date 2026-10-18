@@ -62,10 +62,6 @@ const submitInvoiceSchema = z.object({
   total: z.number().optional(),
 });
 
-const resendSchema = z.object({
-  notes: z.string().min(1, 'Notes are required when resending rejected invoice'),
-});
-
 async function getVendorIdForUser(pool: mysql.Pool, userId: number): Promise<{ vendorId: number; email: string }> {
   const [userRows] = await pool.query<RowDataPacket[]>('SELECT email FROM users WHERE id = ?', [userId]);
   if (userRows.length === 0) throw { statusCode: 404, message: 'User not found' };
@@ -278,30 +274,6 @@ export async function vendorRoutes(app: FastifyInstance) {
     }
   });
 
-  // ===== Get specific invoice =====
-  app.get('/invoices/:id', { preHandler: vendorRole }, async (request, reply) => {
-    const { id } = request.params as { id: string };
-    const { vendorId } = await getVendorIdForUser(pool, request.userId);
-    const [rows] = await pool.query<RowDataPacket[]>(
-      `SELECT vi.*, v.name as company, v.name as billing_company,
-              COALESCE(vi.rate, 0) as rate, COALESCE(vi.amount, 0) as amount,
-              COALESCE(vi.amount, 0) as subtotal, COALESCE(vi.hst, 0) as hst,
-              COALESCE(vi.total, vi.amount) as total,
-              u_approved.username as approved_by_name,
-              COALESCE(payments.total_paid, 0) as total_paid,
-              (COALESCE(vi.total, vi.amount) - COALESCE(payments.total_paid, 0)) as balance_due
-       FROM vendor_invoices vi
-       LEFT JOIN vendors v ON vi.vendor_id = v.id
-       LEFT JOIN users u_approved ON vi.approved_by = u_approved.id
-       LEFT JOIN ${PROCESSED_PAID_BY_VENDOR_INVOICE} payments
-         ON payments.vendor_invoice_id = vi.id
-       WHERE vi.id = ? AND vi.vendor_id = ?`,
-      [id, vendorId]
-    );
-    if (rows.length === 0) return reply.status(404).send({ error: 'Invoice not found' });
-    return { success: true, data: rows[0] };
-  });
-
   // ===== Invoice details with payment history =====
   app.get('/invoices/:id/details', { preHandler: vendorRole }, async (request, reply) => {
     const { id } = request.params as { id: string };
@@ -390,21 +362,5 @@ export async function vendorRoutes(app: FastifyInstance) {
     reply.header('Content-Type', 'application/pdf');
     reply.header('Content-Disposition', `attachment; filename="invoice-${invoice.invoice_number}.pdf"`);
     return reply.send(pdfBuffer);
-  });
-
-  // ===== Resend rejected =====
-  app.post('/invoices/:id/resend-to-admin', { preHandler: vendorRole }, async (request, reply) => {
-    const { id } = request.params as { id: string };
-    const { vendorId } = await getVendorIdForUser(pool, request.userId);
-    const { notes } = resendSchema.parse(request.body);
-    const [result] = await pool.query<ResultSetHeader>(
-      `UPDATE vendor_invoices SET status = 'submitted_to_admin', admin_notes = ?,
-       rejection_reason = NULL, rejected_at = NULL, rejected_by = NULL, updated_at = CURRENT_TIMESTAMP
-       WHERE id = ? AND vendor_id = ? AND status IN ('rejected_by_admin', 'rejected_by_accountant')`,
-      [notes, id, vendorId]
-    );
-    if (result.affectedRows === 0) return reply.status(404).send({ error: 'Invoice not found or not in rejected state' });
-    logAudit({ userId: request.userId, action: 'resend_vendor_invoice', entityType: 'vendor_invoice', entityId: parseInt(id), details: { vendorId, notes }, ipAddress: request.ip });
-    return { success: true, message: 'Invoice resent to admin successfully' };
   });
 }

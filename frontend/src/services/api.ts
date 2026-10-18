@@ -3,7 +3,6 @@ import { tokenService } from './tokenService';
 import type {
   ApiResponse,
   CourseData,
-  InstructorData,
   OrganizationData,
   VendorData,
   StudentData,
@@ -225,8 +224,6 @@ export const sysadminApi = {
   getConfigurations: () => api.get('/sysadmin/configurations'),
   updateConfiguration: (key: string, value: string) =>
     api.put(`/sysadmin/configurations/${key}`, { value }),
-  getConfiguration: (key: string) =>
-    api.get(`/sysadmin/configurations/${key}`),
 };
 
 // Organization endpoints
@@ -244,10 +241,6 @@ export const organizationApi = {
     return extractData(response);
   },
   getInvoices: () => api.get('/organization/invoices'),
-  getBalanceCalculation: (invoiceId: string, paymentAmount: number) =>
-    api.get(`/organization/invoices/${invoiceId}/balance-calculation`, {
-      params: { payment_amount: paymentAmount }
-    }),
   getBillingSummary: () => api.get('/organization/billing-summary'),
   getCourseTypes: async () => {
     const response = await api.get('/course-types');
@@ -283,13 +276,9 @@ export const organizationApi = {
 // Instructor endpoints
 export const instructorApi = {
   // Basic instructor data
-  getSchedule: () => api.get('/instructor/schedule'),
   getAvailability: () => api.get('/instructor/availability'),
-  updateAvailability: (data: Record<string, unknown>) =>
-    api.put('/instructor/availability', data),
 
   // Classes and courses
-  getClasses: () => api.get('/instructor/classes'),
   getClassesToday: () => {
     // Send client's local date to handle timezone differences between frontend and backend
     const today = new Date();
@@ -357,11 +346,6 @@ export const getOrganizationPricing = async () => {
 export const getOrganizationPricingForOrg = async (organizationId: number) => {
   const response = await api.get(`/organization-pricing/organization/${organizationId}`);
   return response.data;
-};
-
-export const getOrganizationPricingById = async (id: number) => {
-  const response = await api.get(`/organization-pricing/admin/${id}`);
-  return response.data.data;
 };
 
 export const createOrganizationPricing = async (data: PricingData) => {
@@ -519,10 +503,6 @@ export const sysAdminApi = {
     const response = await api.put(`/sysadmin/users/${id}`, userData);
     return response.data;
   },
-  deleteUser: async (id: number) => {
-    const response = await api.delete(`/sysadmin/users/${id}`);
-    return response.data;
-  },
 
   // Vendor Invoice Management
   getVendorInvoices: async (status?: string) => {
@@ -554,10 +534,6 @@ export const sysAdminApi = {
   },
   deleteCourse: async (id: number) => {
     const response = await api.delete(`/sysadmin/courses/${id}`);
-    return response.data;
-  },
-  toggleCourseActive: async (id: number) => {
-    const response = await api.put(`/sysadmin/courses/${id}/toggle-active`);
     return response.data;
   },
 
@@ -660,55 +636,8 @@ export const sysAdminApi = {
 
 // Admin endpoints
 export const adminApi = {
-  // Dashboard
-  getDashboard: async () => {
-    const response = await api.get('/admin/dashboard');
-    return response.data;
-  },
-
-  // Instructor Management
-  getInstructors: async () => {
-    const response = await api.get('/admin/instructors');
-    return response.data;
-  },
-  createInstructor: async (instructorData: InstructorData) => {
-    const response = await api.post('/admin/instructors', instructorData);
-    return response.data;
-  },
-  updateInstructor: async (id: number, instructorData: InstructorData) => {
-    const response = await api.put(`/admin/instructors/${id}`, instructorData);
-    return response.data;
-  },
-  deleteInstructor: async (id: number) => {
-    const response = await api.delete(`/admin/instructors/${id}`);
-    return response.data;
-  },
-
-  // Course Management
-  getCourses: async () => {
-    const response = await api.get('/admin/courses');
-    return response.data;
-  },
-  createCourse: async (courseData: CourseData) => {
-    const response = await api.post('/admin/courses', courseData);
-    return response.data;
-  },
-  updateCourse: async (id: number, courseData: CourseData) => {
-    const response = await api.put(`/admin/courses/${id}`, courseData);
-    return response.data;
-  },
-  deleteCourse: async (id: number) => {
-    const response = await api.delete(`/admin/courses/${id}`);
-    return response.data;
-  },
   getCourseStudents: async (courseId: number) => {
     const response = await api.get(`/courses/${courseId}/students`);
-    return response.data;
-  },
-
-  // Vendor Invoice Approval
-  getVendorInvoices: async () => {
-    const response = await api.get('/admin/vendor-invoices');
     return response.data;
   },
   approveVendorInvoice: async (invoiceId: number, action: 'approve' | 'reject', notes: string) => {
@@ -730,40 +659,12 @@ export const adminApi = {
     });
     return response.data;
   },
-
-  // Accounting Vendor Invoice Management
-  getAccountingVendorInvoices: async () => {
-    const response = await api.get('/accounting/vendor-invoices');
-    return response.data;
-  },
   getAccountingVendorInvoiceDetails: async (invoiceId: number) => {
     const response = await api.get(`/accounting/vendor-invoices/${invoiceId}`);
     return response.data;
   },
   processVendorPayment: async (invoiceId: number, paymentData: PaymentData) => {
     const response = await api.post(`/accounting/vendor-invoices/${invoiceId}/payments`, paymentData);
-    return response.data;
-  },
-  getVendorPaymentHistory: async () => {
-    const response = await api.get('/accounting/vendor-payments');
-    return response.data;
-  },
-
-  // Email Templates
-  getEmailTemplates: async () => {
-    const response = await api.get('/admin/email-templates');
-    return response.data;
-  },
-  createEmailTemplate: async (templateData: EmailTemplateData) => {
-    const response = await api.post('/admin/email-templates', templateData);
-    return response.data;
-  },
-  updateEmailTemplate: async (id: number, templateData: EmailTemplateData) => {
-    const response = await api.put(`/admin/email-templates/${id}`, templateData);
-    return response.data;
-  },
-  deleteEmailTemplate: async (id: number) => {
-    const response = await api.delete(`/admin/email-templates/${id}`);
     return response.data;
   },
 };
@@ -779,13 +680,10 @@ export const emailTemplateApi = {
     devLog('[emailTemplateApi.getAll] Making request to:', url);
     return api.get(url);
   },
-  getById: (id: number) => api.get(`/email-templates/${id}`),
   create: (data: EmailTemplateData) => api.post('/email-templates', data),
   update: (id: number, data: EmailTemplateData) =>
     api.put(`/email-templates/${id}`, data),
   delete: (id: number) => api.delete(`/email-templates/${id}`),
-  preview: (id: number, variables: Record<string, unknown>) =>
-    api.post(`/email-templates/${id}/preview`, { variables }),
   sendTest: (id: number, recipientEmail: string, variables: Record<string, unknown>) =>
     api.post(`/email-templates/${id}/test-send`, {
       recipientEmail,
@@ -885,10 +783,6 @@ export const vendorApi = {
     devLog('✅ [VENDOR API] uploadInvoice response:', response.data);
     return response.data;
   },
-  getInvoice: async (invoiceId: number) => {
-    const response = await api.get(`/vendor/invoices/${invoiceId}`);
-    return response.data;
-  },
   downloadInvoice: async (invoiceId: number) => {
     const response = await api.get(`/vendor/invoices/${invoiceId}/download`, {
       responseType: 'blob',
@@ -912,11 +806,6 @@ export const vendorApi = {
   // Workflow functions
   submitToAdmin: async (invoiceId: number) => {
     const response = await api.post(`/vendor/invoices/${invoiceId}/submit-to-admin`);
-    return response.data;
-  },
-
-  resendToAdmin: async (invoiceId: number, notes: string) => {
-    const response = await api.post(`/vendor/invoices/${invoiceId}/resend-to-admin`, { notes });
     return response.data;
   },
 

@@ -41,7 +41,6 @@ export async function organizationRoutes(app: FastifyInstance) {
     new UserRepository(),
   );
   const orgRole = [requireRole('organization')];
-  const adminRole = [requireRole('admin', 'sysadmin')];
 
   // ===== Org user: get own org =====
   app.get('/profile', { preHandler: orgRole }, async (request, reply) => {
@@ -118,23 +117,6 @@ export async function organizationRoutes(app: FastifyInstance) {
     reply.header('Content-Type', 'text/csv;charset=utf-8');
     reply.header('Content-Disposition', `attachment; filename="roster-${new Date().toISOString().split('T')[0]}.csv"`);
     return reply.send(csv);
-  });
-
-  // ===== Admin: get any org =====
-  app.get('/:id', { preHandler: adminRole }, async (request, reply) => {
-    const { id } = request.params as { id: string };
-    try {
-      return { success: true, data: await service.getOrganization(parseInt(id)) };
-    } catch (err) { return handleError(err, reply); }
-  });
-
-  // ===== Admin: update any org =====
-  app.put('/:id', { preHandler: adminRole }, async (request, reply) => {
-    const { id } = request.params as { id: string };
-    const data = updateProfileSchema.parse(request.body);
-    try {
-      return { success: true, data: await service.updateProfile(parseInt(id), data) };
-    } catch (err) { return handleError(err, reply); }
   });
 
   // ===== Org user: own courses =====

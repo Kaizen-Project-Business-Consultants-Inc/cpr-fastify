@@ -9,15 +9,6 @@ import { isPaginated, parsePagination, paginatedResponse } from '../utils/pagina
 
 // --- Validation schemas ---
 
-const createRequestSchema = z.object({
-  courseTypeId: z.number().int().positive(),
-  scheduledDate: z.string().min(1),
-  location: z.string().min(1),
-  locationId: z.number().int().positive().optional(),
-  registeredStudents: z.number().int().min(0),
-  notes: z.string().optional(),
-});
-
 const assignInstructorSchema = z.object({
   instructorId: z.number().int().positive(),
   startTime: z.string().regex(/^\d{2}:\d{2}$/),
@@ -65,17 +56,6 @@ export async function courseRoutes(app: FastifyInstance) {
   // =====================
   // Organization endpoints
   // =====================
-
-  // POST /courses/request — org user creates a course request
-  app.post('/request', { preHandler: [requireAuth] }, async (request, reply) => {
-    if (!request.userOrgId) return reply.status(400).send({ error: 'Must be associated with an organization' });
-
-    const body = createRequestSchema.parse(request.body);
-    try {
-      const course = await service.createRequest({ ...body, organizationId: request.userOrgId });
-      return { success: true, message: 'Course request submitted successfully', course };
-    } catch (err) { return handleCourseError(err, reply); }
-  });
 
   // GET /courses/org/students/:courseId — org user views students
   app.get('/org/students/:courseId', { preHandler: [requireAuth] }, async (request, reply) => {
@@ -180,15 +160,6 @@ export async function courseRoutes(app: FastifyInstance) {
     try {
       const course = await service.reschedule({ courseId: parseInt(id), ...body });
       return { success: true, message: 'Course rescheduled successfully', course };
-    } catch (err) { return handleCourseError(err, reply); }
-  });
-
-  // POST /courses/:id/update-reminder
-  app.post('/:id/update-reminder', { preHandler: adminPreHandler }, async (request, reply) => {
-    const { id } = request.params as { id: string };
-    try {
-      const course = await service.updateReminder(parseInt(id));
-      return { success: true, data: course };
     } catch (err) { return handleCourseError(err, reply); }
   });
 

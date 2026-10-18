@@ -1,6 +1,4 @@
-import { PoolConnection, RowDataPacket, ResultSetHeader } from 'mysql2/promise';
-import { getPool } from '../config/database.js';
-import { logger } from '../config/logger.js';
+import { PoolConnection, RowDataPacket } from 'mysql2/promise';
 
 interface InvoiceSequence {
   id: number;
@@ -65,110 +63,6 @@ export class InvoiceNumberService {
     }
 
     return this.format(seq, number, now);
-  }
-
-  /**
-   * Preview what the next invoice number would look like (no allocation).
-   */
-  async preview(orgId: number): Promise<string> {
-    const pool = getPool();
-    const [rows] = await pool.query<(RowDataPacket & InvoiceSequence)[]>(
-      'SELECT * FROM invoice_number_sequences WHERE organization_id = ?',
-      [orgId]
-    );
-
-    if (rows.length === 0) {
-      return this.generateDefault();
-    }
-
-    const seq: InvoiceSequence = rows[0];
-    const now = new Date();
-    const currentPeriod = this.getCurrentPeriod(seq.reset_policy, now);
-    const number = (currentPeriod && seq.last_reset_period !== currentPeriod) ? 1 : seq.next_number;
-
-    return this.format(seq, number, now);
-  }
-
-  /**
-   * Get sequence config for an org (or null if using default).
-   */
-  async getSequence(orgId: number): Promise<InvoiceSequence | null> {
-    const pool = getPool();
-    const [rows] = await pool.query<(RowDataPacket & InvoiceSequence)[]>(
-      'SELECT * FROM invoice_number_sequences WHERE organization_id = ?',
-      [orgId]
-    );
-    return rows[0] ?? null;
-  }
-
-  /**
-   * Get all configured sequences.
-   */
-  async getAllSequences(): Promise<(InvoiceSequence & { organization_name: string })[]> {
-    const pool = getPool();
-    const [rows] = await pool.query<(RowDataPacket & InvoiceSequence & { organization_name: string })[]>(
-      `SELECT s.*, o.name as organization_name
-       FROM invoice_number_sequences s
-       JOIN organizations o ON s.organization_id = o.id
-       ORDER BY o.name`
-    );
-    return rows;
-  }
-
-  /**
-   * Create or update a sequence for an org.
-   */
-  async upsert(orgId: number, config: {
-    prefix?: string;
-    format_string?: string;
-    padding?: number;
-    next_number?: number;
-    step?: number;
-    reset_policy?: 'none' | 'yearly' | 'monthly';
-  }): Promise<InvoiceSequence> {
-    const pool = getPool();
-
-    await pool.query(
-      `INSERT INTO invoice_number_sequences (organization_id, prefix, format_string, padding, next_number, step, reset_policy)
-       VALUES (?, ?, ?, ?, ?, ?, ?)
-       ON DUPLICATE KEY UPDATE
-         prefix = VALUES(prefix),
-         format_string = VALUES(format_string),
-         padding = VALUES(padding),
-         next_number = VALUES(next_number),
-         step = VALUES(step),
-         reset_policy = VALUES(reset_policy),
-         updated_at = CURRENT_TIMESTAMP`,
-      [
-        orgId,
-        config.prefix ?? 'INV',
-        config.format_string ?? '{PREFIX}-{YYYY}-{NNNN}',
-        config.padding ?? 4,
-        config.next_number ?? 1,
-        config.step ?? 1,
-        config.reset_policy ?? 'none',
-      ]
-    );
-
-    const [rows] = await pool.query<(RowDataPacket & InvoiceSequence)[]>(
-      'SELECT * FROM invoice_number_sequences WHERE organization_id = ?',
-      [orgId]
-    );
-
-    logger.info({ orgId, prefix: config.prefix }, 'Invoice sequence upserted');
-    return rows[0];
-  }
-
-  /**
-   * Delete a sequence (org reverts to system default).
-   */
-  async deleteSequence(orgId: number): Promise<boolean> {
-    const pool = getPool();
-    const [result] = await pool.query<ResultSetHeader>(
-      'DELETE FROM invoice_number_sequences WHERE organization_id = ?',
-      [orgId]
-    );
-    return result.affectedRows > 0;
   }
 
   // --- Private helpers ---

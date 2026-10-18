@@ -26,7 +26,6 @@ describe('Vendor API Service', () => {
     expect(typeof vendorApi.updateProfile).toBe('function');
     expect(typeof vendorApi.getInvoices).toBe('function');
     expect(typeof vendorApi.uploadInvoice).toBe('function');
-    expect(typeof vendorApi.getInvoice).toBe('function');
     expect(typeof vendorApi.downloadInvoice).toBe('function');
     expect(typeof vendorApi.getVendors).toBe('function');
   });

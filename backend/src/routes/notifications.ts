@@ -38,15 +38,6 @@ export async function notificationRoutes(app: FastifyInstance) {
     return { success: true, data: rows };
   });
 
-  // Get unread count
-  app.get('/unread-count', { preHandler: [requireAuth] }, async (request) => {
-    const [rows] = await pool.query<RowDataPacket[]>(
-      'SELECT COUNT(*) as count FROM notifications WHERE user_id = ? AND is_read = false',
-      [request.userId]
-    );
-    return { success: true, data: { count: Number(rows[0]?.count ?? 0) } };
-  });
-
   // Mark notification as read
   app.post('/:id/read', { preHandler: [requireAuth] }, async (request, reply) => {
     const { id } = request.params as { id: string };

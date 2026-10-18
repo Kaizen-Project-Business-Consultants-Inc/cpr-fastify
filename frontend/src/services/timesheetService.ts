@@ -38,16 +38,6 @@ export interface TimesheetStats {
   instructorsWithPending: number;
 }
 
-export interface TimesheetSummary {
-  totalTimesheets: number;
-  approvedTimesheets: number;
-  pendingTimesheets: number;
-  rejectedTimesheets: number;
-  totalApprovedHours: number;
-  totalCoursesTaught: number;
-  lastSubmissionDate: string;
-}
-
 export interface TimesheetFilters {
   page?: number;
   limit?: number;
@@ -81,12 +71,6 @@ export interface WeekCourses {
     studentCount: number;
   }>;
   totalCourses: number;
-}
-
-export interface TimesheetUpdate {
-  totalHours: number;
-  coursesTaught?: number;
-  notes?: string;
 }
 
 export interface TimesheetApproval {
@@ -142,36 +126,15 @@ class TimesheetService {
     return response.data.data;
   }
 
-  // Get timesheet details
-  async getTimesheet(timesheetId: number): Promise<Timesheet> {
-    const response = await api.get(`/timesheet/${timesheetId}`);
-    return response.data.data;
-  }
-
   // Submit new timesheet (Instructors only)
   async submitTimesheet(data: TimesheetSubmission): Promise<Timesheet> {
     const response = await api.post('/timesheet', data);
     return response.data.data;
   }
 
-  // Update timesheet (Instructors only)
-  async updateTimesheet(timesheetId: number, data: TimesheetUpdate): Promise<Timesheet> {
-    const response = await api.put(`/timesheet/${timesheetId}`, data);
-    return response.data.data;
-  }
-
   // Approve/reject timesheet (HR only)
   async approveTimesheet(timesheetId: number, data: TimesheetApproval): Promise<void> {
     await api.post(`/timesheet/${timesheetId}/approve`, data);
-  }
-
-  // Get instructor timesheet summary
-  async getInstructorSummary(instructorId: number): Promise<{
-    summary: TimesheetSummary;
-    recentTimesheets: Timesheet[];
-  }> {
-    const response = await api.get(`/timesheet/instructor/${instructorId}/summary`);
-    return response.data.data;
   }
 
   // Get courses for a specific week (Monday to Sunday)

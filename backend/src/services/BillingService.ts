@@ -272,50 +272,6 @@ export class BillingService {
     }
   }
 
-  // --- Fix calculations ---
-
-  async fixCalculations(id: number, actor?: AuditActor): Promise<{ oldAmount: number; newAmount: number }> {
-    const pool = getPool();
-    const conn = await pool.getConnection();
-
-    try {
-      await conn.beginTransaction();
-
-      const [rows] = await conn.query<RowDataPacket[]>(
-        `SELECT i.id, i.students_billed, i.amount, cp.price_per_student
-         FROM invoices i
-         LEFT JOIN course_requests cr ON i.course_request_id = cr.id
-         LEFT JOIN course_pricing cp ON cr.organization_id = cp.organization_id
-           AND cr.course_type_id = cp.course_type_id AND cp.is_active = true
-         WHERE i.id = ?`,
-        [id]
-      );
-
-      if (rows.length === 0) throw new BillingError('Invoice not found', 404);
-      if (!rows[0].price_per_student) throw new BillingError('Pricing not found for this invoice');
-
-      const inv = rows[0];
-      const baseCost = inv.students_billed * inv.price_per_student;
-      const totalAmount = baseCost + baseCost * getHSTRate();
-
-      await conn.query(
-        `UPDATE invoices SET amount = ?, rate_per_student = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
-        [totalAmount, inv.price_per_student, id]
-      );
-
-      if (actor) {
-        await writeAudit(conn, { ...actor, action: 'fix_invoice_calculations', entityType: 'invoice', entityId: id, details: { oldAmount: Number(inv.amount), newAmount: totalAmount } });
-      }
-      await conn.commit();
-      return { oldAmount: inv.amount, newAmount: totalAmount };
-    } catch (err) {
-      await conn.rollback();
-      throw err;
-    } finally {
-      conn.release();
-    }
-  }
-
   // --- Payments ---
 
   async getPayments(invoiceId: number): Promise<PaymentRow[]> {
