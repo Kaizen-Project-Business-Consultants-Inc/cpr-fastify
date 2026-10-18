@@ -67,11 +67,15 @@ asRole('hr', (page) => {
     expect(res.status()).toBe(200);
     const stats = (await res.json()).data;
     expect(stats).toMatchObject({
-      pendingApprovals: expect.any(Number),
       activeInstructors: expect.any(Number),
       organizations: expect.any(Number),
+      expiringCertifications: expect.any(Number),
     });
+    // Profile-change approvals were removed (option B, 2026-10-18).
+    expect(stats).not.toHaveProperty('pendingApprovals');
+    expect(stats).not.toHaveProperty('pendingApprovalsList');
     await expect(pg.getByText('Active Instructors').first()).toBeVisible({ timeout: 30000 });
+    await expect(pg.getByText('Pending Approvals')).toHaveCount(0);
     await expect(pg.getByText(/failed to load dashboard data/i)).toHaveCount(0);
   });
 

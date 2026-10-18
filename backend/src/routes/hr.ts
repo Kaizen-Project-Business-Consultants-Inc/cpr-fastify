@@ -1,16 +1,9 @@
 import { FastifyInstance, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { HRService, HRError } from '../services/HRService.js';
-import { ProfileChangeRepository } from '../repositories/ProfileChangeRepository.js';
-import { UserRepository } from '../repositories/UserRepository.js';
 import { OrganizationRepository } from '../repositories/OrganizationRepository.js';
 import { OrganizationService } from '../services/OrganizationService.js';
 import { requireRole } from '../plugins/auth.js';
-
-const approveChangeSchema = z.object({
-  action: z.enum(['approve', 'reject']),
-  comment: z.string().optional(),
-});
 
 const processPaymentSchema = z.object({
   action: z.enum(['override_approve', 'final_reject']),
@@ -23,7 +16,7 @@ function handleError(err: unknown, reply: FastifyReply) {
 }
 
 export async function hrRoutes(app: FastifyInstance) {
-  const hrService = new HRService(new ProfileChangeRepository(), new UserRepository());
+  const hrService = new HRService();
   const orgService = new OrganizationService(new OrganizationRepository());
   const hrRole = [requireRole('hr')];
 
@@ -49,22 +42,6 @@ export async function hrRoutes(app: FastifyInstance) {
         pagination: { page: parseInt(page), limit: parseInt(limit), total, pages: Math.ceil(total / parseInt(limit)) },
       },
     };
-  });
-
-  // ===== Pending profile changes =====
-  app.get('/profile-changes', { preHandler: hrRole }, async (request) => {
-    const { page = '1', limit = '10' } = request.query as Record<string, string>;
-    return { success: true, data: await hrService.getPendingChanges({ page: parseInt(page), limit: parseInt(limit) }) };
-  });
-
-  // ===== Approve/reject profile change =====
-  app.post('/profile-changes/:changeId/approve', { preHandler: hrRole }, async (request, reply) => {
-    const { changeId } = request.params as { changeId: string };
-    const { action, comment } = approveChangeSchema.parse(request.body);
-    try {
-      const result = await hrService.approveOrRejectChange(parseInt(changeId), action, comment);
-      return { success: true, message: result.message };
-    } catch (err) { return handleError(err, reply); }
   });
 
   // ===== User profile detail =====

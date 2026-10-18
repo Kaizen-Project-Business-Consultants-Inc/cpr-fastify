@@ -18,8 +18,6 @@ vi.mock('../plugins/auth.js', () => ({
 
 import { instructorAdminRoutes } from '../routes/instructor-admin.js';
 import { HRService } from '../services/HRService.js';
-import { ProfileChangeRepository } from '../repositories/ProfileChangeRepository.js';
-import { UserRepository } from '../repositories/UserRepository.js';
 import { OrganizationRepository } from '../repositories/OrganizationRepository.js';
 
 describe('Course Admin instructor dashboard', () => {
@@ -72,10 +70,9 @@ describe('HR user profile', () => {
   it('never selects password hashes, reset tokens or MFA secrets', async () => {
     mockQuery
       .mockResolvedValueOnce([[{ id: 4, username: 'instructor', role: 'instructor' }]])
-      .mockResolvedValueOnce([[]]) // profile changes
       .mockResolvedValueOnce([[]]); // course history
 
-    await new HRService(new ProfileChangeRepository(), new UserRepository()).getUserProfile(4);
+    await new HRService().getUserProfile(4);
 
     const [userSql] = mockQuery.mock.calls[0];
     expect(userSql).not.toMatch(/u\.\*/);
@@ -90,7 +87,7 @@ describe('HR Personnel counts', () => {
   it('counts invoiced courses as completed and skips deleted courses', async () => {
     mockQuery.mockResolvedValueOnce([[]]).mockResolvedValueOnce([[{ total: 0 }]]);
 
-    await new HRService(new ProfileChangeRepository(), new UserRepository()).getInstructors({ page: 1, limit: 10 });
+    await new HRService().getInstructors({ page: 1, limit: 10 });
 
     const [sql] = mockQuery.mock.calls[0];
     expect(sql).toContain("cr.status IN ('completed', 'invoiced')");

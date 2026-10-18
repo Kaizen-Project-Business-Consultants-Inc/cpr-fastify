@@ -81,7 +81,6 @@ graph TB
         PayRateR["pay-rates"]
         PayrollR["payroll"]
         StudentsR["student"]
-        ProfileR["profile-changes"]
         PricingR["organization-pricing"]
         EmailTplR["email-templates"]
         CollegesR["colleges"]
@@ -332,7 +331,7 @@ erDiagram
 - `organization_pricing` -- per-org pricing overrides
 - `invoice_number_sequences` -- configurable invoice number formats per org
 - `email_reminders` / `certification_reminders` -- dedup tables for reminder emails
-- `profile_changes` -- instructor profile change requests
+- `profile_changes` -- old profile change requests (feature removed 2026-10-18; table kept for old rows)
 
 ---
 

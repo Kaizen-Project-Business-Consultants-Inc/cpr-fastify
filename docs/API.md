@@ -5,7 +5,7 @@ _Generated from the route table by `npm run docs:api` (backend/scripts/generate-
 Base URL: `/api/v1` (except the two root-level health/metrics endpoints).
 Auth: send the access token as `Authorization: Bearer <token>`. Role guards are enforced per route (`requireRole`); see the route file for the exact roles.
 
-**210 endpoints across 25 groups.**
+**206 endpoints across 24 groups.**
 
 ## Accounting
 
@@ -152,8 +152,6 @@ Health check and system status
 | GET | `/hr/dashboard` | Bearer |  |
 | GET | `/hr/instructors` | Bearer |  |
 | GET | `/hr/organizations` | Bearer |  |
-| GET | `/hr/profile-changes` | Bearer |  |
-| POST | `/hr/profile-changes/{changeId}/approve` | Bearer |  |
 | GET | `/hr/returned-payment-requests` | Bearer |  |
 | POST | `/hr/returned-payment-requests/{requestId}/process` | Bearer |  |
 | GET | `/hr/user/{userId}` | Bearer |  |
@@ -283,15 +281,6 @@ Payroll calculation, payment processing, reports
 | GET | `/payroll/payments` | Bearer |  |
 | POST | `/payroll/payments/{paymentId}/process` | Bearer |  |
 | GET | `/payroll/stats` | Bearer |  |
-
-## Profile Changes
-
-User profile change requests and HR approval
-
-| Method | Path | Auth | Notes |
-|---|---|---|---|
-| GET | `/profile-changes/` | Bearer |  |
-| POST | `/profile-changes/` | Bearer |  |
 
 ## Sysadmin
 

@@ -22,7 +22,6 @@ import { getErrorMessage } from '../../utils/errorMessage';
 const getNotificationKind = (type: string) => {
   switch (type) {
     case 'timesheet_submitted':
-    case 'profile_change_submitted':
     case 'payment_created':
       return 'warning' as const;
     case 'timesheet_approved':

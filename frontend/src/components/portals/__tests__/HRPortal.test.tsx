@@ -41,25 +41,9 @@ vi.mock('../../hr/ReturnedPaymentRequests', () => ({ default: () => <div data-te
 import HRPortal from '../HRPortal';
 
 const stats = {
-  pendingApprovals: 4,
   activeInstructors: 23,
   organizations: 11,
   expiringCertifications: 6,
-  recentChanges: [
-    { id: 1, userId: 55, username: 'dmorales', fieldName: 'email', status: 'pending', changeType: 'profile_update' },
-  ],
-  pendingApprovalsList: [
-    {
-      id: 900,
-      username: 'dmorales',
-      email: 'dmorales@gtacpr.test',
-      changeType: 'profile_update',
-      fieldName: 'phone',
-      newValue: '+1 416 555 0134',
-      status: 'pending',
-      createdAt: '2026-09-01T12:00:00.000Z',
-    },
-  ],
 };
 
 // Reports the current URL so we can prove navigation is route-based, not state-based.
@@ -88,26 +72,25 @@ describe('HRPortal', () => {
     renderPortal();
 
     await waitFor(() => {
-      expect(screen.getByText('Pending Approvals')).toBeInTheDocument();
+      expect(screen.getByText('Active Instructors')).toBeInTheDocument();
     });
 
     expect(mockGet).toHaveBeenCalledWith('/hr/dashboard');
     // Real mocked numbers, not placeholder zeros.
-    expect(screen.getByText('4')).toBeInTheDocument();
     expect(screen.getByText('23')).toBeInTheDocument();
     expect(screen.getByText('11')).toBeInTheDocument();
     expect(screen.getByText('6')).toBeInTheDocument();
   });
 
-  it('renders the pending approval row from the API', async () => {
+  it('shows quick actions and no profile-change approvals (removed 2026-10-18)', async () => {
     renderPortal();
 
     await waitFor(() => {
-      expect(screen.getByText('dmorales@gtacpr.test')).toBeInTheDocument();
+      expect(screen.getByText('Quick Actions')).toBeInTheDocument();
     });
-    expect(screen.getByText('+1 416 555 0134')).toBeInTheDocument();
-    expect(screen.getByText('Pending Approvals (1)')).toBeInTheDocument();
-    expect(screen.queryByText('No pending approvals')).not.toBeInTheDocument();
+    expect(screen.getByText('Manage Personnel')).toBeInTheDocument();
+    expect(screen.queryByText('Pending Approvals')).not.toBeInTheDocument();
+    expect(screen.queryByText('Recent Activity')).not.toBeInTheDocument();
   });
 
   it('renders every sidebar nav item and the portal name', async () => {
@@ -149,6 +132,6 @@ describe('HRPortal', () => {
     await waitFor(() => {
       expect(screen.getByTestId('location')).toHaveTextContent('/hr/does-not-exist');
     });
-    expect(screen.queryByText('Pending Approvals')).not.toBeInTheDocument();
+    expect(screen.queryByText('Active Instructors')).not.toBeInTheDocument();
   });
 });

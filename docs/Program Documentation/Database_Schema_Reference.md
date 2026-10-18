@@ -751,7 +751,7 @@ Tracks sent certification expiry reminders to prevent duplicate notifications. C
 
 ### profile_changes
 
-Tracks pending profile change requests that require HR approval before being applied.
+Held profile change requests for HR approval. The feature was removed on 2026-10-18 (nothing could submit a request), so the app no longer reads or writes this table, except the personal-data erase, which still clears `old_value`/`new_value` on old rows.
 
 | Column | Type | Nullable | Default | Description |
 |--------|------|----------|---------|-------------|

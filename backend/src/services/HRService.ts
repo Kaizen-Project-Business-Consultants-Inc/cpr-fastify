@@ -1,33 +1,5 @@
 import { getPool } from '../config/database.js';
-import { ProfileChangeRepository, ProfileChange } from '../repositories/ProfileChangeRepository.js';
-import { UserRepository } from '../repositories/UserRepository.js';
 import type { RowDataPacket } from 'mysql2/promise';
-
-// Safe column mapping — prevents SQL injection even if profile_changes table is compromised
-const PROFILE_CHANGE_COLUMN_MAP: Record<string, string> = {
-  first_name: 'first_name',
-  last_name: 'last_name',
-  full_name: 'full_name',
-  email: 'email',
-  phone: 'phone',
-  mobile: 'mobile',
-  address: 'address',
-  date_onboarded: 'date_onboarded',
-  date_offboarded: 'date_offboarded',
-  emergency_contact_name: 'emergency_contact_name',
-  emergency_contact_phone: 'emergency_contact_phone',
-  user_comments: 'user_comments',
-} as const;
-
-const SAFE_COLUMN_RE = /^[a-z][a-z0-9_]{0,63}$/;
-
-function getSafeColumn(fieldName: string): string {
-  const col = PROFILE_CHANGE_COLUMN_MAP[fieldName];
-  if (!col || !SAFE_COLUMN_RE.test(col)) {
-    throw new HRError(`Field '${fieldName}' is not permitted for profile changes`);
-  }
-  return col;
-}
 
 export class HRError extends Error {
   constructor(message: string, public statusCode: number = 400) {
@@ -37,16 +9,10 @@ export class HRError extends Error {
 }
 
 export class HRService {
-  constructor(
-    private profileChangeRepo: ProfileChangeRepository,
-    private userRepo: UserRepository,
-  ) {}
-
   async getDashboardStats() {
     const pool = getPool();
 
-    const [[pending], [activeInstructors], [orgs], [expiring], recentChanges, pendingList] = await Promise.all([
-      pool.query<RowDataPacket[]>(`SELECT COUNT(*) as count FROM profile_changes WHERE status = 'pending'`),
+    const [[activeInstructors], [orgs], [expiring]] = await Promise.all([
       pool.query<RowDataPacket[]>(
         `SELECT COUNT(*) as count FROM users WHERE role = 'instructor' AND id IN (
            SELECT DISTINCT instructor_id FROM course_requests
@@ -59,17 +25,12 @@ export class HRService {
         `SELECT COUNT(*) as count FROM certifications
          WHERE expiration_date BETWEEN NOW() AND NOW() + INTERVAL 30 DAY`
       ),
-      this.profileChangeRepo.findRecentWithUsers(5),
-      this.profileChangeRepo.findAllPendingWithUsers(),
     ]);
 
     return {
-      pendingApprovals: Number(pending[0]?.count ?? 0),
       activeInstructors: Number(activeInstructors[0]?.count ?? 0),
       organizations: Number(orgs[0]?.count ?? 0),
       expiringCertifications: Number(expiring[0]?.count ?? 0),
-      recentChanges,
-      pendingApprovalsList: pendingList,
     };
   }
 
@@ -111,57 +72,6 @@ export class HRService {
     };
   }
 
-  async getPendingChanges(options: { page: number; limit: number }) {
-    const safeLimit = Math.min(options.limit, 100);
-    const { rows, total } = await this.profileChangeRepo.findPendingWithUsers({ limit: safeLimit, offset: (options.page - 1) * safeLimit });
-    return {
-      pendingChanges: rows,
-      pagination: { page: options.page, limit: safeLimit, total, pages: Math.ceil(total / safeLimit) },
-    };
-  }
-
-  async approveOrRejectChange(changeId: number, action: 'approve' | 'reject', comment?: string) {
-    const pool = getPool();
-    const conn = await pool.getConnection();
-
-    try {
-      await conn.beginTransaction();
-
-      const [changeRows] = await conn.query<RowDataPacket[]>(
-        `SELECT * FROM profile_changes WHERE id = ? AND status = 'pending'`,
-        [changeId]
-      );
-
-      if (changeRows.length === 0) {
-        throw new HRError('Profile change not found or already processed', 404);
-      }
-
-      const change = changeRows[0];
-      const newStatus = action === 'approve' ? 'approved' : 'rejected';
-
-      await conn.query(
-        `UPDATE profile_changes SET status = ?, hr_comment = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
-        [newStatus, comment ?? null, changeId]
-      );
-
-      if (action === 'approve') {
-        const safeColumn = getSafeColumn(change.field_name);
-        await conn.query(
-          `UPDATE users SET \`${safeColumn}\` = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
-          [change.new_value, change.user_id]
-        );
-      }
-
-      await conn.commit();
-      return { message: `Profile change ${action === 'approve' ? 'approved' : 'rejected'} successfully` };
-    } catch (err) {
-      await conn.rollback();
-      throw err;
-    } finally {
-      conn.release();
-    }
-  }
-
   async getUserProfile(userId: number) {
     const pool = getPool();
 
@@ -178,8 +88,6 @@ export class HRService {
     if (userRows.length === 0) throw new HRError('User not found', 404);
     const user = userRows[0];
 
-    const profileChanges = await this.profileChangeRepo.findByUserId(userId);
-
     let courseHistory: RowDataPacket[] = [];
     if (user.role === 'instructor') {
       const [courses] = await pool.query<RowDataPacket[]>(
@@ -195,7 +103,7 @@ export class HRService {
       courseHistory = courses;
     }
 
-    return { user, profileChanges, courseHistory };
+    return { user, courseHistory };
   }
 
   async getReturnedPaymentRequests(options: { page: number; limit: number }) {
@@ -279,43 +187,5 @@ export class HRService {
     } finally {
       conn.release();
     }
-  }
-
-  // --- Profile change submission (by any user) ---
-
-  async submitProfileChange(userId: number, userRole: string, data: { fieldName: string; newValue: string; changeType: string; targetUserId?: number }) {
-    getSafeColumn(data.fieldName);
-
-    if (!['instructor', 'organization'].includes(data.changeType)) {
-      throw new HRError('change_type must be "instructor" or "organization"');
-    }
-
-    let targetUserId = userId;
-    if (data.targetUserId && userRole === 'hr') {
-      targetUserId = data.targetUserId;
-    } else if (userRole === 'hr' && !data.targetUserId) {
-      throw new HRError('HR users must specify target_user_id when submitting profile changes');
-    }
-
-    const existing = await this.profileChangeRepo.findPendingForField(targetUserId, data.fieldName);
-    if (existing) {
-      throw new HRError('A pending change request already exists for this field');
-    }
-
-    const id = await this.profileChangeRepo.create({
-      user_id: targetUserId,
-      change_type: data.changeType,
-      field_name: data.fieldName,
-      old_value: null,
-      new_value: data.newValue,
-      status: 'pending',
-    } as Partial<ProfileChange>);
-
-    const change = await this.profileChangeRepo.findById(id);
-    return change!;
-  }
-
-  async getMyProfileChanges(userId: number): Promise<ProfileChange[]> {
-    return this.profileChangeRepo.findByUserId(userId);
   }
 }

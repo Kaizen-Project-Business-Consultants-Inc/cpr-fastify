@@ -1,28 +1,9 @@
 import { api } from './api';
 
-export interface RecentChange {
-  id: number;
-  userId: number;
-  changeType: string;
-  createdAt: string;
-  [key: string]: unknown;
-}
-
-export interface PendingApproval {
-  id: number;
-  userId: number;
-  status: string;
-  createdAt: string;
-  [key: string]: unknown;
-}
-
 export interface HRDashboardStats {
-  pendingApprovals: number;
   activeInstructors: number;
   organizations: number;
   expiringCertifications: number;
-  recentChanges: RecentChange[];
-  pendingApprovalsList: PendingApproval[];
 }
 
 export interface InstructorProfile {
@@ -53,23 +34,6 @@ export interface OrganizationProfile {
   lastCourseDate: string | null;
 }
 
-export interface ProfileChange {
-  id: number;
-  userId: number;
-  changeType: string;
-  fieldName: string;
-  oldValue: string | null;
-  newValue: string;
-  status: 'pending' | 'approved' | 'rejected';
-  hrComment: string | null;
-  createdAt: string;
-  updatedAt: string;
-  username: string;
-  email: string;
-  role: string;
-  organizationName: string | null;
-}
-
 export interface PaginationData {
   page: number;
   limit: number;
@@ -98,14 +62,6 @@ export interface OrganizationsResponse {
   };
 }
 
-export interface PendingChangesResponse {
-  success: boolean;
-  data: {
-    pendingChanges: ProfileChange[];
-    pagination: PaginationData;
-  };
-}
-
 export interface UserProfile {
   id: number;
   username: string;
@@ -130,7 +86,6 @@ export interface UserProfileResponse {
   success: boolean;
   data: {
     user: UserProfile;
-    profileChanges: ProfileChange[];
     courseHistory: CourseHistoryItem[];
   };
 }
@@ -164,26 +119,6 @@ class HRDashboardService {
     
     const response = await api.get<OrganizationsResponse>(`/hr/organizations?${params}`);
     return response.data.data;
-  }
-
-  // Get Pending Profile Changes
-  async getPendingChanges(page: number = 1, limit: number = 10): Promise<PendingChangesResponse['data']> {
-    const params = new URLSearchParams({
-      page: page.toString(),
-      limit: limit.toString()
-    });
-    
-    const response = await api.get<PendingChangesResponse>(`/hr/profile-changes?${params}`);
-    return response.data.data;
-  }
-
-  // Approve or Reject Profile Change
-  async approveChange(changeId: number, action: 'approve' | 'reject', comment: string = ''): Promise<{ success: boolean; message: string }> {
-    const response = await api.post(`/hr/profile-changes/${changeId}/approve`, {
-      action,
-      comment
-    });
-    return response.data;
   }
 
   // Get User Profile Details

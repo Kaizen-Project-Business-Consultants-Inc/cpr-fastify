@@ -309,8 +309,8 @@ test.describe.serial('HR (login, portal, logout)', () => {
       await pg.goto('/hr');
       await pg.waitForLoadState('domcontentloaded');
     }
-    // HR portal has sidebar items like "Dashboard", "Profile Changes", "Timesheets"
-    const navItem = pg.getByText(/dashboard|profile|timesheet|employee/i).first();
+    // HR portal has sidebar items like "Dashboard", "Personnel Management", "Timesheet Management"
+    const navItem = pg.getByText(/dashboard|personnel|timesheet/i).first();
     await expect(navItem).toBeVisible({ timeout: 30000 });
   });
 

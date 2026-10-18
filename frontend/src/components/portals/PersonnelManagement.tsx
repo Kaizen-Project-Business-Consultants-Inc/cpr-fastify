@@ -11,7 +11,6 @@ import {
   Tab,
   Alert,
   CircularProgress,
-  Grid,
 } from '@mui/material';
 import { hrDashboardService, InstructorProfile, OrganizationProfile, UserProfileResponse } from '../../services/hrDashboardService';
 import DataTable, { DataTableRow } from '../gtacpr/DataTable';
@@ -230,43 +229,24 @@ const PersonnelManagement: React.FC<PersonnelManagementProps> = ({ onViewChange:
       </Box>
 
       {/* User Details Dialog */}
-      <Dialog open={userDetailsDialog} onClose={() => setUserDetailsDialog(false)} maxWidth="md" fullWidth>
+      <Dialog open={userDetailsDialog} onClose={() => setUserDetailsDialog(false)} maxWidth="sm" fullWidth>
         <DialogTitle sx={{ fontSize: 18, fontWeight: 700, color: (theme) => theme.palette.text.primary }}>User Profile Details</DialogTitle>
         <DialogContent>
           {selectedUser && (
             <Box sx={{ pt: 1 }}>
-              <Grid container spacing={3}>
-                <Grid item xs={12} md={6}>
-                  <Typography sx={{ fontSize: 13, fontWeight: 700, color: (theme) => theme.palette.text.secondary, textTransform: 'uppercase', letterSpacing: '0.07em', mb: 1 }}>Basic Information</Typography>
-                  {([
-                    ['Username', selectedUser.user.username],
-                    ['Email', selectedUser.user.email],
-                    ['Role', selectedUser.user.role],
-                    ...(selectedUser.user.phone ? [['Phone', String(selectedUser.user.phone)]] : []),
-                    ['Created', formatDate(selectedUser.user.createdAt)],
-                  ] as [string, string][]).map(([label, value]) => (
-                    <Box key={String(label)} sx={{ display: 'flex', borderBottom: (theme) => `1px solid ${theme.palette.divider}`, py: 0.75 }}>
-                      <Typography sx={{ fontSize: 13, fontWeight: 600, color: (theme) => theme.palette.text.secondary, width: 100 }}>{label}</Typography>
-                      <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.primary }}>{value}</Typography>
-                    </Box>
-                  ))}
-                </Grid>
-                <Grid item xs={12} md={6}>
-                  <Typography sx={{ fontSize: 13, fontWeight: 700, color: (theme) => theme.palette.text.secondary, textTransform: 'uppercase', letterSpacing: '0.07em', mb: 1 }}>Profile Changes History</Typography>
-                  <Box sx={{ maxHeight: 200, overflow: 'auto' }}>
-                    {selectedUser.profileChanges.length > 0 ? (
-                      selectedUser.profileChanges.map((change: { id: number; fieldName: string; newValue: string; status: string; createdAt: string }) => (
-                        <Box key={change.id} sx={{ p: 1.5, bgcolor: (theme) => theme.palette.background.default, borderRadius: '8px', mb: 1 }}>
-                          <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.primary }}><strong>{change.fieldName}:</strong> {change.newValue}</Typography>
-                          <Typography sx={{ fontSize: 12, color: (theme) => theme.palette.text.secondary }}>Status: {change.status} — {formatDate(change.createdAt)}</Typography>
-                        </Box>
-                      ))
-                    ) : (
-                      <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>No profile changes found</Typography>
-                    )}
-                  </Box>
-                </Grid>
-              </Grid>
+              <Typography sx={{ fontSize: 13, fontWeight: 700, color: (theme) => theme.palette.text.secondary, textTransform: 'uppercase', letterSpacing: '0.07em', mb: 1 }}>Basic Information</Typography>
+              {([
+                ['Username', selectedUser.user.username],
+                ['Email', selectedUser.user.email],
+                ['Role', selectedUser.user.role],
+                ...(selectedUser.user.phone ? [['Phone', String(selectedUser.user.phone)]] : []),
+                ['Created', formatDate(selectedUser.user.createdAt)],
+              ] as [string, string][]).map(([label, value]) => (
+                <Box key={String(label)} sx={{ display: 'flex', borderBottom: (theme) => `1px solid ${theme.palette.divider}`, py: 0.75 }}>
+                  <Typography sx={{ fontSize: 13, fontWeight: 600, color: (theme) => theme.palette.text.secondary, width: 100 }}>{label}</Typography>
+                  <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.primary }}>{value}</Typography>
+                </Box>
+              ))}
             </Box>
           )}
         </DialogContent>

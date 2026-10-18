@@ -5,7 +5,6 @@ import { courseRoutes } from './courses.js';
 import { billingRoutes } from './billing.js';
 import { organizationRoutes } from './organizations.js';
 import { hrRoutes } from './hr.js';
-import { profileChangeRoutes } from './profile-changes.js';
 import { instructorRoutes } from './instructors.js';
 import { timesheetRoutes } from './timesheets.js';
 import { payRateRoutes } from './pay-rates.js';
@@ -82,7 +81,6 @@ export async function registerRoutes(app: FastifyInstance) {
   await app.register(billingRoutes, { prefix: '/accounting' });
   await app.register(organizationRoutes, { prefix: '/organization' });
   await app.register(hrRoutes, { prefix: '/hr' });
-  await app.register(profileChangeRoutes, { prefix: '/profile-changes' });
   await app.register(instructorRoutes, { prefix: '/instructor' });
   await app.register(timesheetRoutes, { prefix: '/timesheet' });
   await app.register(payRateRoutes, { prefix: '/pay-rates' });

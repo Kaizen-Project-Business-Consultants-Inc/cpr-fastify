@@ -150,7 +150,7 @@ const PrivacyPolicy = () => {
           </Box>
           <Box component="li" sx={{ mb: 0.5 }}>
             <Typography variant="body1">
-              <strong>KPBC HR staff:</strong> can view instructor personnel, timesheet, pay rate and payroll records, and organization contact details and profile change requests
+              <strong>KPBC HR staff:</strong> can view instructor personnel, timesheet, pay rate and payroll records, and organization contact details
             </Typography>
           </Box>
           <Box component="li" sx={{ mb: 0.5 }}>
@@ -245,7 +245,7 @@ const PrivacyPolicy = () => {
         <Box component="ul" sx={{ pl: 3, mb: 2 }}>
           <Box component="li" sx={{ mb: 0.5 }}>
             <Typography variant="body1">
-              <strong>Right of access:</strong> You may download a copy of all personal information we hold about you directly from the portal. When logged in, go to your account settings and select <em>"Download My Data"</em>. This exports your profile, session history, audit log, notification preferences, and profile change history as a JSON file.
+              <strong>Right of access:</strong> You may download a copy of all personal information we hold about you directly from the portal. When logged in, go to your account settings and select <em>"Download My Data"</em>. This exports your profile, your organization's details, the courses you took or taught, your availability, and your recent activity log as a JSON file.
             </Typography>
           </Box>
           <Box component="li" sx={{ mb: 0.5 }}>
