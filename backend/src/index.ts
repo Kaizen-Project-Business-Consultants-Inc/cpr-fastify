@@ -6,6 +6,7 @@ import { runMigrations } from './config/migrations.js';
 import { initTaxConfig } from './utils/taxConfig.js';
 import { CertReminderService } from './services/CertReminderService.js';
 import { RetentionService } from './services/RetentionService.js';
+import { InboundEmailRepository } from './repositories/InboundEmailRepository.js';
 
 // Initialize Sentry (optional — gracefully skipped if package not installed)
 if (env.SENTRY_DSN) {
@@ -52,6 +53,15 @@ async function start() {
   // startup so it never competes with boot; the service takes a named lock.
   const retention = new RetentionService();
   schedule('data-retention', () => retention.run(), 24 * HOUR, 15 * 60_000);
+
+  // Privacy policy: a handled course-request email keeps its text for 90 days.
+  // After that the text of booked ones is blanked and dismissed ones are
+  // deleted; emails still waiting for review are never touched.
+  const inboundEmails = new InboundEmailRepository();
+  schedule('inbound-email-cleanup', async () => {
+    const result = await inboundEmails.purgeHandled();
+    if (result.blanked || result.deleted) logger.info(result, 'Old handled inbound emails cleaned up');
+  }, 24 * HOUR, 20 * 60_000);
 
   // Housekeeping: login_attempts only matter for the 15-minute lockout window.
   schedule(

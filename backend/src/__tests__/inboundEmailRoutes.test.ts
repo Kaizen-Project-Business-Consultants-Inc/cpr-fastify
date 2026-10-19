@@ -5,7 +5,7 @@ import Fastify, { FastifyInstance } from 'fastify';
 const { mockQuery, mockAudit, repoMock, mockCreateRequest } = vi.hoisted(() => ({
   mockQuery: vi.fn(),
   mockAudit: vi.fn(),
-  repoMock: { findOne: vi.fn(), transition: vi.fn(), findNeedsReview: vi.fn() },
+  repoMock: { findOne: vi.fn(), transition: vi.fn(), findNeedsReview: vi.fn(), findHandled: vi.fn() },
   mockCreateRequest: vi.fn(),
 }));
 
@@ -63,7 +63,7 @@ describe('inbound email review routes', () => {
       notes: 'Received by email — subject: "Course Request"',
     }));
     expect(repoMock.transition).toHaveBeenNthCalledWith(1, 5, 'needs_review', 'received');
-    expect(repoMock.transition).toHaveBeenNthCalledWith(2, 5, 'received', 'created_request', { course_request_id: 40 });
+    expect(repoMock.transition).toHaveBeenNthCalledWith(2, 5, 'received', 'created_request', { course_request_id: 40, handled_by: 1 });
     expect(mockAudit).toHaveBeenCalledWith(expect.objectContaining({ action: 'inbound_email_request_created', entityId: 5 }));
   });
 
@@ -144,10 +144,17 @@ describe('inbound email review routes', () => {
     const res = await app.inject({ method: 'POST', url: '/inbound-email/5/dismiss', payload: { note: '  Called the client  ' } });
 
     expect(res.statusCode).toBe(200);
-    expect(repoMock.transition).toHaveBeenCalledWith(5, 'needs_review', 'rejected', { reject_reason: 'Dismissed: Called the client' });
+    expect(repoMock.transition).toHaveBeenCalledWith(5, 'needs_review', 'rejected', { reject_reason: 'Dismissed: Called the client', handled_by: 1 });
     expect(mockAudit).toHaveBeenCalledWith(expect.objectContaining({
       action: 'inbound_email_dismissed', details: expect.objectContaining({ previousReason: heldEmail.reject_reason }),
     }));
+  });
+
+  it('lists handled emails', async () => {
+    repoMock.findHandled.mockResolvedValue([{ id: 3, status: 'created_request', course_request_id: 34 }]);
+    const res = await app.inject({ method: 'GET', url: '/inbound-email/handled' });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().data).toEqual([{ id: 3, status: 'created_request', course_request_id: 34 }]);
   });
 
   it('lists organizations for an unrecognized sender', async () => {

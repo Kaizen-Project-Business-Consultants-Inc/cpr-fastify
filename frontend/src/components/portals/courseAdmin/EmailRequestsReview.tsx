@@ -12,6 +12,8 @@ import {
   Button,
   TextField,
   MenuItem,
+  Tabs,
+  Tab,
 } from '@mui/material';
 import api from '../../../services/api';
 import DataTable, { DataTableRow } from '../../gtacpr/DataTable';
@@ -46,6 +48,46 @@ interface InboundEmailRow {
   matched_organization_id: number | null;
   reject_reason: string | null;
   created_at: string;
+}
+
+interface HandledRow {
+  id: number;
+  from_address: string;
+  subject: string | null;
+  body_text: string | null;
+  status: 'created_request' | 'rejected';
+  course_request_id: number | null;
+  reject_reason: string | null;
+  created_at: string;
+  handled_at: string | null;
+  handled_by_name: string | null;
+}
+
+const handledColumns = [
+  { key: 'received', label: 'RECEIVED', width: '0.8fr' },
+  { key: 'from', label: 'FROM', width: '1.1fr' },
+  { key: 'subject', label: 'SUBJECT', width: '1.2fr' },
+  { key: 'outcome', label: 'OUTCOME', width: '1.5fr' },
+  { key: 'handled', label: 'HANDLED', width: '1.1fr' },
+  { key: 'actions', label: '', width: '0.7fr', align: 'right' as const },
+];
+
+function outcomeText(row: HandledRow): string {
+  if (row.status === 'created_request') {
+    const req = row.course_request_id ? `Course request #${row.course_request_id}` : 'Course request created';
+    // Auto-booked emails never went to review, so they have no reason saved.
+    return !row.handled_by_name && !row.reject_reason ? `${req} (booked automatically)` : req;
+  }
+  return row.reject_reason || 'Dismissed';
+}
+
+const RETENTION_DAYS = 90;
+
+/** True once the nightly clean-up would have removed this email's text. */
+function textRemovedByRetention(row: InboundEmailRow | HandledRow): boolean {
+  if (row.status !== 'created_request' && row.status !== 'rejected') return false;
+  const handledAt = 'handled_at' in row && row.handled_at ? new Date(row.handled_at).getTime() : NaN;
+  return !Number.isNaN(handledAt) && Date.now() - handledAt > RETENTION_DAYS * 24 * 60 * 60 * 1000;
 }
 
 interface Option {
@@ -94,14 +136,14 @@ function formFromEmail(row: InboundEmailRow, courseTypes: Option[]): RequestForm
   };
 }
 
-const EmailBody: React.FC<{ text: string | null }> = ({ text }) => (
+const EmailBody: React.FC<{ text: string | null; removed?: boolean }> = ({ text, removed }) => (
   <Box
     sx={{
       whiteSpace: 'pre-wrap', fontSize: 13, p: 1.5, borderRadius: '8px', maxHeight: 220, overflowY: 'auto',
       bgcolor: (theme) => theme.palette.action.hover, color: (theme) => theme.palette.text.primary,
     }}
   >
-    {text?.trim() || 'The email had no text.'}
+    {text?.trim() || (removed ? 'The email text was removed 90 days after it was handled.' : 'The email text is not available.')}
   </Box>
 );
 
@@ -116,7 +158,10 @@ const EmailRequestsReview: React.FC = () => {
   const [error, setError] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
 
-  const [viewing, setViewing] = useState<InboundEmailRow | null>(null);
+  const [tab, setTab] = useState<'review' | 'handled'>('review');
+  const [handled, setHandled] = useState<HandledRow[] | null>(null);
+  const [handledError, setHandledError] = useState(false);
+  const [viewing, setViewing] = useState<InboundEmailRow | HandledRow | null>(null);
   const [creating, setCreating] = useState<InboundEmailRow | null>(null);
   const [dismissing, setDismissing] = useState<InboundEmailRow | null>(null);
 
@@ -148,6 +193,21 @@ const EmailRequestsReview: React.FC = () => {
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
   }, []);
+
+  const loadHandled = useCallback(async () => {
+    try {
+      const r = await api.get('/inbound-email/handled');
+      setHandled(r.data.data ?? []);
+      setHandledError(false);
+    } catch {
+      setHandledError(true);
+    }
+  }, []);
+
+  const showTab = (next: 'review' | 'handled') => {
+    setTab(next);
+    if (next === 'handled') loadHandled();
+  };
 
   const openCreate = async (row: InboundEmailRow) => {
     setNotice(null);
@@ -194,6 +254,7 @@ const EmailRequestsReview: React.FC = () => {
         registeredStudents: students,
       });
       setNotice(r.data.message ?? 'Course request created.');
+      setHandled(null);
       creatingId.current = null;
       setCreating(null);
       setForm(null);
@@ -219,6 +280,7 @@ const EmailRequestsReview: React.FC = () => {
     try {
       await api.post(`/inbound-email/${dismissing.id}/dismiss`, note.trim() ? { note: note.trim() } : {});
       setNotice('Email dismissed.');
+      setHandled(null);
       setDismissing(null);
       await load();
     } catch (err) {
@@ -247,7 +309,43 @@ const EmailRequestsReview: React.FC = () => {
         book it, or <strong>Dismiss</strong> once you&apos;ve dealt with it another way.
       </Typography>
       {notice && <Alert severity="success" onClose={() => setNotice(null)}>{notice}</Alert>}
-      {rows.length === 0 ? (
+      <Tabs value={tab} onChange={(_e, v) => showTab(v)} sx={{ minHeight: 36 }}>
+        <Tab value="review" label={`Needs review (${rows.length})`} sx={{ minHeight: 36 }} />
+        <Tab value="handled" label="Handled" sx={{ minHeight: 36 }} />
+      </Tabs>
+      {tab === 'handled' ? (
+        <>
+          <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>
+            Emails that became a course request or were dismissed. The email text is removed 90 days
+            after it was handled; dismissed emails are then deleted.
+          </Typography>
+          {handledError ? (
+            <Typography sx={{ fontSize: 14, color: '#CC1F1F' }}>Error loading handled emails</Typography>
+          ) : handled === null ? (
+            <Box sx={{ display: 'flex', justifyContent: 'center', p: 4 }}><CircularProgress size={24} /></Box>
+          ) : (
+            <DataTable columns={handledColumns} shownCount={handled.length} totalCount={handled.length} emptyMessage="No handled emails yet">
+              {handled.map((row) => (
+                <DataTableRow key={row.id} columns={handledColumns}>
+                  <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>
+                    {new Date(row.created_at).toLocaleString()}
+                  </Typography>
+                  <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>{row.from_address}</Typography>
+                  <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>{row.subject || '-'}</Typography>
+                  <Typography sx={{ fontSize: 12.5, color: (theme) => theme.palette.text.secondary }}>{outcomeText(row)}</Typography>
+                  <Typography sx={{ fontSize: 12.5, color: (theme) => theme.palette.text.secondary }}>
+                    {row.handled_at ? new Date(row.handled_at).toLocaleDateString() : '-'}
+                    {row.handled_by_name ? ` by ${row.handled_by_name}` : ''}
+                  </Typography>
+                  <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>
+                    <LinkButton tone="neutral" onClick={() => setViewing(row)} aria-label={`Read handled email ${row.id}`}>Read email</LinkButton>
+                  </Box>
+                </DataTableRow>
+              ))}
+            </DataTable>
+          )}
+        </>
+      ) : rows.length === 0 ? (
         <Box sx={{ bgcolor: (theme) => theme.palette.background.paper, border: (theme) => `1px solid ${theme.palette.divider}`, borderRadius: '10px', p: 6, textAlign: 'center' }}>
           <Typography sx={{ fontSize: 14, fontWeight: 600, color: (theme) => theme.palette.text.secondary }}>Nothing needs review</Typography>
         </Box>
@@ -291,7 +389,7 @@ const EmailRequestsReview: React.FC = () => {
           <Typography sx={{ fontSize: 13, mb: 1.5, color: (theme) => theme.palette.text.secondary }}>
             From {viewing?.from_address}
           </Typography>
-          <EmailBody text={viewing?.body_text ?? null} />
+          <EmailBody text={viewing?.body_text ?? null} removed={!!viewing && textRemovedByRetention(viewing)} />
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setViewing(null)}>Close</Button>

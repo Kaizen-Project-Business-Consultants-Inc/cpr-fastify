@@ -293,6 +293,8 @@ test('Email Requests shows the reason and offers Read, Create and Dismiss', asyn
   const create = pg.getByRole('button', { name: /^Create request from email \d+$/ }).first();
   if (await create.count() === 0) {
     await expect(pg.getByText('Nothing needs review')).toBeVisible();
+    await pg.getByRole('tab', { name: 'Handled' }).click();
+    await expect(pg.getByText(/The email text is removed 90 days/)).toBeVisible({ timeout: 30000 });
     return;
   }
   await expect(pg.getByText('Some details couldn\'t be read with confidence').or(pg.getByText(/missing|past|doesn't match|wasn't sure|isn't linked|template format|downloaded/)).first()).toBeVisible();
@@ -308,4 +310,7 @@ test('Email Requests shows the reason and offers Read, Create and Dismiss', asyn
   await expect(dialog.getByLabel('Number of students')).toBeVisible();
   await dialog.getByRole('button', { name: 'Cancel' }).click();
   await expect(dialog).toHaveCount(0);
+
+  await pg.getByRole('tab', { name: 'Handled' }).click();
+  await expect(pg.getByText(/The email text is removed 90 days/)).toBeVisible({ timeout: 30000 });
 });

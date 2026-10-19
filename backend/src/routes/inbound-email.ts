@@ -108,6 +108,10 @@ export async function inboundEmailRoutes(app: FastifyInstance) {
     return { success: true, data: await repo.findNeedsReview() };
   });
 
+  app.get('/handled', { preHandler: staffRole }, async () => {
+    return { success: true, data: await repo.findHandled() };
+  });
+
   // Organizations to choose from when the sender wasn't recognized.
   app.get('/organizations', { preHandler: staffRole }, async () => {
     const [rows] = await getPool().query<RowDataPacket[]>(
@@ -163,7 +167,7 @@ export async function inboundEmailRoutes(app: FastifyInstance) {
     }
 
     try {
-      await repo.transition(id, 'received', 'created_request', { course_request_id: course.id });
+      await repo.transition(id, 'received', 'created_request', { course_request_id: course.id, handled_by: request.userId });
     } catch (err) {
       // The request exists; only the email's bookkeeping failed. Don't tell
       // staff it failed (they'd create it again), but leave a trail.
@@ -188,7 +192,7 @@ export async function inboundEmailRoutes(app: FastifyInstance) {
     }
 
     const reason = note ? `Dismissed: ${note}` : 'Dismissed';
-    if (!(await repo.transition(id, email.status, 'rejected', { reject_reason: reason }))) {
+    if (!(await repo.transition(id, email.status, 'rejected', { reject_reason: reason, handled_by: request.userId }))) {
       return reply.status(409).send({ error: 'This email has already been handled.' });
     }
     logAudit({

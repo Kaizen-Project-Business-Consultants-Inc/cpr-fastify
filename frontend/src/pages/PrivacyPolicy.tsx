@@ -217,6 +217,14 @@ const PrivacyPolicy = () => {
               <strong>Audit logs and login records:</strong> retained for 2 years for security purposes
             </Typography>
           </Box>
+          <Box component="li" sx={{ mb: 0.5 }}>
+            <Typography variant="body1">
+              <strong>Course-request emails:</strong> the text of an email is kept for 90 days after we handle it, then
+              removed. A short record (sender, subject, date, the course details read from it and the course request it
+              became) is kept with the course record. Emails we dismiss are deleted after 90 days. Copies in our
+              backups expire up to 90 days after that.
+            </Typography>
+          </Box>
         </Box>
         <Typography variant="body1" paragraph>
           When data is no longer required, it is anonymised or securely deleted.

@@ -46,4 +46,44 @@ describe('InboundEmailRepository.create', () => {
     await new InboundEmailRepository().create({ resend_email_id: 'em_3', from_address: 'a@b.com', status: 'needs_review', extracted: null });
     expect(query.mock.calls[0][1]).toContain(null);
   });
+
+  it('stamps an auto-booked email as handled using the database clock', async () => {
+    await new InboundEmailRepository().create({ resend_email_id: 'em_4', from_address: 'a@b.com', status: 'created_request', course_request_id: 40 });
+    expect(query).toHaveBeenCalledTimes(2);
+    expect(query.mock.calls[0][0]).not.toContain('handled_at');
+    expect(query.mock.calls[1]).toEqual(['UPDATE inbound_emails SET handled_at = NOW() WHERE id = ?', [7]]);
+  });
+
+  it('does not stamp an email that still needs review', async () => {
+    await new InboundEmailRepository().create({ resend_email_id: 'em_5', from_address: 'a@b.com', status: 'needs_review' });
+    expect(query).toHaveBeenCalledTimes(1);
+  });
+
+  it('stamps the handled time and staff member when an email is handled', async () => {
+    query.mockResolvedValueOnce([{ affectedRows: 1 }]);
+    const ok = await new InboundEmailRepository().transition(5, 'received', 'created_request', { course_request_id: 40, handled_by: 2 });
+    expect(ok).toBe(true);
+    const [sql, values] = query.mock.calls[0];
+    expect(sql).toBe('UPDATE inbound_emails SET status = ?, handled_at = NOW(), handled_by = ?, course_request_id = ? WHERE id = ? AND status = ?');
+    expect(values).toEqual(['created_request', 2, 40, 5, 'received']);
+  });
+
+  it('does not stamp a handled time when an email is only claimed', async () => {
+    query.mockResolvedValueOnce([{ affectedRows: 0 }]);
+    const ok = await new InboundEmailRepository().transition(5, 'needs_review', 'received');
+    expect(ok).toBe(false);
+    expect(query.mock.calls[0][0]).not.toContain('handled_at');
+  });
+
+  it('blanks booked emails and deletes dismissed ones after 90 days, never waiting ones', async () => {
+    query.mockResolvedValueOnce([{ affectedRows: 3 }]).mockResolvedValueOnce([{ affectedRows: 2 }]);
+    const result = await new InboundEmailRepository().purgeHandled();
+    expect(result).toEqual({ blanked: 3, deleted: 2 });
+    const [[blankSql, blankArgs], [deleteSql, deleteArgs]] = query.mock.calls;
+    expect(blankSql).toMatch(/UPDATE inbound_emails SET body_text = NULL[\s\S]*status = 'created_request'/);
+    expect(deleteSql).toMatch(/DELETE FROM inbound_emails[\s\S]*status = 'rejected'/);
+    for (const sql of [blankSql, deleteSql]) expect(sql).not.toMatch(/needs_review|unmatched_sender/);
+    expect(blankArgs).toEqual([90]);
+    expect(deleteArgs).toEqual([90]);
+  });
 });

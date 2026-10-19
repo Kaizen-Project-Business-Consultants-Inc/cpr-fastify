@@ -448,6 +448,21 @@ export const migrations: Migration[] = [
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
     },
   },
+  {
+    version: 27,
+    name: 'inbound_emails_handled',
+    // When and by whom a held email was handled (request created or
+    // dismissed), for the Handled tab and the 90-day email-text clean-up.
+    // Existing handled rows use their received time.
+    up: async (pool: Pool) => {
+      await addColumnIfMissing(pool, 'inbound_emails', 'handled_at', 'DATETIME DEFAULT NULL');
+      await addColumnIfMissing(pool, 'inbound_emails', 'handled_by', 'INT DEFAULT NULL');
+      await pool.query(
+        "UPDATE inbound_emails SET handled_at = created_at WHERE handled_at IS NULL AND status IN ('created_request', 'rejected')"
+      );
+      await addIndexIfMissing(pool, 'inbound_emails', 'idx_inbound_emails_status_handled', ['status', 'handled_at']);
+    },
+  },
 ];
 
 const MIGRATION_LOCK = 'cpr_migrations';

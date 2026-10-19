@@ -33,6 +33,14 @@ describe('EmailRequestsReview', () => {
     mockGet.mockImplementation(async (url: string) => {
       if (url === '/inbound-email/needs-review') return { data: { data: [pastDateEmail, unknownSender] } };
       if (url === '/course-types') return { data: { data: [{ id: 1, name: 'CPR Basic', is_active: 1 }, { id: 2, name: 'CPR Advanced', is_active: 1 }, { id: 3, name: 'Retired Course', is_active: 0 }] } };
+      if (url === '/inbound-email/handled') return { data: { data: [
+        { id: 3, from_address: 'orguser@cpr.com', subject: 'Template', body_text: null, status: 'created_request', course_request_id: 34,
+          reject_reason: null, created_at: '2026-01-05T17:21:44Z', handled_at: '2026-01-05T17:21:44Z', handled_by_name: null },
+        { id: 4, from_address: 'orguser@cpr.com', subject: 'Erased', body_text: null, status: 'created_request', course_request_id: 35,
+          reject_reason: 'Number of students missing', created_at: new Date().toISOString(), handled_at: new Date().toISOString(), handled_by_name: 'courseadmin' },
+        { id: 9, from_address: 'spam@example.com', subject: 'Win', body_text: 'Buy now', status: 'rejected', course_request_id: null,
+          reject_reason: 'Dismissed: Spam', created_at: '2026-10-19T18:00:00Z', handled_at: '2026-10-19T18:05:00Z', handled_by_name: 'courseadmin' },
+      ] } };
       if (url === '/inbound-email/organizations') return { data: { data: [{ id: 1, name: 'Test Organization' }] } };
       throw new Error(`unexpected ${url}`);
     });
@@ -111,5 +119,26 @@ describe('EmailRequestsReview', () => {
     fireEvent.mouseDown(within(dialog).getByLabelText('Course'));
     expect(await screen.findByRole('option', { name: 'CPR Advanced' })).toBeInTheDocument();
     expect(screen.queryByRole('option', { name: 'Retired Course' })).not.toBeInTheDocument();
+  });
+
+  it('shows handled emails with their outcome, and says when the text was removed', async () => {
+    render(<EmailRequestsReview />);
+    fireEvent.click(await screen.findByRole('tab', { name: 'Handled' }));
+    expect(await screen.findByText('Course request #34 (booked automatically)')).toBeInTheDocument();
+    expect(screen.getByText('Dismissed: Spam')).toBeInTheDocument();
+    expect(screen.getAllByText(/by courseadmin/).length).toBeGreaterThan(0);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Read handled email 3' }));
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getByText('The email text was removed 90 days after it was handled.')).toBeInTheDocument();
+  });
+
+  it('does not claim the text was removed for a recently handled email', async () => {
+    render(<EmailRequestsReview />);
+    fireEvent.click(await screen.findByRole('tab', { name: 'Handled' }));
+    expect(await screen.findByText('Course request #35')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Read handled email 4' }));
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getByText('The email text is not available.')).toBeInTheDocument();
   });
 });

@@ -79,6 +79,10 @@ email, not a personal one.
   fix what was wrong, and pick the organization if the sender wasn't
   recognized), or **Dismiss** it with an optional note. Either action takes it
   off the list and is recorded in the audit log.
+- **Handled** (a tab on the same screen) lists emails that became a request or
+  were dismissed, with who handled them and when. A nightly job removes the
+  email text 90 days after an email is handled and deletes dismissed emails
+  then (privacy policy, section 5). Emails still waiting are never removed.
 
 ## What clients should be told
 
