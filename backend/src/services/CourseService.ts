@@ -4,6 +4,7 @@ import { CourseRequestRepository, CourseRequest, CourseWithDetails } from '../re
 import { CourseStudentRepository, CourseStudent } from '../repositories/CourseStudentRepository.js';
 import { UserRepository } from '../repositories/UserRepository.js';
 import { emailService } from './EmailService.js';
+import { torontoToday } from '../utils/torontoDate.js';
 import type { RowDataPacket } from 'mysql2/promise';
 
 // --- Error types ---
@@ -152,6 +153,9 @@ export class CourseService {
       location_id: input.locationId ?? null,
       registered_students: input.registeredStudents,
       notes: input.notes ?? null,
+      // DATE NOT NULL with no default: left out, MariaDB stored 0000-00-00
+      // and screens showed no "Date Submitted".
+      date_requested: torontoToday(),
       status: 'pending',
       source: input.source ?? 'portal',
     } as Partial<CourseRequest>);

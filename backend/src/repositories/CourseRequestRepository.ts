@@ -5,7 +5,7 @@ export interface CourseRequest {
   id: number;
   organization_id: number;
   course_type_id: number;
-  date_requested: Date;
+  date_requested: Date | string;
   scheduled_date: Date | null;
   location: string;
   location_id: number | null;

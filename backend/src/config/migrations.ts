@@ -1,6 +1,7 @@
 import { Pool, RowDataPacket, ResultSetHeader } from 'mysql2/promise';
 import { getPool } from './database.js';
 import { logger } from './logger.js';
+import { torontoToday } from '../utils/torontoDate.js';
 import { addColumnIfMissing, addIndexIfMissing, addForeignKeyIfMissing, dropIndexIfExists, tableExists, columnExists } from './schemaHelpers.js';
 
 interface Migration {
@@ -461,6 +462,25 @@ export const migrations: Migration[] = [
         "UPDATE inbound_emails SET handled_at = created_at WHERE handled_at IS NULL AND status IN ('created_request', 'rejected')"
       );
       await addIndexIfMissing(pool, 'inbound_emails', 'idx_inbound_emails_status_handled', ['status', 'handled_at']);
+    },
+  },
+  {
+    version: 28,
+    name: 'course_requests_date_requested_backfill',
+    // createRequest never set date_requested (DATE NOT NULL, no default), so
+    // MariaDB stored 0000-00-00 for every request since April 2026. Use the
+    // day each one was created, in Toronto time. The server has no time-zone
+    // tables (CONVERT_TZ gives NULL), so the date is worked out here.
+    up: async (pool: Pool) => {
+      const [rows] = await pool.query<RowDataPacket[]>(
+        `SELECT id, created_at FROM course_requests
+          WHERE (date_requested IS NULL OR date_requested = '0000-00-00') AND created_at IS NOT NULL`
+      );
+      for (const row of rows) {
+        const created = new Date(row.created_at);
+        if (isNaN(created.getTime())) continue; // a zero created_at; leave it
+        await pool.query('UPDATE course_requests SET date_requested = ? WHERE id = ?', [torontoToday(created), row.id]);
+      }
     },
   },
 ];

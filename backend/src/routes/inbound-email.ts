@@ -10,6 +10,7 @@ import { logger } from '../config/logger.js';
 import { env } from '../config/env.js';
 import { getPool } from '../config/database.js';
 import { logAudit } from '../utils/auditLog.js';
+import { torontoToday } from '../utils/torontoDate.js';
 import { CourseError } from '../services/CourseService.js';
 import type { InboundEmailStatus } from '../repositories/InboundEmailRepository.js';
 import type { RowDataPacket } from 'mysql2/promise';
@@ -25,11 +26,6 @@ interface ResendWebhookPayload {
 }
 
 const REVIEWABLE: InboundEmailStatus[] = ['unmatched_sender', 'needs_review'];
-
-/** Today's date in Toronto, where the courses run, as YYYY-MM-DD. */
-export function torontoToday(now: Date = new Date()): string {
-  return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Toronto' }).format(now);
-}
 
 const idParams = z.object({ id: z.coerce.number().int().positive() });
 

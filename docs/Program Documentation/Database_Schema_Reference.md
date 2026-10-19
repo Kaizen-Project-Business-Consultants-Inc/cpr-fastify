@@ -120,7 +120,7 @@ Central table for training course requests. Tracks the full lifecycle from reque
 | id | INT | NO | AUTO_INCREMENT | Primary key |
 | organization_id | INT | NO | | FK to organizations.id |
 | course_type_id | INT | NO | | FK to class_types.id |
-| date_requested | DATETIME | NO | CURRENT_TIMESTAMP | When the request was submitted |
+| date_requested | DATE | NO | (none) | When the request was submitted (Toronto day), set by CourseService.createRequest |
 | scheduled_date | DATE | YES | NULL | Requested/scheduled date |
 | location | VARCHAR(255) | NO | | Course location |
 | location_id | INT | YES | NULL | FK to organization_locations.id |
