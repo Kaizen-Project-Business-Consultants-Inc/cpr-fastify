@@ -8,7 +8,7 @@ vi.mock('../config/database.js', () => ({ getPool: () => ({ query: vi.fn() }) })
 vi.mock('../config/logger.js', () => ({ logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 vi.mock('../config/env.js', () => ({ env: { ANTHROPIC_API_KEY: undefined, RESEND_API_KEY: undefined, RESEND_WEBHOOK_SECRET: undefined } }));
 
-import { normalizeDateText, resolveCourseType, parseTemplate } from '../services/InboundEmailService.js';
+import { normalizeDateText, resolveCourseType, parseTemplate, findReviewReasons } from '../services/InboundEmailService.js';
 
 describe('normalizeDateText', () => {
   it('accepts ISO dates', () => {
@@ -89,5 +89,36 @@ describe('parseTemplate', () => {
       location: 'Office',
       registeredStudents: null,
     });
+  });
+});
+
+describe('findReviewReasons', () => {
+  const ok = { courseTypeText: 'CPR Basic', scheduledDate: '2026-12-15', location: '1 Main St', registeredStudents: 5 };
+  const match = { id: 1, name: 'CPR Basic', confidence: 1 };
+  const sure = { courseType: 1, scheduledDate: 1, location: 1, registeredStudents: 1 };
+  const today = '2026-10-19';
+
+  it('has nothing to say about a complete, valid template email', () => {
+    expect(findReviewReasons('template', ok, match, undefined, today)).toEqual([]);
+  });
+
+  it('names every problem in plain words', () => {
+    const reasons = findReviewReasons('template', { ...ok, scheduledDate: '2026-09-01', registeredStudents: null }, null, undefined, today);
+    expect(reasons).toEqual([
+      '"CPR Basic" isn\'t a clear match for any of our courses',
+      'Date (2026-09-01) is today or in the past',
+      'Number of students missing',
+    ]);
+  });
+
+  it('reports a missing course and date', () => {
+    expect(findReviewReasons('template', { ...ok, courseTypeText: null, scheduledDate: null }, null, undefined, today))
+      .toEqual(['Course type missing', 'Date missing or not understood']);
+  });
+
+  it('says which details the AI was unsure of', () => {
+    expect(findReviewReasons('llm', ok, match, { ...sure, scheduledDate: 0.5, location: 0.6 }, today))
+      .toEqual(["The AI wasn't sure of the date, location"]);
+    expect(findReviewReasons('llm', ok, match, sure, today)).toEqual([]);
   });
 });

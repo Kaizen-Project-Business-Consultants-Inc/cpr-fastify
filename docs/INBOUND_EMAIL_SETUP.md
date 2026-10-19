@@ -73,8 +73,12 @@ email, not a personal one.
   Pending Course Requests**, tagged **"via email."**
 - If the sender isn't recognized, or a detail couldn't be confidently read,
   it lands in the new **Course Admin → Email Requests** screen instead, with
-  the raw email and the system's best guess at each field, so a human can
-  follow up.
+  the raw email, the system's best guess at each field and the reason it
+  stopped (e.g. "Date (2026-09-01) is today or in the past"). From there staff
+  can **Read email**, **Create request** (a form pre-filled from the email;
+  fix what was wrong, and pick the organization if the sender wasn't
+  recognized), or **Dismiss** it with an optional note. Either action takes it
+  off the list and is recorded in the audit log.
 
 ## What clients should be told
 

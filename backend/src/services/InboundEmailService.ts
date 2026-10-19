@@ -282,24 +282,48 @@ async function fetchEmailBody(emailId: string): Promise<string | null> {
 const AUTO_CREATE_COURSE_TYPE_MIN = { template: 0.6, llm: 0.8 };
 const AUTO_CREATE_FIELD_MIN_LLM = 0.85;
 
-function isReadyToAutoCreate(
+/**
+ * Why an email can't become a course request on its own, in plain words for
+ * the Email Requests screen. An empty list means it is safe to auto-create.
+ */
+export function findReviewReasons(
   tier: 'template' | 'llm',
   fields: ExtractedFields,
   courseTypeMatch: CourseTypeMatch | null,
-  llmConfidence?: LlmExtraction['confidence']
-): boolean {
-  if (!courseTypeMatch || courseTypeMatch.confidence < AUTO_CREATE_COURSE_TYPE_MIN[tier]) return false;
-  if (!fields.scheduledDate || !fields.location || !fields.registeredStudents) return false;
-  if (fields.registeredStudents < 1) return false;
-  // A same-day-or-past date is more likely a misparse than a real booking request.
-  if (fields.scheduledDate <= new Date().toISOString().slice(0, 10)) return false;
+  llmConfidence?: LlmExtraction['confidence'],
+  today: string = new Date().toISOString().slice(0, 10),
+): string[] {
+  const reasons: string[] = [];
 
-  if (tier === 'llm') {
-    if (!llmConfidence) return false;
-    const values = [llmConfidence.scheduledDate, llmConfidence.location, llmConfidence.registeredStudents];
-    if (values.some((v) => v < AUTO_CREATE_FIELD_MIN_LLM)) return false;
+  if (!fields.courseTypeText) {
+    reasons.push('Course type missing');
+  } else if (!courseTypeMatch || courseTypeMatch.confidence < AUTO_CREATE_COURSE_TYPE_MIN[tier]) {
+    reasons.push(`"${fields.courseTypeText}" isn't a clear match for any of our courses`);
   }
-  return true;
+
+  if (!fields.scheduledDate) {
+    reasons.push('Date missing or not understood');
+  } else if (fields.scheduledDate <= today) {
+    // A same-day-or-past date is more likely a misparse than a real booking request.
+    reasons.push(`Date (${fields.scheduledDate}) is today or in the past`);
+  }
+
+  if (!fields.location) reasons.push('Location missing');
+  if (!fields.registeredStudents || fields.registeredStudents < 1) reasons.push('Number of students missing');
+
+  if (tier === 'llm' && reasons.length === 0) {
+    if (!llmConfidence) {
+      reasons.push('The AI did not say how sure it was');
+    } else {
+      const unsure = [
+        llmConfidence.scheduledDate < AUTO_CREATE_FIELD_MIN_LLM && 'date',
+        llmConfidence.location < AUTO_CREATE_FIELD_MIN_LLM && 'location',
+        llmConfidence.registeredStudents < AUTO_CREATE_FIELD_MIN_LLM && 'number of students',
+      ].filter(Boolean);
+      if (unsure.length) reasons.push(`The AI wasn't sure of the ${unsure.join(', ')}`);
+    }
+  }
+  return reasons;
 }
 
 // --- Orchestration ---
@@ -327,7 +351,7 @@ export class InboundEmailService {
     };
 
     if (!body) {
-      await this.repo.create({ ...row, status: 'needs_review', reject_reason: 'Could not fetch email body from Resend' } as Partial<InboundEmail>);
+      await this.repo.create({ ...row, status: 'needs_review', reject_reason: "The email's text couldn't be downloaded from Resend" } as Partial<InboundEmail>);
       return;
     }
     if (!sender) {
@@ -347,7 +371,7 @@ export class InboundEmailService {
       if (!llm) {
         await this.repo.create({
           ...row, status: 'needs_review',
-          reject_reason: 'Did not match the email template and LLM extraction was unavailable or failed',
+          reject_reason: "Not in the template format, and the AI couldn't read it",
         } as Partial<InboundEmail>);
         return;
       }
@@ -358,11 +382,13 @@ export class InboundEmailService {
     const courseTypeMatch = fields.courseTypeText ? resolveCourseType(fields.courseTypeText, classTypes) : null;
     const extracted = { ...fields, matchedCourseType: courseTypeMatch };
 
-    if (!isReadyToAutoCreate(tier, fields, courseTypeMatch, llmConfidence)) {
+    const reasons = findReviewReasons(tier, fields, courseTypeMatch, llmConfidence);
+    if (reasons.length > 0) {
       await this.repo.create({
         ...row, status: 'needs_review', parse_tier: tier,
         parse_confidence: courseTypeMatch?.confidence ?? null,
         extracted: extracted as unknown as Record<string, unknown>,
+        reject_reason: reasons.join('; '),
       } as Partial<InboundEmail>);
       return;
     }

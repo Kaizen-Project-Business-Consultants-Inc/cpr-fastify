@@ -281,3 +281,31 @@ asRole('instructor', (page) => {
     await expect(pg.getByRole('tab', { name: 'Payment History' })).toHaveCount(0);
   });
 });
+
+// Course Admin → Email Requests (2026-10-19). Read-only: opens the dialogs and
+// cancels, so the emails stay on the list for people to handle.
+test('Email Requests shows the reason and offers Read, Create and Dismiss', async ({ page: pg }) => {
+  test.setTimeout(240000);
+  await loginAs(pg, USERS.courseadmin.username, USERS.courseadmin.password);
+  await pg.goto('/admin/email-requests', { waitUntil: 'domcontentloaded' });
+  await expect(pg.getByText(/Use Create request to fix the details/)).toBeVisible({ timeout: 60000 });
+
+  const create = pg.getByRole('button', { name: /^Create request from email \d+$/ }).first();
+  if (await create.count() === 0) {
+    await expect(pg.getByText('Nothing needs review')).toBeVisible();
+    return;
+  }
+  await expect(pg.getByText('Some details couldn\'t be read with confidence').or(pg.getByText(/missing|past|doesn't match|wasn't sure|isn't linked|template format|downloaded/)).first()).toBeVisible();
+
+  await pg.getByRole('button', { name: /^Read email \d+$/ }).first().click();
+  await expect(pg.getByRole('dialog').getByText(/^From /)).toBeVisible();
+  await pg.getByRole('dialog').getByRole('button', { name: 'Close' }).click();
+  await expect(pg.getByRole('dialog')).toHaveCount(0);
+
+  await create.click();
+  const dialog = pg.getByRole('dialog');
+  await expect(dialog.getByLabel('Location')).toBeVisible({ timeout: 30000 });
+  await expect(dialog.getByLabel('Number of students')).toBeVisible();
+  await dialog.getByRole('button', { name: 'Cancel' }).click();
+  await expect(dialog).toHaveCount(0);
+});

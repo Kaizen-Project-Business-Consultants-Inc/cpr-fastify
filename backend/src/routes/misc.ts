@@ -9,7 +9,7 @@ export async function miscRoutes(app: FastifyInstance) {
   // GET /course-types — flat route for dropdowns
   app.get('/course-types', { preHandler: [requireAuth] }, async () => {
     const [rows] = await pool.query<RowDataPacket[]>(
-      'SELECT id, name, description, duration_minutes FROM class_types ORDER BY name'
+      'SELECT id, name, description, duration_minutes, is_active FROM class_types ORDER BY name'
     );
     return { success: true, data: rows };
   });

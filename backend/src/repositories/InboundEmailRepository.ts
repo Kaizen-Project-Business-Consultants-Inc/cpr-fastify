@@ -1,6 +1,6 @@
 import { BaseRepository } from './BaseRepository.js';
 import { getPool } from '../config/database.js';
-import type { RowDataPacket } from 'mysql2/promise';
+import type { RowDataPacket, ResultSetHeader } from 'mysql2/promise';
 
 export type InboundEmailStatus =
   | 'received'
@@ -48,6 +48,29 @@ export class InboundEmailRepository extends BaseRepository<InboundEmail> {
       [resendEmailId]
     );
     return (rows[0] as InboundEmail) ?? null;
+  }
+
+  async findOne(id: number): Promise<InboundEmail | null> {
+    const [rows] = await getPool().query<RowDataPacket[]>('SELECT * FROM inbound_emails WHERE id = ?', [id]);
+    const row = rows[0] as InboundEmail | undefined;
+    return row ? { ...row, extracted: parseExtracted(row.extracted) } : null;
+  }
+
+  /**
+   * Move a row from one status to another only if it is still in `from`.
+   * Returns false when someone else already changed it, so two staff
+   * clicking at once can't both act on the same email.
+   */
+  async transition(id: number, from: InboundEmailStatus, to: InboundEmailStatus, extra: Partial<Pick<InboundEmail, 'course_request_id' | 'reject_reason'>> = {}): Promise<boolean> {
+    const sets = ['status = ?'];
+    const values: unknown[] = [to];
+    if (extra.course_request_id !== undefined) { sets.push('course_request_id = ?'); values.push(extra.course_request_id); }
+    if (extra.reject_reason !== undefined) { sets.push('reject_reason = ?'); values.push(extra.reject_reason); }
+    const [result] = await getPool().query<ResultSetHeader>(
+      `UPDATE inbound_emails SET ${sets.join(', ')} WHERE id = ? AND status = ?`,
+      [...values, id, from]
+    );
+    return result.affectedRows === 1;
   }
 
   async findNeedsReview(): Promise<InboundEmail[]> {
