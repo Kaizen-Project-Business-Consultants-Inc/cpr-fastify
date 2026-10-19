@@ -31,6 +31,17 @@ export class InboundEmailRepository extends BaseRepository<InboundEmail> {
     super('inbound_emails', null, false);
   }
 
+  // `extracted` is a JSON column with a json_valid() CHECK. mysql2 doesn't
+  // serialize a plain object for it, so the INSERT failed and the whole row
+  // was lost. Serialize it here.
+  async create(data: Partial<InboundEmail>): Promise<number> {
+    const { extracted, ...rest } = data;
+    const record = extracted === undefined
+      ? rest
+      : { ...rest, extracted: extracted === null ? null : JSON.stringify(extracted) };
+    return super.create(record as Partial<InboundEmail>);
+  }
+
   async findByResendId(resendEmailId: string): Promise<InboundEmail | null> {
     const [rows] = await getPool().query<RowDataPacket[]>(
       'SELECT * FROM inbound_emails WHERE resend_email_id = ?',
@@ -43,6 +54,17 @@ export class InboundEmailRepository extends BaseRepository<InboundEmail> {
     const [rows] = await getPool().query<RowDataPacket[]>(
       `SELECT * FROM inbound_emails WHERE status IN ('unmatched_sender', 'needs_review') ORDER BY created_at DESC LIMIT 100`
     );
-    return rows as InboundEmail[];
+    // MariaDB's JSON type is LONGTEXT, so mysql2 returns it as a string.
+    return (rows as InboundEmail[]).map((row) => ({ ...row, extracted: parseExtracted(row.extracted) }));
+  }
+}
+
+function parseExtracted(value: unknown): Record<string, unknown> | null {
+  if (value === null || value === undefined) return null;
+  if (typeof value !== 'string') return value as Record<string, unknown>;
+  try {
+    return JSON.parse(value) as Record<string, unknown>;
+  } catch {
+    return null;
   }
 }
