@@ -81,7 +81,7 @@ const PaymentDetailsDialog: React.FC<{
           <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 2, mb: 2 }}>
             {[
               ['Instructor', `${payment.instructorName} (${payment.instructorEmail})`],
-              ['Payment Date', new Date(payment.paymentDate).toLocaleDateString()],
+              ['Payment Date', formatDisplayDate(payment.paymentDate)],
               ['Amount', `$${Number(payment.amount || 0).toFixed(2)}`],
               ['Payment Method', payment.paymentMethod],
               ['Notes', payment.notes || 'No notes provided'],
@@ -289,7 +289,7 @@ const PayrollManagement: React.FC = () => {
                     <Typography sx={{ fontSize: 12, color: (theme) => theme.palette.text.secondary }}>{payment.instructorEmail}</Typography>
                   </Box>
                   <Typography sx={{ fontSize: 13, fontWeight: 600, fontFamily: 'monospace', color: (theme) => theme.palette.text.primary, textAlign: 'right' }}>${Number(payment.amount || 0).toFixed(2)}</Typography>
-                  <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>{new Date(payment.paymentDate).toLocaleDateString()}</Typography>
+                  <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>{formatDisplayDate(payment.paymentDate)}</Typography>
                   <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>{payment.paymentMethod}</Typography>
                   <StatusChip kind={getStatusKind(payment.status)} label={payment.status.toUpperCase()} />
                   <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>{new Date(payment.createdAt).toLocaleDateString()}</Typography>

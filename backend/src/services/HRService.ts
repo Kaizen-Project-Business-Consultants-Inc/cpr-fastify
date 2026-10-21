@@ -21,9 +21,11 @@ export class HRService {
          )`
       ),
       pool.query<RowDataPacket[]>(`SELECT COUNT(*) as count FROM organizations`),
+      // Certificates live on course_students (the legacy certifications table is empty);
+      // same rule as Sysadmin -> Certification Tracking: attended, expiring in 30 days.
       pool.query<RowDataPacket[]>(
-        `SELECT COUNT(*) as count FROM certifications
-         WHERE expiration_date BETWEEN NOW() AND NOW() + INTERVAL 30 DAY`
+        `SELECT COUNT(*) as count FROM course_students
+         WHERE attended = true AND certificate_expires_at BETWEEN NOW() AND NOW() + INTERVAL 30 DAY`
       ),
     ]);
 
@@ -112,13 +114,22 @@ export class HRService {
     const offset = (options.page - 1) * safeLimit;
 
     const [rows] = await pool.query<RowDataPacket[]>(
+      // ReturnedPaymentRequests.tsx reads the camelCase copies.
       `SELECT pr.*, u.username as instructor_name, u.email as instructor_email,
               t.week_start_date, t.total_hours, t.courses_taught, t.hr_comment as timesheet_comment,
               COALESCE(ipr.hourly_rate, 25.00) as hourly_rate,
               COALESCE(ipr.course_bonus, 50.00) as course_bonus,
               (t.total_hours * COALESCE(ipr.hourly_rate, 25.00)) as base_amount,
               (t.courses_taught * COALESCE(ipr.course_bonus, 50.00)) as bonus_amount,
-              COALESCE(prt.name, 'Default') as tier_name
+              COALESCE(prt.name, 'Default') as tier_name,
+              pr.instructor_id as instructorId, u.username as instructorName, u.email as instructorEmail,
+              t.week_start_date as weekStartDate, t.total_hours as totalHours, t.courses_taught as coursesTaught,
+              t.hr_comment as timesheetComment,
+              COALESCE(ipr.hourly_rate, 25.00) as hourlyRate, COALESCE(ipr.course_bonus, 50.00) as courseBonus,
+              (t.total_hours * COALESCE(ipr.hourly_rate, 25.00)) as baseAmount,
+              (t.courses_taught * COALESCE(ipr.course_bonus, 50.00)) as bonusAmount,
+              COALESCE(prt.name, 'Default') as tierName,
+              pr.created_at as createdAt, pr.updated_at as updatedAt
        FROM payment_requests pr
        JOIN users u ON pr.instructor_id = u.id
        JOIN timesheets t ON pr.timesheet_id = t.id
@@ -168,15 +179,20 @@ export class HRService {
       );
 
       if (action === 'override_approve') {
-        await conn.query(
-          `UPDATE payroll_payments SET status = 'completed', updated_at = CURRENT_TIMESTAMP
-           WHERE id = (
-             SELECT id FROM payroll_payments
-             WHERE instructor_id = ? AND amount = ? AND status = 'pending'
-             ORDER BY created_at DESC LIMIT 1
-           )`,
+        // Find the payment first, then update it: MariaDB refuses an UPDATE whose
+        // WHERE subquery reads the same table (error 1093).
+        const [paymentRows] = await conn.query<RowDataPacket[]>(
+          `SELECT id FROM payroll_payments
+           WHERE instructor_id = ? AND amount = ? AND status = 'pending'
+           ORDER BY created_at DESC LIMIT 1 FOR UPDATE`,
           [requestRows[0].instructor_id, requestRows[0].amount]
         );
+        if (paymentRows.length > 0) {
+          await conn.query(
+            `UPDATE payroll_payments SET status = 'completed', updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+            [paymentRows[0].id]
+          );
+        }
       }
 
       await conn.commit();

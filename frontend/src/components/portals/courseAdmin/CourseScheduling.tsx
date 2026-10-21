@@ -21,19 +21,22 @@ import LinkButton from '../../gtacpr/LinkButton';
 import DataTable, { DataTableRow } from '../../gtacpr/DataTable';
 import StatusChip from '../../gtacpr/StatusChip';
 import { PrimaryButton, GhostButton } from '../../gtacpr/Buttons';
+import { getErrorMessage } from '../../../utils/errorMessage';
 
+/** The fields this screen reads from GET /courses/confirmed (CourseRequestRepository LIST_COLS). */
 interface Course {
   id: number;
-  courseType: string;
-  date: string;
-  startTime: string;
-  endTime: string;
-  location: string;
-  organization: string;
-  status: string;
-  instructor?: string;
+  courseTypeName?: string;
+  organizationName?: string;
+  location?: string;
   registeredStudents?: number;
+  scheduledDate?: string;
+  confirmedDate?: string | null;
 }
+
+/** The day the class runs: the confirmed date once set, else the requested one, as YYYY-MM-DD. */
+const courseDay = (course: Record<string, unknown>): string =>
+  String(course.confirmedDate || course.scheduledDate || '').slice(0, 10);
 
 const columns = [
   { key: 'date', label: 'DATE', width: '0.8fr' },
@@ -80,10 +83,9 @@ const CourseScheduling = () => {
     return courses.filter((course: Record<string, unknown>) => {
       if (instructorFilter && course.instructorName !== instructorFilter) return false;
       if (organizationFilter && course.organizationName !== organizationFilter) return false;
-      if (dateFilter) {
-        const courseDate = new Date(course.scheduledDate as string);
-        if (courseDate.toDateString() !== dateFilter.toDateString()) return false;
-      }
+      // Compare calendar dates as YYYY-MM-DD: new Date('YYYY-MM-DD…Z') is UTC midnight,
+      // which is the evening before in Ontario, so the old Date comparison missed every match.
+      if (dateFilter && courseDay(course) !== toLocalDateString(dateFilter)) return false;
       return true;
     });
   }, [courses, instructorFilter, organizationFilter, dateFilter]);
@@ -105,8 +107,7 @@ const CourseScheduling = () => {
       queryClient.invalidateQueries({ queryKey: ['courses'] });
       handleCancelClose();
     } catch (err: unknown) {
-      const axiosErr = err as { response?: { data?: { error?: { message?: string } } } };
-      showError(axiosErr.response?.data?.error?.message || 'Failed to cancel course');
+      showError(getErrorMessage(err, 'Failed to cancel course'));
     } finally {
       setIsCancelling(false);
     }
@@ -155,8 +156,8 @@ const CourseScheduling = () => {
         <DataTable columns={columns} shownCount={filteredCourses.length} totalCount={courses.length}>
           {filteredCourses.map((course: Record<string, unknown>) => (
             <DataTableRow key={course.id as number} columns={columns}>
-              <Typography sx={{ fontSize: 13, fontWeight: 600, color: (theme) => theme.palette.text.primary }}>{formatDisplayDate(course.scheduledDate as string)}</Typography>
-              <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>{(course.courseTypeName || course.courseType || '—') as string}</Typography>
+              <Typography sx={{ fontSize: 13, fontWeight: 600, color: (theme) => theme.palette.text.primary }}>{formatDisplayDate(courseDay(course))}</Typography>
+              <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>{(course.courseTypeName || '—') as string}</Typography>
               <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>{course.organizationName as string}</Typography>
               <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>{course.location as string}</Typography>
               <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>{(course.instructorName || 'Not Assigned') as string}</Typography>
@@ -175,8 +176,8 @@ const CourseScheduling = () => {
         <DialogContent>
           <Box sx={{ p: 2, bgcolor: (theme) => theme.palette.background.default, borderRadius: '8px', border: (theme) => `1px solid ${theme.palette.divider}`, mb: 2, mt: 1 }}>
             {[
-              ['Course', courseToCancel?.courseType],
-              ['Organization', courseToCancel?.organization],
+              ['Course', courseToCancel?.courseTypeName],
+              ['Organization', courseToCancel?.organizationName],
               ['Location', courseToCancel?.location],
               ['Students', courseToCancel?.registeredStudents || 0],
             ].map(([l, v]) => (

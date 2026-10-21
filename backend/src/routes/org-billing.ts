@@ -127,11 +127,19 @@ export async function orgBillingRoutes(app: FastifyInstance) {
     const [check] = await pool.query<RowDataPacket[]>('SELECT id FROM invoices WHERE id = ? AND organization_id = ?', [id, request.userOrgId]);
     if (check.length === 0) return reply.status(404).send({ error: 'Invoice not found' });
 
+    // Snake_case names are kept for older readers; the camelCase aliases are
+    // what the shared PaymentHistoryTable reads.
     const [rows] = await pool.query<RowDataPacket[]>(
-      `SELECT id, invoice_id, amount as amount_paid, payment_date, payment_method,
-              reference_number, notes, status, created_at,
-              submitted_by_org_at, verified_by_accounting_at, reversed_at, reversed_by
-       FROM payments WHERE invoice_id = ? ORDER BY payment_date DESC`,
+      `SELECT id, invoice_id, invoice_id as invoiceId,
+              amount, amount as amount_paid, amount as amountPaid,
+              payment_date, payment_date as paymentDate,
+              payment_method, payment_method as paymentMethod,
+              reference_number, reference_number as referenceNumber,
+              notes, status, created_at, created_at as createdAt,
+              submitted_by_org_at, submitted_by_org_at as submittedByOrgAt,
+              verified_by_accounting_at, verified_by_accounting_at as verifiedByAccountingAt,
+              reversed_at, reversed_by
+       FROM payments WHERE invoice_id = ? AND deleted_at IS NULL ORDER BY payment_date DESC`,
       [id]
     );
     return { success: true, data: rows };
@@ -313,7 +321,7 @@ export async function orgBillingRoutes(app: FastifyInstance) {
     const safeSortOrder = sort_order?.toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
 
     const [rows] = await pool.query<RowDataPacket[]>(
-      `SELECT i.id as invoice_id, i.invoice_number, i.created_at as invoice_date, i.due_date,
+      `SELECT i.id, i.id as invoice_id, i.invoice_number, i.created_at as invoice_date, i.due_date,
               i.amount, i.status, i.students_billed, i.paid_date,
               cr.location, ct.name as course_type_name, cr.completed_at as course_date, cr.id as course_request_id,
               COALESCE(payments.total_paid, 0) as amount_paid,
@@ -364,39 +372,6 @@ export async function orgBillingRoutes(app: FastifyInstance) {
     return { success: true, data: rows[0] ?? {} };
   });
 
-  // ===== Organization: Mark invoice as paid =====
-  app.post('/organization/invoices/:id/mark-as-paid', { preHandler: orgRole }, async (request, reply) => {
-    const { id } = request.params as { id: string };
-
-    const conn = await pool.getConnection();
-    try {
-      await conn.beginTransaction();
-
-      const [invRows] = await conn.query<RowDataPacket[]>(
-        `SELECT i.id, i.invoice_number, i.organization_id, i.base_cost, i.tax_amount,
-                COALESCE(SUM(CASE WHEN ${verifiedPayment('p')} THEN p.amount ELSE 0 END), 0) as amount_paid,
-                ((i.base_cost + i.tax_amount) - COALESCE(SUM(CASE WHEN ${verifiedPayment('p')} THEN p.amount ELSE 0 END), 0)) as balance_due
-         FROM invoice_with_breakdown i LEFT JOIN payments p ON i.id = p.invoice_id
-         WHERE i.id = ? AND i.organization_id = ?
-         GROUP BY i.id, i.invoice_number, i.organization_id, i.base_cost, i.tax_amount`,
-        [id, request.userOrgId]
-      );
-      if (invRows.length === 0) { await conn.rollback(); return reply.status(404).send({ error: 'Invoice not found' }); }
-
-      const inv = invRows[0];
-      if (Number(inv.balance_due) > 0) {
-        await conn.rollback();
-        return reply.status(400).send({ error: `Invoice has outstanding balance of $${Number(inv.balance_due).toFixed(2)}. Cannot mark as paid until fully paid.` });
-      }
-
-      await conn.query('UPDATE invoices SET status = ?, paid_date = CURRENT_DATE, updated_at = CURRENT_TIMESTAMP WHERE id = ?', ['paid', id]);
-      await writeAudit(conn, { userId: request.userId, action: 'mark_invoice_paid', entityType: 'invoice', entityId: parseInt(id), details: { invoiceNumber: inv.invoice_number }, ipAddress: request.ip });
-      await conn.commit();
-
-      return { success: true, message: 'Invoice marked as paid successfully', data: { invoice_id: id, invoice_number: inv.invoice_number, paid_date: new Date().toISOString().split('T')[0], balance_due: 0 } };
-    } catch (err) { await conn.rollback(); throw err; } finally { conn.release(); }
-  });
-
   // ===== Accounting: Pending payment verifications =====
   app.get('/accounting/payment-verifications', { preHandler: acctRole }, async (request) => {
     const fromClause = `FROM payments p JOIN invoices i ON p.invoice_id = i.id JOIN organizations o ON i.organization_id = o.id
@@ -407,7 +382,11 @@ export async function orgBillingRoutes(app: FastifyInstance) {
               p.notes, p.status, p.submitted_by_org_at as submittedByOrgAt,
               p.verified_by_accounting_at as verifiedByAccountingAt,
               i.id as invoiceId, i.invoice_number as invoiceNumber, i.course_request_id as courseRequestId,
-              o.name as organizationName, o.contact_email as contactEmail
+              o.name as organizationName, o.contact_email as contactEmail,
+              -- The detail dialog's course block: the invoice's own stored figures.
+              i.course_type_name as courseTypeName, i.location,
+              i.students_billed as studentsAttended, i.rate_per_student as ratePerStudent,
+              i.base_cost as baseCost, i.tax_amount as taxAmount, i.amount as invoiceAmount
        ${fromClause} ORDER BY p.submitted_by_org_at DESC`,
       `SELECT COUNT(*) as count ${fromClause}`,
       [],

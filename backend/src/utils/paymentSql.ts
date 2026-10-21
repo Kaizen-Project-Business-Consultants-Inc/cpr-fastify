@@ -16,6 +16,12 @@ export const pendingPayment = (alias: string) => `${alias}.status = 'pending_ver
 export const VERIFIED_PAID_BY_INVOICE =
   `(SELECT invoice_id, SUM(amount) AS total_paid FROM payments WHERE ${VERIFIED_PAYMENT_FILTER} GROUP BY invoice_id)`;
 
-/** Derived table `(vendor_invoice_id, total_paid)`: processed payments per vendor invoice. */
+/**
+ * Derived table `(vendor_invoice_id, total_paid, last_payment_method)`: processed
+ * payments per vendor invoice, plus the method of the most recent one (NULL when
+ * none of them has a method).
+ */
 export const PROCESSED_PAID_BY_VENDOR_INVOICE =
-  "(SELECT vendor_invoice_id, SUM(amount) AS total_paid FROM vendor_payments WHERE status = 'processed' GROUP BY vendor_invoice_id)";
+  `(SELECT vendor_invoice_id, SUM(amount) AS total_paid,
+          SUBSTRING_INDEX(GROUP_CONCAT(payment_method ORDER BY payment_date DESC, id DESC SEPARATOR '|'), '|', 1) AS last_payment_method
+     FROM vendor_payments WHERE status = 'processed' GROUP BY vendor_invoice_id)`;

@@ -29,7 +29,6 @@ const routeTransitions: Record<string, TransitionConfig> = {
   '/organization': { type: 'grow', duration: 400, delay: 0 },
   '/instructor': { type: 'scale', duration: 350, delay: 100 },
   '/vendor': { type: 'slideUp', duration: 300, delay: 0 },
-  '/superadmin': { type: 'grow', duration: 400, delay: 100 },
   '/sysadmin': { type: 'slideLeft', duration: 300, delay: 50 },
   '/hr': { type: 'fade', duration: 300, delay: 0 },
 };

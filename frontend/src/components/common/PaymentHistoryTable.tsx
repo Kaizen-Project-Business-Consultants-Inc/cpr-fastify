@@ -18,20 +18,37 @@ import { formatDisplayDate } from '../../utils/dateUtils';
 import { PictureAsPdf as ReceiptIcon, Visibility as ViewIcon } from '@mui/icons-material';
 import { api } from '../../services/api';
 
-interface Payment {
+/**
+ * A payment row. Both payment endpoints (/accounting/invoices/:id/payments and
+ * /organization/invoices/:id/payments) send camelCase copies of the fields, but
+ * the snake_case `payments` columns come along too and some callers still pass
+ * those, so every field is read through the helpers below.
+ * DECIMAL amounts arrive as strings.
+ */
+export interface Payment {
   id: number;
-  invoiceId: number;
-  amount?: number;
-  amountPaid?: number;
-  paymentDate: string;
-  paymentMethod: string;
-  referenceNumber?: string;
-  notes?: string;
+  invoiceId?: number;
+  invoice_id?: number;
+  amount?: number | string;
+  amountPaid?: number | string;
+  amount_paid?: number | string;
+  paymentDate?: string;
+  payment_date?: string;
+  paymentMethod?: string;
+  payment_method?: string;
+  referenceNumber?: string | null;
+  reference_number?: string | null;
+  notes?: string | null;
   status: string;
-  createdAt: string;
-  submittedByOrgAt?: string;
-  verifiedByAccountingAt?: string;
+  createdAt?: string;
+  submittedByOrgAt?: string | null;
+  submitted_by_org_at?: string | null;
+  verifiedByAccountingAt?: string | null;
+  verified_by_accounting_at?: string | null;
 }
+
+const paymentAmount = (p: Payment) => Number(p.amount ?? p.amountPaid ?? p.amount_paid ?? 0) || 0;
+const paymentInvoiceId = (p: Payment) => Number(p.invoiceId ?? p.invoice_id);
 
 interface PaymentHistoryTableProps {
   payments: Payment[];
@@ -82,7 +99,7 @@ const PaymentHistoryTable: React.FC<PaymentHistoryTableProps> = ({
       const response = await api.get(`/payments/${paymentId}/receipt`, {
         responseType: 'blob'
       });
-      
+
       // Create blob and download
       const blob = new Blob([response.data], { type: 'application/pdf' });
       const url = window.URL.createObjectURL(blob);
@@ -137,22 +154,22 @@ const PaymentHistoryTable: React.FC<PaymentHistoryTableProps> = ({
         </TableHead>
         <TableBody>
           {safePayments
-            .filter(payment => payment && payment.id && (payment.amount || payment.amountPaid))
+            .filter(payment => payment && payment.id && paymentAmount(payment) > 0)
             .map((payment) => (
             <TableRow key={payment.id} hover>
               <TableCell>
-                {payment.paymentDate ? formatDisplayDate(payment.paymentDate) : '-'}
+                {formatDisplayDate(payment.paymentDate ?? payment.payment_date, '-')}
               </TableCell>
               <TableCell align="right">
                 <Typography variant="body2" fontWeight="medium">
-                  ${Number(payment.amount || payment.amountPaid || 0).toFixed(2)}
+                  ${paymentAmount(payment).toFixed(2)}
                 </Typography>
               </TableCell>
               <TableCell>
-                {payment.paymentMethod ? formatPaymentMethod(payment.paymentMethod) : '-'}
+                {formatPaymentMethod(payment.paymentMethod ?? payment.payment_method ?? '')}
               </TableCell>
               <TableCell>
-                {payment.referenceNumber || '-'}
+                {payment.referenceNumber ?? payment.reference_number ?? '-'}
               </TableCell>
               <TableCell>
                 <Chip
@@ -164,16 +181,10 @@ const PaymentHistoryTable: React.FC<PaymentHistoryTableProps> = ({
               {showVerificationDetails && (
                 <>
                   <TableCell>
-                    {payment.submittedByOrgAt 
-                      ? formatDisplayDate(payment.submittedByOrgAt)
-                      : '-'
-                    }
+                    {formatDisplayDate(payment.submittedByOrgAt ?? payment.submitted_by_org_at, '-')}
                   </TableCell>
                   <TableCell>
-                    {payment.verifiedByAccountingAt 
-                      ? formatDisplayDate(payment.verifiedByAccountingAt)
-                      : '-'
-                    }
+                    {formatDisplayDate(payment.verifiedByAccountingAt ?? payment.verified_by_accounting_at, '-')}
                   </TableCell>
                 </>
               )}
@@ -184,12 +195,12 @@ const PaymentHistoryTable: React.FC<PaymentHistoryTableProps> = ({
               </TableCell>
               <TableCell align="center">
                 <Box sx={{ display: 'flex', gap: 0.5, justifyContent: 'center' }}>
-                  {onViewInvoice && (
+                  {onViewInvoice && Number.isFinite(paymentInvoiceId(payment)) && (
                     <Tooltip title="View Invoice">
                       <IconButton
                         size="small"
                         color="primary"
-                        onClick={() => onViewInvoice(payment.invoiceId)}
+                        onClick={() => onViewInvoice(paymentInvoiceId(payment))}
                       >
                         <ViewIcon fontSize="small" />
                       </IconButton>

@@ -91,7 +91,7 @@ export class PDFService {
         const total = subtotal + hst;
         const attendanceList = Array.isArray(invoice.attendance_list) ? invoice.attendance_list : [];
         const present = attendanceList.filter(s => s.attended).length;
-        const absent = attendanceList.filter(s => s.attended === false).length;
+        const absent = attendanceList.filter(s => !s.attended).length;
 
         // Header
         doc.fontSize(20).fillColor(BLUE).text('GTA CPR TRAINING SERVICES', { align: 'center' });
@@ -224,7 +224,7 @@ export class PDFService {
     const total = subtotal + hst;
     const attendanceList = Array.isArray(invoice.attendance_list) ? invoice.attendance_list : [];
     const present = attendanceList.filter(s => s.attended).length;
-    const absent = attendanceList.filter(s => s.attended === false).length;
+    const absent = attendanceList.filter(s => !s.attended).length;
 
     const attendanceRows = attendanceList.map(s => safeHtml`<tr><td>${s.first_name} ${s.last_name}</td><td>${s.email || 'N/A'}</td><td style="color:${s.attended ? 'green' : 'red'}">${s.attended ? 'Present' : 'Absent'}</td></tr>`).join('');
     const attendanceSection = attendanceList.length > 0

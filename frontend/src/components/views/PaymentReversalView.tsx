@@ -18,6 +18,8 @@ import {
 } from '@mui/material';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import api from '../../services/api';
+import { getErrorMessage } from '../../utils/errorMessage';
+import { formatDisplayDate } from '../../utils/formatters';
 import DataTable, { DataTableRow } from '../gtacpr/DataTable';
 import StatusChip from '../gtacpr/StatusChip';
 import { PrimaryButton, GhostButton } from '../gtacpr/Buttons';
@@ -79,14 +81,15 @@ const PaymentReversalView = () => {
       setSuccessMessage(`Payment reversed successfully! Amount: $${data.data.reversedAmount}`);
       setErrorMessage('');
     },
-    onError: (error: Error & { response?: { data?: { message?: string } } }) => {
-      setErrorMessage(error.response?.data?.message || 'Failed to reverse payment.');
+    onError: (error: unknown) => {
+      setErrorMessage(getErrorMessage(error, 'Failed to reverse payment.'));
       setSuccessMessage('');
     },
   });
 
-  const formatCurrency = (amount: number | undefined | null) => new Intl.NumberFormat('en-CA', { style: 'currency', currency: 'CAD' }).format(amount || 0);
-  const formatDate = (dateString: string | undefined | null) => dateString ? new Date(dateString).toLocaleDateString() : '-';
+  const formatCurrency = (amount: number | string | undefined | null) => new Intl.NumberFormat('en-CA', { style: 'currency', currency: 'CAD' }).format(Number(amount) || 0);
+  // payment_date is date-only: new Date() would show it a day early in Toronto.
+  const formatDate = (dateString: string | undefined | null) => formatDisplayDate(dateString, '-');
   const formatDateTime = (dateString: string | undefined | null) => dateString ? new Date(dateString).toLocaleString() : '-';
 
   // Date.now() is impure to call during render, but these are pure display

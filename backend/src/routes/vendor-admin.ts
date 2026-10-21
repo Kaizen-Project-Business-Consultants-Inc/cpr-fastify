@@ -6,7 +6,7 @@ import { writeAudit } from '../utils/auditLog.js';
 import { maybePaginate, paginatedResponse } from '../utils/pagination.js';
 import type { RowDataPacket, ResultSetHeader } from 'mysql2/promise';
 import { PROCESSED_PAID_BY_VENDOR_INVOICE } from '../utils/paymentSql.js';
-import { VI_CAMEL_COLS } from '../utils/vendorInvoiceSql.js';
+import { VI_CAMEL_COLS, VI_PAYMENT_COLS } from '../utils/vendorInvoiceSql.js';
 
 const approveSchema = z.object({
   action: z.enum(['approve', 'reject']),
@@ -134,18 +134,24 @@ export async function vendorAdminRoutes(app: FastifyInstance) {
   // ===== Admin: All vendor invoices =====
   app.get('/admin/vendor-invoices', { preHandler: adminRole }, async (request) => {
     const { where, params } = invoiceFilter(request.query as Record<string, string>);
-    const fromClause = `FROM vendor_invoices vi
-       LEFT JOIN vendors v ON vi.vendor_id = v.id
-       LEFT JOIN users u_approved ON vi.approved_by = u_approved.id`;
+    // The count only needs the vendor join (search matches v.name); the data query
+    // adds who approved/rejected it and what has been paid, which the Course Admin
+    // detail dialog and Paid Vendor Invoices screen show.
+    const countFrom = `FROM vendor_invoices vi LEFT JOIN vendors v ON vi.vendor_id = v.id`;
     const result = await maybePaginate(
       `SELECT vi.*, ${VI_CAMEL_COLS},
               v.name as vendor_name, v.name as vendorName,
               v.contact_email as vendor_email, v.contact_email as vendorEmail,
-              u_approved.username as approved_by_name, u_approved.username as approvedByName
-       ${fromClause}
+              u_approved.username as approved_by_name, u_approved.username as approvedByName,
+              u_rejected.username as rejected_by_name, u_rejected.username as rejectedByName,
+              ${VI_PAYMENT_COLS}
+       ${countFrom}
+       LEFT JOIN users u_approved ON vi.approved_by = u_approved.id
+       LEFT JOIN users u_rejected ON vi.rejected_by = u_rejected.id
+       LEFT JOIN ${PROCESSED_PAID_BY_VENDOR_INVOICE} payments ON payments.vendor_invoice_id = vi.id
        ${where}
        ORDER BY vi.created_at DESC`,
-      `SELECT COUNT(*) as count ${fromClause} ${where}`,
+      `SELECT COUNT(*) as count ${countFrom} ${where}`,
       params,
       request.query as Record<string, string>,
     );
@@ -187,15 +193,16 @@ export async function vendorAdminRoutes(app: FastifyInstance) {
 
       if (action === 'approve') {
         await conn.query(
-          `UPDATE vendor_invoices SET status = 'submitted_to_accounting', approved_by = ?,
+          `UPDATE vendor_invoices SET status = 'submitted_to_accounting', approved_by = ?, approved_at = CURRENT_TIMESTAMP,
            admin_notes = ?, sent_to_accounting_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
           [request.userId, notes ?? '', id]
         );
       } else {
         await conn.query(
+          // vendor_invoices has no rejected_at column (only rejected_by); updated_at says when.
           `UPDATE vendor_invoices SET status = 'rejected_by_admin', admin_notes = ?, rejection_reason = ?,
-           rejected_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
-          [notes, notes, id]
+           rejected_by = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+          [notes, notes, request.userId, id]
         );
       }
       await writeAudit(conn, { userId: request.userId, action: action === 'approve' ? 'approve_vendor_invoice' : 'reject_vendor_invoice', entityType: 'vendor_invoice', entityId: parseInt(id), details: { invoiceNumber: invoiceRows[0].invoice_number, total: Number(invoiceRows[0].total ?? invoiceRows[0].amount), notes }, ipAddress: request.ip });
@@ -217,9 +224,7 @@ export async function vendorAdminRoutes(app: FastifyInstance) {
               v.name as vendor_name, v.name as vendorName,
               v.contact_email as vendor_email, v.contact_email as vendorEmail,
               u_approved.username as approved_by_name, u_approved.username as approvedByName,
-              COALESCE(payments.total_paid, 0) as total_paid, COALESCE(payments.total_paid, 0) as totalPaid,
-              (vi.total - COALESCE(payments.total_paid, 0)) as balance_due,
-              (vi.total - COALESCE(payments.total_paid, 0)) as balanceDue
+              ${VI_PAYMENT_COLS}
        ${fromClause}
        ${where}
        ORDER BY vi.created_at DESC`,
@@ -245,11 +250,11 @@ export async function vendorAdminRoutes(app: FastifyInstance) {
               v.contact_email as vendor_email, v.contact_email as vendorEmail,
               v.address as vendor_address, v.address as vendorAddress,
               u_approved.username as approved_by_name, u_approved.username as approvedByName,
-              COALESCE(payments.total_paid, 0) as total_paid, COALESCE(payments.total_paid, 0) as totalPaid,
-              (vi.total - COALESCE(payments.total_paid, 0)) as balance_due,
-              (vi.total - COALESCE(payments.total_paid, 0)) as balanceDue
+              u_rejected.username as rejected_by_name, u_rejected.username as rejectedByName,
+              ${VI_PAYMENT_COLS}
        FROM vendor_invoices vi LEFT JOIN vendors v ON vi.vendor_id = v.id
        LEFT JOIN users u_approved ON vi.approved_by = u_approved.id
+       LEFT JOIN users u_rejected ON vi.rejected_by = u_rejected.id
        LEFT JOIN ${PROCESSED_PAID_BY_VENDOR_INVOICE} payments
          ON payments.vendor_invoice_id = vi.id
        WHERE vi.id = ?`,
@@ -280,7 +285,7 @@ export async function vendorAdminRoutes(app: FastifyInstance) {
       await conn.beginTransaction();
       const [invoiceRows] = await conn.query<RowDataPacket[]>(
         `SELECT vi.*, COALESCE(payments.total_paid, 0) as total_paid,
-                (vi.total - COALESCE(payments.total_paid, 0)) as balance_due
+                (COALESCE(vi.total, vi.amount) - COALESCE(payments.total_paid, 0)) as balance_due
          FROM vendor_invoices vi
          LEFT JOIN ${PROCESSED_PAID_BY_VENDOR_INVOICE} payments
            ON payments.vendor_invoice_id = vi.id
@@ -337,7 +342,7 @@ export async function vendorAdminRoutes(app: FastifyInstance) {
 
       await conn.query(
         `UPDATE vendor_invoices SET status = 'rejected_by_accountant', rejection_reason = ?, rejected_by = ?,
-         rejected_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+         updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
         [notes, request.userId, id]
       );
       await writeAudit(conn, { userId: request.userId, action: 'accounting_reject_vendor_invoice', entityType: 'vendor_invoice', entityId: parseInt(id), details: { invoiceNumber: invoiceRows[0].invoice_number, total: Number(invoiceRows[0].total ?? invoiceRows[0].amount), notes }, ipAddress: request.ip });

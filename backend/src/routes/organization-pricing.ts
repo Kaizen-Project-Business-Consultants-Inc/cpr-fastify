@@ -31,12 +31,14 @@ export async function organizationPricingRoutes(app: FastifyInstance) {
     }
 
     // The frontend reads these in camelCase (pricing.pricePerStudent,
-    // .isActive, .classTypeName); op.* alone left them undefined.
+    // .isActive, .classTypeName, .classTypeId, .updatedAt); op.* alone left
+    // them undefined. isActive is a TINYINT, so it arrives as 0/1.
     const [rows] = await pool.query<RowDataPacket[]>(
       `SELECT op.*, ct.name as class_type_name, ct.name as classTypeName,
               ct.duration_minutes, ct.duration_minutes as durationMinutes,
               o.name as organization_name, o.name as organizationName,
-              op.price_per_student as pricePerStudent, op.is_active as isActive
+              op.price_per_student as pricePerStudent, op.is_active as isActive,
+              op.class_type_id as classTypeId, op.updated_at as updatedAt
        FROM organization_pricing op
        JOIN class_types ct ON op.class_type_id = ct.id
        JOIN organizations o ON op.organization_id = o.id
@@ -65,7 +67,8 @@ export async function organizationPricingRoutes(app: FastifyInstance) {
       `SELECT op.*, ct.name as class_type_name, ct.name as classTypeName,
               ct.duration_minutes, ct.duration_minutes as durationMinutes,
               o.name as organization_name, o.name as organizationName,
-              op.price_per_student as pricePerStudent, op.is_active as isActive
+              op.price_per_student as pricePerStudent, op.is_active as isActive,
+              op.class_type_id as classTypeId, op.updated_at as updatedAt
        FROM organization_pricing op
        JOIN class_types ct ON op.class_type_id = ct.id
        JOIN organizations o ON op.organization_id = o.id

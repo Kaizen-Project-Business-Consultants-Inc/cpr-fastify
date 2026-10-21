@@ -7,7 +7,6 @@ import { tokenService } from '../services/tokenService';
 const InstructorPortal = React.lazy(() => import('../components/portals/InstructorPortalContainer'));
 const OrganizationPortalContainer = React.lazy(() => import('../components/portals/organization/OrganizationPortalContainer'));
 const CourseAdminPortal = React.lazy(() => import('../components/portals/courseAdmin/CourseAdminPortalContainer'));
-const SuperAdminPortal = React.lazy(() => import('../components/portals/SuperAdminPortal'));
 const AccountingPortal = React.lazy(() => import('../components/portals/AccountingPortal'));
 const SystemAdminPortal = React.lazy(() => import('../components/portals/SystemAdminPortal'));
 const HRPortal = React.lazy(() => import('../components/portals/HRPortal'));
@@ -38,7 +37,6 @@ const RoleBasedRouter: React.FC = () => {
         organization: '/organization/dashboard',
         admin: '/admin/dashboard',
         accountant: '/accounting/dashboard',
-        superadmin: '/superadmin/dashboard',
         sysadmin: '/sysadmin/dashboard',
         hr: '/hr',
         vendor: '/vendor/dashboard',
@@ -81,8 +79,6 @@ const RoleBasedRouter: React.FC = () => {
         return <CourseAdminPortal />;
       case 'accountant':
         return <AccountingPortal />;
-      case 'superadmin':
-        return <SuperAdminPortal />;
       case 'sysadmin':
         return <SystemAdminPortal />;
       case 'hr':

@@ -20,7 +20,8 @@ import { formatDisplayDate } from '../../utils/dateUtils';
 
 interface ClassData {
   id: number;
-  coursetype: string;
+  /** The class list sends the course type name as coursetypename. */
+  coursetypename: string;
   location: string;
   date: string;
   studentcount: number;
@@ -49,7 +50,7 @@ const TodayClassesList: React.FC<TodayClassesListProps> = ({ classes = [] }) => 
                       <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                         <ClassIcon color="primary" />
                         <Typography variant="subtitle1" component="span">
-                          {cls.coursetype} - {cls.location}
+                          {cls.coursetypename} - {cls.location}
                         </Typography>
                       </span>
                     }

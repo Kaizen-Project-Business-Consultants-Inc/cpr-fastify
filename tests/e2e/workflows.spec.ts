@@ -164,13 +164,8 @@ test.describe.serial('Workflow: vendor invoice submit -> approve -> pay', () => 
     await pg.goto('/vendor/upload');
     await pg.waitForLoadState('domcontentloaded');
 
-    const vendorSelect = pg.getByLabel('Vendor Name');
-    await expect(vendorSelect).toBeVisible({ timeout: 30000 });
-    await vendorSelect.click();
-    const firstVendor = pg.getByRole('option').first();
-    await expect(firstVendor).toBeVisible({ timeout: 15000 });
-    await firstVendor.click();
-
+    // The invoice is always filed under the signed-in vendor (no picker).
+    await expect(pg.getByLabel('Invoice #')).toBeVisible({ timeout: 30000 });
     await pg.getByLabel('Invoice #').fill(invoiceNumber);
     await pg.getByLabel('Quantity').fill('1');
     await pg.getByLabel('Item').fill('Test item');

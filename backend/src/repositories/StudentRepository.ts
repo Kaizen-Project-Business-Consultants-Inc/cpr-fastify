@@ -19,7 +19,9 @@ export interface Student {
 export interface StudentWithHistory extends Student {
   course_count: number;
   last_course_date: string | null;
-  organizations: string | null;
+  organizations?: string | null;
+  /** The student's own organization (search results). */
+  organization_name?: string | null;
 }
 
 export class StudentRepository {
@@ -149,10 +151,12 @@ export class StudentRepository {
     const [rows] = await pool.query<(RowDataPacket & StudentWithHistory)[]>(
       `SELECT s.*,
               COUNT(DISTINCT cs.course_request_id) as course_count,
-              MAX(cr.completed_at) as last_course_date
+              MAX(cr.completed_at) as last_course_date,
+              o.name as organization_name
        FROM students s
        LEFT JOIN course_students cs ON cs.student_id = s.id
        LEFT JOIN course_requests cr ON cs.course_request_id = cr.id
+       LEFT JOIN organizations o ON s.organization_id = o.id
        WHERE s.email LIKE ? OR s.first_name LIKE ? OR s.last_name LIKE ?
        GROUP BY s.id
        ORDER BY s.last_name, s.first_name

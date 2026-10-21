@@ -32,10 +32,9 @@ interface PaidVendorInvoice {
   dueDate: string;
   vendorName: string;
   vendorEmail: string;
-  vendorContact: string;
-  vendorPaymentMethod: string;
+  /** Method of the most recent processed payment, or null. */
+  vendorPaymentMethod: string | null;
   approvedByName: string;
-  approvedByEmail: string;
   sentToAccountingAt: string;
   totalPaid: number | string;
   balanceDue: number | string;
@@ -47,7 +46,7 @@ interface PaymentHistory {
   id: number;
   paymentDate: string;
   amount: number;
-  paymentMethod: string;
+  paymentMethod: string | null;
   referenceNumber: string;
   notes: string;
   status: string;
@@ -304,7 +303,7 @@ const PaidVendorInvoices: React.FC = () => {
                 {formatCurrency(invoice.total)}
               </Typography>
               <Typography sx={{ fontSize: 13, fontWeight: 700, color: '#15803D', textAlign: 'right' }}>
-                {formatCurrency(invoice.totalPaid || invoice.total)}
+                {formatCurrency(Number(invoice.totalPaid) || 0)}
               </Typography>
               <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>
                 {formatDate(invoice.paidAt || invoice.sentToAccountingAt)}
@@ -361,7 +360,7 @@ const PaidVendorInvoices: React.FC = () => {
                   </Grid>
                   <Grid item xs={12} md={6}>
                     <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary, mb: 1 }}>
-                      <strong>Payment Method:</strong> {selectedInvoice.vendorPaymentMethod?.replace('_', ' ').toUpperCase() || 'CHECK'}
+                      <strong>Payment Method:</strong> {selectedInvoice.vendorPaymentMethod?.replace(/_/g, ' ').toUpperCase() || '—'}
                     </Typography>
                   </Grid>
                 </Grid>
@@ -379,7 +378,7 @@ const PaidVendorInvoices: React.FC = () => {
                   />
                   <StatCard
                     label="Amount Paid"
-                    value={formatCurrency(selectedInvoice.totalPaid || selectedInvoice.total)}
+                    value={formatCurrency(Number(selectedInvoice.totalPaid) || 0)}
                     dotColor="#15803D"
                   />
                   <StatCard
@@ -469,7 +468,7 @@ const PaidVendorInvoices: React.FC = () => {
                         <Box>
                           <StatusChip
                             kind="neutral"
-                            label={payment.paymentMethod.replace('_', ' ').toUpperCase()}
+                            label={payment.paymentMethod ? payment.paymentMethod.replace(/_/g, ' ').toUpperCase() : '—'}
                           />
                         </Box>
                         <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>

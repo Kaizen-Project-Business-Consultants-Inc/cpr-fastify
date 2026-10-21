@@ -105,7 +105,7 @@ export async function instructorAdminRoutes(app: FastifyInstance) {
     const [dupes] = await pool.query<RowDataPacket[]>(
       'SELECT id FROM users WHERE username = ? OR email = ?', [data.username, data.email]
     );
-    if (dupes.length > 0) return reply.status(400).send({ error: 'Username or email already exists' });
+    if (dupes.length > 0) return reply.status(409).send({ error: 'Username or email already exists' });
 
     const hash = await bcrypt.hash(data.password, env.BCRYPT_SALT_ROUNDS);
     const [result] = await pool.query<ResultSetHeader>(
@@ -133,7 +133,7 @@ export async function instructorAdminRoutes(app: FastifyInstance) {
         'SELECT id FROM users WHERE (username = ? OR email = ?) AND id != ?',
         [data.username ?? existing.username, data.email ?? existing.email, id]
       );
-      if (dupes.length > 0) return reply.status(400).send({ error: 'Username or email already exists' });
+      if (dupes.length > 0) return reply.status(409).send({ error: 'Username or email already exists' });
     }
 
     const hash = data.password ? await bcrypt.hash(data.password, env.BCRYPT_SALT_ROUNDS) : null;

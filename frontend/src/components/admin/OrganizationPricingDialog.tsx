@@ -16,6 +16,7 @@ import {
 } from '@mui/material';
 import { createCoursePricing, updateCoursePrice } from '../../services/api';
 import logger from '../../utils/logger';
+import { getErrorMessage } from '../../utils/errorMessage';
 
 interface OrganizationPricing {
   id: number;
@@ -63,7 +64,6 @@ function OrganizationPricingDialog({
     organizationId: '',
     classTypeId: '',
     pricePerStudent: '',
-    isActive: true,
   });
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(false);
@@ -77,14 +77,12 @@ function OrganizationPricingDialog({
         organizationId: pricing.organizationId.toString(),
         classTypeId: pricing.classTypeId.toString(),
         pricePerStudent: pricing.pricePerStudent.toString(),
-        isActive: pricing.isActive,
       });
     } else {
       setFormData({
         organizationId: '',
         classTypeId: '',
         pricePerStudent: '',
-        isActive: true,
       });
     }
     setErrors({});
@@ -132,7 +130,6 @@ function OrganizationPricingDialog({
         organizationId: parseInt(formData.organizationId, 10),
         courseTypeId: parseInt(formData.classTypeId, 10),
         pricePerStudent: parseFloat(formData.pricePerStudent),
-        isActive: formData.isActive,
       };
 
       if (isEditing && pricing) {
@@ -147,13 +144,13 @@ function OrganizationPricingDialog({
       onClose();
     } catch (err: unknown) {
       logger.error('Error saving organization pricing:', err);
-      setSubmitError(err instanceof Error ? err.message : 'Failed to save pricing record');
+      setSubmitError(getErrorMessage(err, 'Failed to save pricing record'));
     } finally {
       setLoading(false);
     }
   };
 
-  const handleInputChange = (field: string, value: string | boolean) => {
+  const handleInputChange = (field: string, value: string) => {
     setFormData(prev => ({ ...prev, [field]: value }));
     // Clear error when user starts typing
     if (errors[field]) {
@@ -180,7 +177,7 @@ function OrganizationPricingDialog({
               value={formData.organizationId}
               label="Organization"
               onChange={(e) => handleInputChange('organizationId', e.target.value)}
-              disabled={loading}
+              disabled={loading || isEditing}
             >
               {Array.isArray(organizations) && organizations.map((org) => (
                 <MenuItem key={org?.id || 'unknown'} value={(org?.id || '').toString()}>
@@ -199,7 +196,7 @@ function OrganizationPricingDialog({
               value={formData.classTypeId}
               label="Class Type"
               onChange={(e) => handleInputChange('classTypeId', e.target.value)}
-              disabled={loading}
+              disabled={loading || isEditing}
             >
               {Array.isArray(classTypes) && classTypes.map((type) => (
                 <MenuItem key={type?.id || 'unknown'} value={(type?.id || '').toString()}>
@@ -227,18 +224,6 @@ function OrganizationPricingDialog({
             }}
           />
 
-          <FormControl fullWidth sx={{ mb: 2 }}>
-            <InputLabel>Status</InputLabel>
-            <Select
-              value={formData.isActive.toString()}
-              label="Status"
-              onChange={(e) => handleInputChange('isActive', e.target.value === 'true')}
-              disabled={loading}
-            >
-              <MenuItem value="true">Active</MenuItem>
-              <MenuItem value="false">Inactive</MenuItem>
-            </Select>
-          </FormControl>
         </Box>
       </DialogContent>
       <DialogActions>

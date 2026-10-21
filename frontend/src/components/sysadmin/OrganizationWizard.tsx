@@ -19,6 +19,7 @@ import { sysAdminApi } from '../../services/api';
 import { useConfirm } from '../gtacpr';
 import { useSnackbar } from '../../contexts/SnackbarContext';
 import { getErrorMessage } from '../../utils/errorMessage';
+import { toOrganizationBody } from './organizationBody';
 
 interface OrganizationWizardProps {
   open: boolean;
@@ -93,7 +94,7 @@ const OrganizationWizard: React.FC<OrganizationWizardProps> = ({
 
       try {
         setSaving(true);
-        const response = await sysAdminApi.createOrganization(orgData);
+        const response = await sysAdminApi.createOrganization(toOrganizationBody(orgData));
         setCreatedOrgId(response.data.id);
 
         // Pre-fill location with org contact info if available

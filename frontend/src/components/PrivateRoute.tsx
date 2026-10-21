@@ -203,7 +203,6 @@ const PrivateRoute: React.FC<PrivateRouteProps> = ({
               organization: '/organization/dashboard',
               admin: '/admin/dashboard',
               accountant: '/accounting/dashboard',
-              superadmin: '/superadmin/dashboard',
               sysadmin: '/sysadmin/dashboard',
               hr: '/hr',
               vendor: '/vendor/dashboard',

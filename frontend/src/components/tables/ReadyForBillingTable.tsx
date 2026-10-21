@@ -48,6 +48,21 @@ export interface BillingCourse {
   totalAmount?: number;
 }
 
+/** A row as GET /accounting/billing-queue sends it (InvoiceRepository.getBillingQueue). */
+export interface BillingQueueRow {
+  course_id: number;
+  date_completed?: string | null;
+  organization_name?: string;
+  contact_email?: string | null;
+  course_type_name?: string;
+  location?: string | null;
+  instructor_name?: string | null;
+  students_attended?: number | string;
+  registered_students?: number | string | null;
+  rate_per_student?: number | string | null;
+  total_amount?: number | string | null;
+}
+
 const ReadyForBillingTable = ({
   courses,
   onCreateInvoice,

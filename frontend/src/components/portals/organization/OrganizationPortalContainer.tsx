@@ -37,10 +37,20 @@ const OrganizationPortalContainer: React.FC = () => {
   const { data: courses, isLoading: coursesLoading } = useQuery({
     queryKey: ['organization-courses', user?.organizationId],
     queryFn: async () => {
-      const response = await api.get('/organization/courses', {
-        params: { _t: Date.now() }
-      });
-      return Array.isArray(response.data.data) ? response.data.data : [];
+      // The Dashboard and Analytics totals are computed from this list, so load
+      // every page: the route returns 50 by default and at most 100 at a time.
+      const PAGE_SIZE = 100;
+      const all = [];
+      for (let page = 1; ; page++) {
+        const response = await api.get('/organization/courses', {
+          params: { page, limit: PAGE_SIZE, _t: Date.now() }
+        });
+        const rows = Array.isArray(response.data.data) ? response.data.data : [];
+        all.push(...rows);
+        const total = Number(response.data.pagination?.total ?? 0);
+        if (rows.length < PAGE_SIZE || all.length >= total) break;
+      }
+      return all;
     },
     enabled: !!user?.organizationId,
   });

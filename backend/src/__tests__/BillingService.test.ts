@@ -10,6 +10,9 @@ const mockConn = {
   rollback: vi.fn(),
   release: vi.fn(),
 };
+const { mockSendInvoicePosted } = vi.hoisted(() => ({ mockSendInvoicePosted: vi.fn().mockResolvedValue(true) }));
+vi.mock('../services/EmailService.js', () => ({ emailService: { sendInvoicePostedEmail: mockSendInvoicePosted } }));
+vi.mock('../config/env.js', () => ({ env: { FRONTEND_URL: 'https://portal.test' } }));
 vi.mock('../config/database.js', () => ({
   getPool: () => ({ query: mockQuery, getConnection: () => Promise.resolve(mockConn) }),
 }));

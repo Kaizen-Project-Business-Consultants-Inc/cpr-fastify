@@ -25,8 +25,11 @@ const createUserSchema = z.object({
   lastName: z.string().max(100).optional(),
   phone: z.string().optional(),
   mobile: z.string().optional(),
-  organizationId: z.number().int().positive().optional(),
-  locationId: z.number().int().positive().optional(),
+  // null = no organization / location (the screen's "None").
+  organizationId: z.number().int().positive().nullish(),
+  locationId: z.number().int().positive().nullish(),
+  dateOnboarded: z.union([z.literal(''), z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Date onboarded must be YYYY-MM-DD')]).nullish(),
+  userComments: z.string().max(5000).nullish(),
 });
 
 const createCourseSchema = z.object({
@@ -38,12 +41,32 @@ const createCourseSchema = z.object({
   certification_validity_months: z.number().int().min(1).max(120).nullable().optional(),
 });
 
+// The organizations table's own column names ('' clears a field on update).
 const createOrgSchema = z.object({
-  name: z.string().min(1),
-  contact_email: z.string().email().optional(),
-  contact_phone: z.string().optional(),
+  name: z.string().trim().min(1),
+  contact_name: z.string().max(255).optional(),
+  contact_position: z.string().max(100).optional(),
+  contact_email: z.union([z.literal(''), z.string().email().max(255)]).optional(),
+  contact_phone: z.string().max(50).optional(),
   address: z.string().optional(),
+  address_city: z.string().max(100).optional(),
+  address_province: z.string().max(100).optional(),
+  address_postal_code: z.string().max(20).optional(),
+  country: z.string().max(100).optional(),
+  organization_comments: z.string().max(5000).optional(),
 });
+
+// Columns written by POST / PUT /organizations, in createOrgSchema order.
+const ORG_COLUMNS = ['name', 'contact_name', 'contact_position', 'contact_email', 'contact_phone', 'address',
+  'address_city', 'address_province', 'address_postal_code', 'country', 'organization_comments'] as const;
+
+// The Organizations screen's camelCase names, next to the raw columns (o.*).
+const ORG_LIST_COLUMNS = `o.*, o.name AS organizationName, o.contact_name AS contactPerson,
+  o.contact_position AS contactPosition, o.contact_email AS contactEmail, o.contact_phone AS contactPhone,
+  o.address_city AS city, o.address_province AS province, o.address_postal_code AS postalCode,
+  o.organization_comments AS organizationComments,
+  (SELECT COUNT(*) FROM users u WHERE u.organization_id = o.id) AS userCount,
+  (SELECT COUNT(*) FROM course_requests cr WHERE cr.organization_id = o.id AND cr.deleted_at IS NULL) AS courseCount`;
 
 // Matches the LocationsDialog / OrganizationWizard payloads (camelCase).
 const locationSchema = z.object({
@@ -59,22 +82,26 @@ const locationSchema = z.object({
   isActive: z.boolean().optional(),
 });
 
+// The vendors table's own column names. '' clears a text field on update.
+// (vendors.status is left alone: is_active is what every screen and route reads.)
 const vendorBodySchema = z.object({
-  vendor_name: z.string().optional(),
-  name: z.string().optional(),
-  email: z.string().email().optional(),
-  contactEmail: z.string().email().optional(),
-  contact_email: z.string().email().optional(),
-  phone: z.string().optional(),
-  contact_phone: z.string().optional(),
-  address: z.string().optional(),
-  address_street: z.string().optional(),
-  address_city: z.string().optional(),
-  address_province: z.string().optional(),
-  address_postal_code: z.string().optional(),
-  vendor_type: z.string().optional(),
+  name: z.string().trim().min(1, 'Vendor name is required').max(255),
+  contact_name: z.string().max(255).optional(),
+  contact_email: z.union([z.literal(''), z.string().email().max(255)]).optional(),
+  contact_phone: z.string().max(20).optional(),
+  address: z.string().max(5000).optional(),
+  vendor_type: z.string().max(100).optional(),
+  company_name: z.string().max(255).optional(),
+  tax_id: z.string().max(100).optional(),
+  payment_terms: z.string().max(100).optional(),
+  notes: z.string().max(5000).optional(),
   is_active: z.boolean().optional(),
 });
+const VENDOR_TEXT_COLUMNS = ['name', 'contact_name', 'contact_email', 'contact_phone', 'address', 'vendor_type',
+  'company_name', 'tax_id', 'payment_terms', 'notes'] as const;
+
+/** What GET /configurations shows instead of a secret's value. */
+export const SECRET_MASK = '********';
 
 /** An expected 4xx raised inside a transaction: rolls back, then becomes the reply. */
 class TxAbort extends Error {
@@ -124,7 +151,8 @@ export async function adminRoutes(app: FastifyInstance) {
       [],
       request.query as Record<string, string>,
     );
-    return paginatedResponse(result);
+    // Course Management reads isActive (true/false); is_active stays 0/1 for other callers.
+    return paginatedResponse(result, (rows) => rows.map((r: RowDataPacket) => ({ ...r, isActive: Boolean(r.is_active) })));
   });
 
   app.post('/courses', { preHandler: adminRole }, async (request, reply) => {
@@ -196,11 +224,16 @@ export async function adminRoutes(app: FastifyInstance) {
     if (conditions.length > 0) where = 'WHERE ' + conditions.join(' AND ');
 
     const result = await paginatedQuery(
+      // camelCase copies are what User Management reads; the snake names stay for older callers.
       `SELECT u.id, u.username, u.email, u.role, u.phone, u.mobile,
               u.first_name, u.last_name, u.full_name,
+              u.first_name AS firstName, u.last_name AS lastName, u.full_name AS fullName,
               u.organization_id, o.name as organization_name,
+              u.organization_id AS organizationId, o.name AS organizationName,
               u.location_id, ol.location_name,
+              u.location_id AS locationId, ol.location_name AS locationName,
               u.date_onboarded, u.date_offboarded, u.user_comments, u.status,
+              DATE_FORMAT(u.date_onboarded, '%Y-%m-%d') AS dateOnboarded, u.user_comments AS userComments,
               u.created_at, u.updated_at
        FROM users u
        LEFT JOIN organizations o ON u.organization_id = o.id
@@ -250,9 +283,11 @@ export async function adminRoutes(app: FastifyInstance) {
 
       const [result] = await conn.query<ResultSetHeader>(
         `INSERT INTO users (username, email, password_hash, role, first_name, last_name,
-         phone, mobile, organization_id, location_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         phone, mobile, organization_id, location_id, date_onboarded, user_comments)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [data.username, data.email, hash, data.role, data.firstName ?? null, data.lastName ?? null,
-         data.phone ?? null, data.mobile ?? null, data.organizationId ?? null, data.locationId ?? null]
+         data.phone ?? null, data.mobile ?? null, data.organizationId ?? null, data.locationId ?? null,
+         data.dateOnboarded || null, data.userComments || null]
       );
       const [rows] = await conn.query<RowDataPacket[]>(
         'SELECT id, username, email, role, first_name, last_name, organization_id, created_at FROM users WHERE id = ?',
@@ -265,9 +300,13 @@ export async function adminRoutes(app: FastifyInstance) {
 
   app.put('/users/:id', { preHandler: adminRole }, async (request, reply) => {
     const { id } = request.params as { id: string };
-    const { username, email, role, firstName, lastName, phone, mobile, organizationId, locationId, status } = createUserSchema.extend({
+    const { username, email, role, firstName, lastName, phone, mobile, organizationId, locationId,
+            dateOnboarded, userComments, status, password } = createUserSchema.extend({
       status: z.enum(['active', 'inactive', 'deleted']).optional(),
+      // An admin may set a new password while editing; '' (or leaving it out) keeps the current one.
+      password: z.union([z.literal(''), z.string().min(8)]).optional(),
     }).partial().parse(request.body);
+    const passwordHash = password ? await bcrypt.hash(password, env.BCRYPT_SALT_ROUNDS) : null;
 
     // Only a sysadmin may grant admin/sysadmin, or modify an existing admin/sysadmin account
     if (request.userRole !== 'sysadmin') {
@@ -280,23 +319,40 @@ export async function adminRoutes(app: FastifyInstance) {
       const [current] = await conn.query<RowDataPacket[]>('SELECT email FROM users WHERE id = ? FOR UPDATE', [id]);
       if (current.length === 0) throw new TxAbort(404, { error: 'User not found' });
       if (isErased(current[0].email)) throw new TxAbort(400, { error: 'This account was erased and cannot be changed' });
+      // These can be cleared: a field left out keeps its value, null (or '') empties it.
+      const clearable: [string, unknown][] = [
+        ['organization_id', organizationId], ['location_id', locationId],
+        ['date_onboarded', dateOnboarded], ['user_comments', userComments],
+      ];
+      const clearableSet = clearable.filter(([, v]) => v !== undefined);
+      const passwordSet = passwordHash ? ', password_hash = ?, password_changed_at = CURRENT_TIMESTAMP' : '';
       const [result] = await conn.query<ResultSetHeader>(
         `UPDATE users SET username = COALESCE(?, username), email = COALESCE(?, email),
          role = COALESCE(?, role), first_name = COALESCE(?, first_name), last_name = COALESCE(?, last_name),
          phone = COALESCE(?, phone), mobile = COALESCE(?, mobile),
-         organization_id = COALESCE(?, organization_id), location_id = COALESCE(?, location_id),
-         status = COALESCE(?, status), updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+         ${clearableSet.map(([col]) => `${col} = ?, `).join('')}status = COALESCE(?, status)${passwordSet},
+         updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
         [username ?? null, email ?? null, role ?? null, firstName ?? null, lastName ?? null,
-         phone ?? null, mobile ?? null, organizationId ?? null, locationId ?? null, status ?? null, id]
+         phone ?? null, mobile ?? null, ...clearableSet.map(([, v]) => v || null), status ?? null,
+         ...(passwordHash ? [passwordHash] : []), id]
       );
       if (result.affectedRows === 0) throw new TxAbort(404, { error: 'User not found' });
+      if (passwordHash) {
+        // A new password signs the user out everywhere, as reset and change-password do:
+        // older access tokens are refused, refresh tokens and open reset links revoked.
+        await conn.query(
+          'INSERT INTO token_blacklist (user_id, invalidated_at) VALUES (?, ?) ON DUPLICATE KEY UPDATE invalidated_at = VALUES(invalidated_at)', [id, new Date()]
+        );
+        await conn.query('UPDATE refresh_tokens SET revoked_at = NOW() WHERE user_id = ? AND revoked_at IS NULL', [id]);
+        await conn.query('UPDATE password_resets SET used_at = NOW() WHERE user_id = ? AND used_at IS NULL', [id]);
+      }
       const [rows] = await conn.query<RowDataPacket[]>(
         `SELECT id, username, email, full_name, first_name, last_name, role,
                 organization_id, location_id, status, phone, mobile, address,
                 date_onboarded, date_offboarded, created_at, updated_at
          FROM users WHERE id = ?`, [id]
       );
-      await writeAudit(conn, { userId: request.userId, action: 'update_user', entityType: 'user', entityId: parseInt(id), details: { username, email, role, status }, ipAddress: request.ip });
+      await writeAudit(conn, { userId: request.userId, action: 'update_user', entityType: 'user', entityId: parseInt(id), details: { username, email, role, status, passwordChanged: Boolean(passwordHash) }, ipAddress: request.ip });
       return { success: true, message: 'User updated successfully', data: rows[0] };
     });
   });
@@ -323,23 +379,31 @@ export async function adminRoutes(app: FastifyInstance) {
 
   // ===== Organization management =====
   app.get('/organizations', { preHandler: adminRole }, async (request) => {
-    const { search = '' } = request.query as Record<string, string>;
+    const { search = '', basic = '' } = request.query as Record<string, string>;
+    // ?basic=1: every organization as { id, name, status } for pickers (User Management),
+    // unpaged and without the count subqueries. Inactive ones are kept so a user's
+    // current organization still shows; the screen labels them.
+    if (basic === '1') {
+      const [rows] = await pool.query<RowDataPacket[]>('SELECT id, name, status FROM organizations ORDER BY name LIMIT 5000');
+      return { success: true, data: rows };
+    }
     const pg = parsePagination(request.query as Record<string, string>);
 
     let where = '';
     const params: unknown[] = [];
     if (search) {
-      where = 'WHERE name LIKE ? OR contact_email LIKE ? OR contact_person LIKE ?';
+      where = 'WHERE o.name LIKE ? OR o.contact_email LIKE ? OR o.contact_name LIKE ?';
       params.push(`%${search}%`, `%${search}%`, `%${search}%`);
     }
 
-    const result = await paginatedQuery(
-      `SELECT * FROM organizations ${where} ORDER BY name`,
-      `SELECT COUNT(*) as count FROM organizations ${where}`,
+    const result = await paginatedQuery<RowDataPacket>(
+      `SELECT ${ORG_LIST_COLUMNS} FROM organizations o ${where} ORDER BY o.name`,
+      `SELECT COUNT(*) as count FROM organizations o ${where}`,
       params,
       pg,
     );
-    return { success: true, ...result };
+    const data = result.data.map((o) => ({ ...o, userCount: Number(o.userCount), courseCount: Number(o.courseCount) }));
+    return { success: true, ...result, data };
   });
 
   // `locations` is optional; when present the org and all of its locations are
@@ -368,8 +432,8 @@ export async function adminRoutes(app: FastifyInstance) {
     const data = orgWithLocationsSchema.parse(request.body);
     return inTransaction(reply, async (conn) => {
       const [result] = await conn.query<ResultSetHeader>(
-        'INSERT INTO organizations (name, contact_email, contact_phone, address) VALUES (?, ?, ?, ?)',
-        [data.name, data.contact_email ?? null, data.contact_phone ?? null, data.address ?? null]
+        `INSERT INTO organizations (${ORG_COLUMNS.join(', ')}) VALUES (${ORG_COLUMNS.map(() => '?').join(', ')})`,
+        ORG_COLUMNS.map((col) => data[col] || null)
       );
       for (const loc of data.locations ?? []) {
         await insertLocation(conn, result.insertId, loc);
@@ -382,14 +446,15 @@ export async function adminRoutes(app: FastifyInstance) {
 
   app.put('/organizations/:id', { preHandler: adminRole }, async (request, reply) => {
     const { id } = request.params as { id: string };
-    const { name, contact_email, contact_phone, address, locations } = orgUpdateWithLocationsSchema.parse(request.body);
+    const { locations, ...fields } = orgUpdateWithLocationsSchema.parse(request.body);
+    const { name } = fields;
 
     return inTransaction(reply, async (conn) => {
+      // A field left out keeps its value; '' stores NULL, as POST does (the name can't be emptied).
+      const sent = ORG_COLUMNS.filter((col) => fields[col] !== undefined);
       const [result] = await conn.query<ResultSetHeader>(
-        `UPDATE organizations SET name = COALESCE(?, name), contact_email = COALESCE(?, contact_email),
-         contact_phone = COALESCE(?, contact_phone), address = COALESCE(?, address),
-         updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
-        [name ?? null, contact_email ?? null, contact_phone ?? null, address ?? null, id]
+        `UPDATE organizations SET ${sent.map((col) => `${col} = ?, `).join('')}updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+        [...sent.map((col) => fields[col] || null), id]
       );
       if (result.affectedRows === 0) throw new TxAbort(404, { error: 'Organization not found' });
 
@@ -507,15 +572,29 @@ export async function adminRoutes(app: FastifyInstance) {
   });
 
   // ===== Organization locations =====
+  // The Locations dialog and User Management read camelCase; the raw columns (ol.*) stay too.
+  const LOCATION_COLUMNS = `ol.*, ol.organization_id AS organizationId, ol.location_name AS locationName,
+    ol.postal_code AS postalCode, ol.contact_first_name AS contactFirstName, ol.contact_last_name AS contactLastName,
+    ol.contact_email AS contactEmail, ol.contact_phone AS contactPhone,
+    (SELECT COUNT(*) FROM users u WHERE u.location_id = ol.id) AS userCount,
+    (SELECT COUNT(*) FROM course_requests cr WHERE cr.location_id = ol.id AND cr.deleted_at IS NULL) AS courseCount`;
+  const toLocation = (row: RowDataPacket) => ({
+    ...row, isActive: Boolean(row.is_active), userCount: Number(row.userCount), courseCount: Number(row.courseCount),
+  });
+  async function selectLocation(conn: PoolConnection, locationId: number) {
+    const [rows] = await conn.query<RowDataPacket[]>(`SELECT ${LOCATION_COLUMNS} FROM organization_locations ol WHERE ol.id = ?`, [locationId]);
+    return rows[0] ? toLocation(rows[0]) : undefined;
+  }
+
   app.get('/organizations/:orgId/locations', { preHandler: adminRole }, async (request) => {
     const { orgId } = request.params as { orgId: string };
-    const result = await maybePaginate(
-      'SELECT * FROM organization_locations WHERE organization_id = ? ORDER BY location_name',
+    const result = await maybePaginate<RowDataPacket>(
+      `SELECT ${LOCATION_COLUMNS} FROM organization_locations ol WHERE ol.organization_id = ? ORDER BY ol.location_name`,
       'SELECT COUNT(*) as count FROM organization_locations WHERE organization_id = ?',
       [orgId],
       request.query as Record<string, string>,
     );
-    return paginatedResponse(result);
+    return paginatedResponse(result, (rows) => rows.map(toLocation));
   });
 
   const orgLocationParams = z.object({
@@ -533,9 +612,9 @@ export async function adminRoutes(app: FastifyInstance) {
       if (org.length === 0) throw new TxAbort(404, { error: 'Organization not found' });
 
       const insertId = await insertLocation(conn, orgId, data);
-      const [rows] = await conn.query<RowDataPacket[]>('SELECT * FROM organization_locations WHERE id = ?', [insertId]);
+      const location = await selectLocation(conn, insertId);
       await writeAudit(conn, { userId: request.userId, action: 'create_location', entityType: 'organization_location', entityId: insertId, details: { organizationId: orgId, locationName: data.locationName }, ipAddress: request.ip });
-      return { success: true, message: 'Location created successfully', data: rows[0] };
+      return { success: true, message: 'Location created successfully', data: location };
     });
   });
 
@@ -559,9 +638,9 @@ export async function adminRoutes(app: FastifyInstance) {
          data.isActive === undefined ? null : (data.isActive ? 1 : 0), locationId, orgId]
       );
       if (result.affectedRows === 0) throw new TxAbort(404, { error: 'Location not found' });
-      const [rows] = await conn.query<RowDataPacket[]>('SELECT * FROM organization_locations WHERE id = ?', [locationId]);
+      const location = await selectLocation(conn, locationId);
       await writeAudit(conn, { userId: request.userId, action: 'update_location', entityType: 'organization_location', entityId: locationId, details: { organizationId: orgId, ...data }, ipAddress: request.ip });
-      return { success: true, message: 'Location updated successfully', data: rows[0] };
+      return { success: true, message: 'Location updated successfully', data: location };
     });
   });
 
@@ -657,17 +736,36 @@ export async function adminRoutes(app: FastifyInstance) {
   });
 
   // ===== System configurations =====
+  // Secrets (keys ending _pass, _password, _secret, _token, _api_key; e.g. email_smtp_pass) are never sent back: the screen gets SECRET_MASK,
+  // and saving SECRET_MASK unchanged leaves the stored value alone.
+  const isSecretConfig = (key: string) => /_(pass|password|secret|token|api_key)$/i.test(key);
+
+  // System Configuration reads { [category]: [{ configKey, configValue, ... }] }.
   app.get('/configurations', { preHandler: sysadminRole }, async () => {
     const [rows] = await pool.query<RowDataPacket[]>(
-      'SELECT * FROM system_configurations ORDER BY category, config_key LIMIT 500'
+      `SELECT id, config_key, config_value, description, category, updated_by, created_at, updated_at
+       FROM system_configurations ORDER BY category, config_key LIMIT 500`
     );
-    return { success: true, data: rows };
+    const byCategory: Record<string, Record<string, unknown>[]> = {};
+    for (const r of rows) {
+      const secret = isSecretConfig(r.config_key);
+      const category = r.category || 'general';
+      (byCategory[category] ??= []).push({
+        id: r.id, configKey: r.config_key, description: r.description, category,
+        configValue: secret ? (r.config_value ? SECRET_MASK : '') : r.config_value,
+        isSecret: secret, updatedBy: r.updated_by, createdAt: r.created_at, updatedAt: r.updated_at,
+      });
+    }
+    return { success: true, data: byCategory };
   });
 
   app.put('/configurations/:key', { preHandler: sysadminRole }, async (request, reply) => {
     const { key } = request.params as { key: string };
-    const { value } = request.body as { value: string };
+    const { value } = (request.body ?? {}) as { value?: string };
     if (!value) return reply.status(400).send({ error: 'Configuration value is required' });
+    if (isSecretConfig(key) && value === SECRET_MASK) {
+      return { success: true, message: `Configuration '${key}' unchanged` };
+    }
 
     return inTransaction(reply, async (conn) => {
       const [before] = await conn.query<RowDataPacket[]>(
@@ -679,85 +777,65 @@ export async function adminRoutes(app: FastifyInstance) {
         [value, request.userId, key]
       );
       if (result.affectedRows === 0) throw new TxAbort(404, { error: `Configuration key '${key}' not found` });
-      const [rows] = await conn.query<RowDataPacket[]>('SELECT * FROM system_configurations WHERE config_key = ?', [key]);
+      // A secret's old and new values stay out of the audit log and the reply.
+      const secret = isSecretConfig(key);
       await writeAudit(conn, {
         userId: request.userId, action: 'update_configuration', entityType: 'system_configuration',
-        details: { key, oldValue: before[0]?.config_value ?? null, newValue: value }, ipAddress: request.ip,
+        details: secret ? { key, changed: true } : { key, oldValue: before[0]?.config_value ?? null, newValue: value },
+        ipAddress: request.ip,
       });
-      return { success: true, data: rows[0], message: `Configuration '${key}' updated successfully` };
+      return { success: true, data: { configKey: key, configValue: secret ? SECRET_MASK : value }, message: `Configuration '${key}' updated successfully` };
     });
   });
 
   // ===== Vendor entity CRUD (sysadmin) =====
+  // Vendor Management reads camelCase; the raw columns stay alongside.
+  const toVendor = (v: RowDataPacket) => ({
+    ...v, vendorName: v.name, contactName: v.contact_name, email: v.contact_email, phone: v.contact_phone,
+    vendorType: v.vendor_type, isActive: Boolean(v.is_active), status: v.is_active ? 'active' : 'inactive',
+  });
+
   app.get('/vendors', { preHandler: adminRole }, async (request) => {
-    const result = await maybePaginate(
-      `SELECT id, name as vendorName, contact_email as email, contact_phone as phone,
-              address, vendor_type as vendorType, is_active as isActive,
-              created_at as createdAt, updated_at as updatedAt
+    const result = await maybePaginate<RowDataPacket>(
+      `SELECT id, name, contact_name, contact_email, contact_phone, address, vendor_type, is_active,
+              company_name, tax_id, payment_terms, notes, created_at, updated_at
        FROM vendors ORDER BY name`,
       'SELECT COUNT(*) as count FROM vendors',
       [],
       request.query as Record<string, string>,
     );
-    return paginatedResponse(result, (rows) => rows.map((v) => {
-      let addressStreet = '', addressCity = '', addressProvince = '', addressPostalCode = '';
-      if (v.address) {
-        const parts = v.address.split(',').map((p: string) => p.trim());
-        addressStreet = parts[0] || '';
-        addressCity = parts[1] || '';
-        addressProvince = parts[2] || '';
-        addressPostalCode = parts[3] || '';
-      }
-      return { ...v, addressStreet, addressCity, addressProvince, addressPostalCode,
-               status: v.isActive ? 'active' : 'inactive' };
-    }));
+    return paginatedResponse(result, (rows) => rows.map(toVendor));
   });
 
-  app.post('/vendors', { preHandler: adminRole }, async (request, reply) => {
-    const { vendor_name, name, email, contactEmail, contact_email, phone, contact_phone,
-            address, address_street, address_city, address_province, address_postal_code,
-            vendor_type, is_active } = vendorBodySchema.parse(request.body);
-
-    const vendorName = vendor_name || name;
-    if (!vendorName) return reply.status(400).send({ error: 'Vendor name is required' });
-
-    let fullAddress = address;
-    if (address_street || address_city || address_province || address_postal_code) {
-      fullAddress = [address_street, address_city, address_province, address_postal_code].filter(Boolean).join(', ');
-    }
-
+  app.post('/vendors', { preHandler: adminRole }, async (request) => {
+    const data = vendorBodySchema.parse(request.body);
     const [result] = await pool.query<ResultSetHeader>(
-      'INSERT INTO vendors (name, contact_email, contact_phone, address, vendor_type, is_active) VALUES (?, ?, ?, ?, ?, COALESCE(?, true))',
-      [vendorName, email || contactEmail || contact_email || null, phone || contact_phone || null,
-       fullAddress || null, vendor_type || null, is_active ?? true]
+      `INSERT INTO vendors (${VENDOR_TEXT_COLUMNS.join(', ')}, is_active)
+       VALUES (${VENDOR_TEXT_COLUMNS.map(() => '?').join(', ')}, ?)`,
+      [...VENDOR_TEXT_COLUMNS.map((col) => data[col] || null), data.is_active === false ? 0 : 1]
     );
     const [rows] = await pool.query<RowDataPacket[]>('SELECT * FROM vendors WHERE id = ?', [result.insertId]);
-    return { success: true, message: 'Vendor created successfully', data: rows[0] };
+    return { success: true, message: 'Vendor created successfully', data: toVendor(rows[0]) };
   });
 
   app.put('/vendors/:id', { preHandler: adminRole }, async (request, reply) => {
-    const { id } = request.params as { id: string };
-    const { vendor_name, name, email, contact_email, phone, contact_phone,
-            address, address_street, address_city, address_province, address_postal_code,
-            vendor_type, is_active } = vendorBodySchema.parse(request.body);
-
-    const vendorName = vendor_name || name;
-    let fullAddress = address;
-    if (address_street || address_city || address_province || address_postal_code) {
-      fullAddress = [address_street, address_city, address_province, address_postal_code].filter(Boolean).join(', ');
+    const { id } = z.object({ id: z.coerce.number().int().positive() }).parse(request.params);
+    const data = vendorBodySchema.partial().parse(request.body);
+    // A field left out keeps its value; '' empties it.
+    const sets: string[] = [];
+    const params: unknown[] = [];
+    for (const col of VENDOR_TEXT_COLUMNS) {
+      if (data[col] !== undefined) { sets.push(`${col} = ?`); params.push(data[col] || null); }
     }
+    if (data.is_active !== undefined) { sets.push('is_active = ?'); params.push(data.is_active ? 1 : 0); }
 
     const [result] = await pool.query<ResultSetHeader>(
-      `UPDATE vendors SET name = COALESCE(?, name), contact_email = COALESCE(?, contact_email),
-       contact_phone = COALESCE(?, contact_phone), address = COALESCE(?, address),
-       vendor_type = COALESCE(?, vendor_type), is_active = COALESCE(?, is_active),
-       updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
-      [vendorName || null, email || contact_email || null, phone || contact_phone || null,
-       fullAddress || null, vendor_type || null, is_active ?? null, id]
+      `UPDATE vendors SET ${sets.map((x) => `${x}, `).join('')}updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+      [...params, id]
     );
     if (result.affectedRows === 0) return reply.status(404).send({ error: 'Vendor not found' });
     const [rows] = await pool.query<RowDataPacket[]>('SELECT * FROM vendors WHERE id = ?', [id]);
-    return { success: true, message: 'Vendor updated successfully', data: rows[0] };
+    return { success: true, message: 'Vendor updated successfully', data: toVendor(rows[0]) };
   });
 
   app.delete('/vendors/:id', { preHandler: adminRole }, async (request, reply) => {
@@ -772,6 +850,7 @@ export async function adminRoutes(app: FastifyInstance) {
 
   // ===== Student directory =====
   const studentRepo = new StudentRepository();
+  const STUDENT_SEARCH_LIMIT = 50;
 
   // Search students by name or email
   app.get('/students', { preHandler: adminRole }, async (request) => {
@@ -787,8 +866,14 @@ export async function adminRoutes(app: FastifyInstance) {
     }
 
     if (q && q.trim().length >= 2) {
-      const students = await studentRepo.search(q.trim());
-      return { success: true, data: students };
+      // Search answers with the first STUDENT_SEARCH_LIMIT matches; `truncated`
+      // tells the screen there are more, so it can ask for a narrower search.
+      const students = await studentRepo.search(q.trim(), STUDENT_SEARCH_LIMIT + 1);
+      return {
+        success: true,
+        data: students.slice(0, STUDENT_SEARCH_LIMIT),
+        truncated: students.length > STUDENT_SEARCH_LIMIT,
+      };
     }
 
     // No filter — historically the 100 most recent students. When the caller
@@ -959,18 +1044,18 @@ export async function adminRoutes(app: FastifyInstance) {
     let where = '';
     const params: unknown[] = [];
     if (search) {
-      where = 'WHERE name LIKE ? OR contact_email LIKE ? OR contact_person LIKE ?';
+      where = 'WHERE name LIKE ? OR contact_email LIKE ? OR contact_name LIKE ?';
       params.push(`%${search}%`, `%${search}%`, `%${search}%`);
     }
     const [rows] = await pool.query<RowDataPacket[]>(`SELECT * FROM organizations ${where} ORDER BY name`, params);
     const csv = toCSV(rows, [
       { key: 'name', label: 'Organization' },
-      { key: 'contact_person', label: 'Contact Person' },
+      { key: 'contact_name', label: 'Contact Person' },
       { key: 'contact_email', label: 'Email' },
       { key: 'contact_phone', label: 'Phone' },
       { key: 'address', label: 'Address' },
-      { key: 'city', label: 'City' },
-      { key: 'province', label: 'Province' },
+      { key: 'address_city', label: 'City' },
+      { key: 'address_province', label: 'Province' },
       { key: 'created_at', label: 'Created' },
     ]);
     reply.header('Content-Type', 'text/csv;charset=utf-8');

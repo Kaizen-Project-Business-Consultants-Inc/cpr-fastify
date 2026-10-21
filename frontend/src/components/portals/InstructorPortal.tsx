@@ -37,9 +37,6 @@ const MyClassesView = lazy(
 const AvailabilityView = lazy(
   () => import('../views/instructor/AvailabilityView')
 );
-const AttendanceView = lazy(
-  () => import('../views/instructor/AttendanceView')
-);
 const ClassAttendanceView = lazy(
   () => import('../views/instructor/ClassAttendanceView')
 );
@@ -76,7 +73,6 @@ interface InstructorPortalProps {
   onLogout: () => void;
   onAddAvailability: (date: string) => Promise<void>;
   onRemoveAvailability: (date: string) => Promise<void>;
-  onCompleteClass: (courseId: number) => Promise<void>;
   onRefreshData: () => void;
 }
 
@@ -90,7 +86,6 @@ const InstructorPortal: React.FC<InstructorPortalProps> = ({
   onLogout: _onLogout,
   onAddAvailability,
   onRemoveAvailability,
-  onCompleteClass,
   onRefreshData,
 }) => {
   // Create combined schedule from scheduled classes and availability dates
@@ -198,11 +193,6 @@ const InstructorPortal: React.FC<InstructorPortalProps> = ({
                   <ErrorBoundary onError={handleError}>
                     <MyClassesView
                       combinedSchedule={combinedSchedule}
-                      onCompleteClass={(item) => {
-                        if (item.courseId) {
-                          onCompleteClass(item.courseId);
-                        }
-                      }}
                       onRemoveAvailability={async (date: string) => {
                         try {
                           await onRemoveAvailability(date);
@@ -227,18 +217,6 @@ const InstructorPortal: React.FC<InstructorPortalProps> = ({
                       scheduledClasses={scheduledClasses}
                       onAddAvailability={onAddAvailability}
                       onRemoveAvailability={onRemoveAvailability}
-                    />
-                  </ErrorBoundary>
-                }
-              />
-              <Route
-                path='/attendance'
-                element={
-                  <ErrorBoundary onError={handleError}>
-                    <AttendanceView
-                      onAttendanceUpdate={() => {
-                        // Refresh handled by react-query invalidation
-                      }}
                     />
                   </ErrorBoundary>
                 }

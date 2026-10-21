@@ -9,7 +9,6 @@ import {
   useTodayClasses,
   useAddAvailability,
   useRemoveAvailability,
-  useCompleteClass,
   useRefreshInstructorData
 } from '../../services/instructorService';
 import logger from '../../utils/logger';
@@ -39,7 +38,6 @@ const InstructorPortalContainer: React.FC = () => {
   // Mutations
   const addAvailabilityMutation = useAddAvailability();
   const removeAvailabilityMutation = useRemoveAvailability();
-  const completeClassMutation = useCompleteClass();
   const refreshData = useRefreshInstructorData();
 
   // Loading state
@@ -76,17 +74,6 @@ const InstructorPortalContainer: React.FC = () => {
     }
   }, [removeAvailabilityMutation]);
 
-  // Handle class actions
-  const handleCompleteClass = useCallback(async (courseId: number) => {
-    try {
-      await completeClassMutation.mutateAsync(courseId);
-      setSuccessState('Class completed successfully');
-    } catch (error: unknown) {
-      setError('Failed to complete class');
-      logger.error('Complete class error:', error);
-    }
-  }, [completeClassMutation]);
-
   // Handle data refresh
   const handleRefreshData = useCallback(async () => {
     try {
@@ -121,7 +108,6 @@ const InstructorPortalContainer: React.FC = () => {
           onLogout={handleLogout}
           onAddAvailability={handleAddAvailability}
           onRemoveAvailability={handleRemoveAvailability}
-          onCompleteClass={handleCompleteClass}
           onRefreshData={handleRefreshData}
         />
 

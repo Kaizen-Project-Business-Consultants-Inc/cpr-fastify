@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Box,
   Typography,
@@ -49,16 +49,15 @@ interface VendorInvoice {
   dueDate: string;
   vendorName: string;
   vendorEmail: string;
-  vendorContact: string;
-  vendorPaymentMethod: string;
-  bankName: string;
-  accountNumber: string;
-  routingNumber: string;
+  /** vendors.contact_name; may be empty. */
+  vendorContact: string | null;
+  /** Method of the most recent processed payment, or null before the first one. */
+  vendorPaymentMethod: string | null;
   approvedByName: string;
-  approvedByEmail: string;
   sentToAccountingAt: string;
   totalPaid?: number | string;
   balanceDue?: number | string;
+  /** Derived by the server from the payments: paid / partially_paid / unpaid. */
   paymentStatus: string;
   adminNotes: string;
   rejectionReason?: string;
@@ -77,7 +76,7 @@ interface PaymentHistory {
   id: number;
   amount: number;
   paymentDate: string;
-  paymentMethod: string;
+  paymentMethod: string | null;
   referenceNumber: string;
   notes: string;
   status: string;
@@ -170,6 +169,8 @@ const VendorInvoiceManagement: React.FC = () => {
   const [viewDialog, setViewDialog] = useState(false);
   const [processingPayment, setProcessingPayment] = useState(false);
   const [paymentHistory, setPaymentHistory] = useState<PaymentHistory[]>([]);
+  // The invoice the dialog was last opened for, so a slow earlier response is ignored.
+  const viewingIdRef = useRef<number | null>(null);
   const [paymentData, setPaymentData] = useState<PaymentData>({
     amount: '',
     paymentDate: getTodayDate(),
@@ -262,6 +263,7 @@ const VendorInvoiceManagement: React.FC = () => {
   const invoices = grid.items;
 
   const handleView = async (invoice: VendorInvoice) => {
+    viewingIdRef.current = invoice.id;
     setSelectedInvoice(invoice);
     setPaymentData({
       amount: Number(invoice.balanceDue || 0) > 0 ? String(invoice.balanceDue || 0) : '',
@@ -275,11 +277,12 @@ const VendorInvoiceManagement: React.FC = () => {
 
     try {
       const response = await adminApi.getAccountingVendorInvoiceDetails(invoice.id);
-      if (response.success && response.data.payments) {
-        setPaymentHistory(response.data.payments);
-      } else {
-        setPaymentHistory([]);
+      // Only apply the detail if the dialog still shows this invoice.
+      const detail = response?.data?.invoice;
+      if (detail) {
+        setSelectedInvoice((current) => (current?.id === invoice.id ? { ...current, ...detail } : current));
       }
+      if (viewingIdRef.current === invoice.id) setPaymentHistory(response?.data?.payments ?? []);
     } catch (error: unknown) {
       console.error('Error fetching payment history:', error);
       setPaymentHistory([]);
@@ -348,8 +351,7 @@ const VendorInvoiceManagement: React.FC = () => {
       reloadCurrentPage();
     } catch (error: unknown) {
       console.error('Error processing payment:', error);
-      const errObj = error as { response?: { data?: { message?: string } } };
-      showError(errObj.response?.data?.message || 'Failed to process payment');
+      showError(getErrorMessage(error, 'Failed to process payment'));
     } finally {
       setProcessingPayment(false);
     }
@@ -527,7 +529,7 @@ const VendorInvoiceManagement: React.FC = () => {
             {selectedInvoice && (
               <StatusChip
                 kind={getPaymentStatusKind(selectedInvoice.paymentStatus || 'unknown')}
-                label={(selectedInvoice.paymentStatus || 'unknown').replace('_', ' ').toUpperCase()}
+                label={(selectedInvoice.paymentStatus || 'unknown').replace(/_/g, ' ').toUpperCase()}
               />
             )}
           </Box>
@@ -546,17 +548,14 @@ const VendorInvoiceManagement: React.FC = () => {
                       <Typography sx={{ fontSize: 13.5, fontWeight: 600, color: (theme) => theme.palette.text.primary, mb: 0.5 }}>
                         {selectedInvoice.vendorName}
                       </Typography>
-                      <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary, mb: 0.5 }}>
-                        Contact: {selectedInvoice.vendorContact}
-                      </Typography>
+                      {selectedInvoice.vendorContact && (
+                        <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary, mb: 0.5 }}>
+                          Contact: {selectedInvoice.vendorContact}
+                        </Typography>
+                      )}
                       <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary, mb: 0.5 }}>
                         Email: {selectedInvoice.vendorEmail}
                       </Typography>
-                      {selectedInvoice.bankName && (
-                        <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>
-                          Bank: {selectedInvoice.bankName}
-                        </Typography>
-                      )}
                     </Box>
                   </Grid>
                   <Grid item xs={12} md={6}>
@@ -655,7 +654,7 @@ const VendorInvoiceManagement: React.FC = () => {
                       <DataTableRow key={payment.id} columns={PAYMENT_HISTORY_COLUMNS}>
                         <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>{formatDate(payment.paymentDate)}</Typography>
                         <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary, fontFamily: 'monospace' }}>{formatCurrency(payment.amount)}</Typography>
-                        <StatusChip kind="brand" label={payment.paymentMethod.replace('_', ' ').toUpperCase()} />
+                        <StatusChip kind="brand" label={payment.paymentMethod ? payment.paymentMethod.replace(/_/g, ' ').toUpperCase() : '—'} />
                         <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>{payment.referenceNumber || '-'}</Typography>
                         <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>{payment.processedByName || 'Unknown'}</Typography>
                         <StatusChip

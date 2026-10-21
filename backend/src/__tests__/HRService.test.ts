@@ -78,12 +78,29 @@ describe('HRService', () => {
       mockConnQuery
         .mockResolvedValueOnce([[{ id: 1, instructor_id: 5, amount: 200 }]]) // SELECT payment_requests
         .mockResolvedValueOnce([{}])                                       // UPDATE payment_requests
+        .mockResolvedValueOnce([[{ id: 77 }]])                             // SELECT payroll_payments
         .mockResolvedValueOnce([{}]);                                      // UPDATE payroll_payments
 
       const result = await service.processReturnedPaymentRequest(1, 'override_approve', 'Checked');
 
       expect(result.message).toContain('approved by HR override');
-      expect(mockConnQuery).toHaveBeenCalledWith(expect.stringContaining('UPDATE payroll_payments'), [5, 200]);
+      expect(mockConnQuery).toHaveBeenCalledWith(expect.stringContaining('FROM payroll_payments'), [5, 200]);
+      const update = mockConnQuery.mock.calls.find(([sql]) => String(sql).startsWith('UPDATE payroll_payments'))!;
+      // No subquery on the table being updated (MariaDB error 1093).
+      expect(update[0]).not.toContain('SELECT');
+      expect(update[1]).toEqual([77]);
+      expect(mockConn.commit).toHaveBeenCalled();
+    });
+
+    it('override-approves without a payroll update when no pending payment matches', async () => {
+      mockConnQuery
+        .mockResolvedValueOnce([[{ id: 1, instructor_id: 5, amount: 200 }]])
+        .mockResolvedValueOnce([{}])
+        .mockResolvedValueOnce([[]]);
+
+      await service.processReturnedPaymentRequest(1, 'override_approve', 'Checked');
+
+      expect(mockConnQuery).toHaveBeenCalledTimes(3);
       expect(mockConn.commit).toHaveBeenCalled();
     });
 

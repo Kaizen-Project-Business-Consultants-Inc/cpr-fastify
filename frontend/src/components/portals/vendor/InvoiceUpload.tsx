@@ -7,12 +7,7 @@ import {
   Grid,
   Alert,
   CircularProgress,
-  FormControl,
-  InputLabel,
-  Select,
-  MenuItem,
   InputAdornment,
-  SelectChangeEvent,
 } from '@mui/material';
 import { vendorApi } from '../../../services/api';
 import { useNavigate } from 'react-router-dom';
@@ -24,10 +19,8 @@ type MoneyField = 'rate' | 'subtotal' | 'hst' | 'total';
 const MONEY_FIELDS: MoneyField[] = ['rate', 'subtotal', 'hst', 'total'];
 
 interface FormState {
-  vendorId: string;
   date: string;
   invoiceNumber: string;
-  acctNo: string;
   dueDate: string;
   quantity: string;
   item: string;
@@ -36,11 +29,6 @@ interface FormState {
   subtotal: string;
   hst: string;
   total: string;
-}
-
-interface VendorOption {
-  id: number;
-  vendorName: string;
 }
 
 const MAX_FILE_BYTES = 5 * 1024 * 1024;
@@ -53,10 +41,8 @@ const defaultDueDate = () => {
 };
 
 const emptyForm = (): FormState => ({
-  vendorId: '',
   date: getTodayDate(),
   invoiceNumber: '',
-  acctNo: '',
   dueDate: defaultDueDate(),
   quantity: '',
   item: '',
@@ -94,32 +80,26 @@ const InvoiceUpload: React.FC = () => {
   const { confirm, dialog } = useConfirm();
 
   const [formData, setFormData] = useState<FormState>(emptyForm);
-  const [vendors, setVendors] = useState<VendorOption[]>([]);
-  const [vendorsLoading, setVendorsLoading] = useState(true);
+  // POST /vendor/invoices is vendor-only and always files the invoice under the
+  // logged-in vendor, so the vendor is shown (from the profile), not picked.
+  const [vendorName, setVendorName] = useState('');
   const [file, setFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [submitted, setSubmitted] = useState<{ invoiceNumber: string; message: string } | null>(null);
 
   useEffect(() => {
-    const loadVendors = async () => {
+    const loadVendorName = async () => {
       try {
-        setVendorsLoading(true);
-        const response = await vendorApi.getVendors();
-        const rows: Array<Record<string, unknown>> = Array.isArray(response) ? response : response?.data ?? [];
-        setVendors(
-          rows.map((v) => ({
-            id: Number(v.id),
-            vendorName: String(v.vendor_name ?? v.vendorName ?? v.name ?? `Vendor ${v.id}`),
-          }))
-        );
+        const response = await vendorApi.getProfile();
+        const row = response?.data ?? response;
+        setVendorName(String(row?.name ?? ''));
       } catch {
-        setError('Failed to load vendors. Please try again.');
-      } finally {
-        setVendorsLoading(false);
+        // Only a label: the server knows which vendor is uploading either way.
+        setVendorName('');
       }
     };
-    loadVendors();
+    loadVendorName();
   }, []);
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -136,11 +116,6 @@ const InvoiceUpload: React.FC = () => {
     const { name, value } = e.target;
     const n = parseMoney(value);
     setFormData((prev) => ({ ...prev, [name]: n == null ? '' : n.toFixed(2) }));
-  };
-
-  const handleSelectChange = (e: SelectChangeEvent<string>) => {
-    const { name, value } = e.target;
-    setFormData((prev) => ({ ...prev, [name]: value }));
   };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -162,7 +137,6 @@ const InvoiceUpload: React.FC = () => {
 
   const isFormComplete =
     !!file &&
-    !!formData.vendorId &&
     formData.invoiceNumber.trim() !== '' &&
     formData.description.trim() !== '' &&
     !!formData.date &&
@@ -175,7 +149,7 @@ const InvoiceUpload: React.FC = () => {
     setError(null);
 
     if (!isFormComplete || !file || totalNumber == null) {
-      setError('Please fill in all required fields, including vendor, total and the invoice file.');
+      setError('Please fill in all required fields, including total and the invoice file.');
       return;
     }
     const fileProblem = validateFile(file);
@@ -184,7 +158,6 @@ const InvoiceUpload: React.FC = () => {
       return;
     }
 
-    const vendorName = vendors.find((v) => String(v.id) === formData.vendorId)?.vendorName ?? '';
     const ok = await confirm({
       title: 'Submit this invoice?',
       confirmLabel: 'Upload invoice',
@@ -212,13 +185,11 @@ const InvoiceUpload: React.FC = () => {
       if (formData.dueDate) payload.append('due_date', formData.dueDate);
       if (formData.quantity) payload.append('quantity', formData.quantity);
       if (formData.item.trim()) payload.append('manual_type', formData.item.trim());
-      if (formData.acctNo.trim()) payload.append('acct_no', formData.acctNo.trim());
       const rate = parseMoney(formData.rate);
       if (rate != null) payload.append('rate', String(rate));
       if (subtotalNumber != null) payload.append('subtotal', String(subtotalNumber));
       if (hstNumber != null) payload.append('hst', String(hstNumber));
       payload.append('total', String(totalNumber));
-      payload.append('detected_vendor_id', formData.vendorId);
       payload.append('invoice_pdf', file);
 
       const response = await vendorApi.uploadInvoice(payload);
@@ -291,21 +262,13 @@ const InvoiceUpload: React.FC = () => {
               </Typography>
             </Grid>
             <Grid item xs={12} md={6}>
-              <FormControl fullWidth required>
-                <InputLabel id="vendor-select-label">Vendor Name</InputLabel>
-                <Select
-                  labelId="vendor-select-label"
-                  label="Vendor Name"
-                  name="vendorId"
-                  value={formData.vendorId}
-                  onChange={handleSelectChange}
-                  disabled={vendorsLoading}
-                >
-                  {vendors.map((vendor) => (
-                    <MenuItem key={vendor.id} value={String(vendor.id)}>{vendor.vendorName}</MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
+              <TextField
+                fullWidth
+                label="Vendor"
+                value={vendorName}
+                disabled
+                helperText="Invoices are filed under your vendor account"
+              />
             </Grid>
             <Grid item xs={12} md={6}>
               <TextField fullWidth label="Invoice Date" name="date" type="date" value={formData.date} onChange={handleInputChange} required InputLabelProps={{ shrink: true }} />
@@ -313,9 +276,6 @@ const InvoiceUpload: React.FC = () => {
 
             <Grid item xs={12} md={6}>
               <TextField fullWidth label="Invoice #" name="invoiceNumber" value={formData.invoiceNumber} onChange={handleInputChange} required placeholder="e.g., INV-2024-001" />
-            </Grid>
-            <Grid item xs={12} md={6}>
-              <TextField fullWidth label="Acct. No." name="acctNo" value={formData.acctNo} onChange={handleInputChange} placeholder="Account number" />
             </Grid>
 
             <Grid item xs={12} md={6}>

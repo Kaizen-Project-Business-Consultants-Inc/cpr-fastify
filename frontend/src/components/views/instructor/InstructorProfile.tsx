@@ -6,8 +6,6 @@ import {
   Card,
   Alert,
   TextField,
-  Switch,
-  FormControlLabel,
   CircularProgress,
 } from '@mui/material';
 import { useToast } from '../../../contexts/ToastContext';
@@ -32,20 +30,11 @@ interface InstructorProfileData {
   total_students: number;
 }
 
-/** One row of GET /notifications/preferences. */
-interface NotificationPreference {
-  notification_type: string;
-  email_enabled: boolean | number;
-  push_enabled: boolean | number;
-  sound_enabled: boolean | number;
-}
-
-/** Notification types the instructor cares about (must match backend validNotificationTypes). */
-const INSTRUCTOR_NOTIFICATION_TYPES: { type: string; label: string; description: string }[] = [
-  { type: 'timesheet_submitted', label: 'Timesheet submitted', description: 'Confirmation when a timesheet is received' },
-  { type: 'timesheet_approved', label: 'Timesheet approved', description: 'When HR approves one of your timesheets' },
-  { type: 'payment_verified', label: 'Payment verified', description: 'When a payment to you has been verified' },
-];
+// Email notification toggles were removed 2026-10-21: the instructor types
+// (timesheet_submitted, timesheet_approved, payment_verified) were saved but no
+// email path reads them, so the switches did nothing. course_status_change is
+// only read for organization admins. Add a toggle back here when an instructor
+// email actually checks its preference.
 
 interface EditState {
   email: string;
@@ -83,10 +72,6 @@ const InstructorProfile: React.FC = () => {
   const [editData, setEditData] = useState<EditState>({ email: '', phone: '' });
   const [saving, setSaving] = useState(false);
 
-  const [preferences, setPreferences] = useState<Record<string, boolean>>({});
-  const [prefsLoaded, setPrefsLoaded] = useState(false);
-  const [prefSaving, setPrefSaving] = useState<string | null>(null);
-
   const [passwordOpen, setPasswordOpen] = useState(false);
   const [downloadingData, setDownloadingData] = useState(false);
 
@@ -104,32 +89,12 @@ const InstructorProfile: React.FC = () => {
     }
   }, []);
 
-  const loadPreferences = useCallback(async () => {
-    try {
-      const res = await api.get('/notifications/preferences');
-      const rows: NotificationPreference[] = res.data?.data ?? res.data ?? [];
-      const next: Record<string, boolean> = {};
-      INSTRUCTOR_NOTIFICATION_TYPES.forEach(({ type }) => {
-        const row = rows.find((r) => r.notification_type === type);
-        // No row yet means the backend default (enabled).
-        next[type] = row ? Boolean(row.email_enabled) : true;
-      });
-      setPreferences(next);
-    } catch {
-      // Preferences are secondary; leave the section in its "unavailable" state.
-      setPreferences({});
-    } finally {
-      setPrefsLoaded(true);
-    }
-  }, []);
-
   // Data fetch on mount — the standard fetch-on-mount pattern, not state derived
   // from render.
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     loadProfile();
-    loadPreferences();
-  }, [loadProfile, loadPreferences]);
+  }, [loadProfile]);
 
   const displayName = profile
     ? [profile.first_name, profile.last_name].filter(Boolean).join(' ') || profile.username
@@ -168,20 +133,6 @@ const InstructorProfile: React.FC = () => {
       toastError(errorText(err, 'Failed to save profile'));
     } finally {
       setSaving(false);
-    }
-  };
-
-  const handlePreferenceToggle = async (type: string) => {
-    if (prefSaving) return;
-    const next = !preferences[type];
-    setPrefSaving(type);
-    try {
-      await api.put(`/notifications/preferences/${type}`, { email_enabled: next });
-      setPreferences((p) => ({ ...p, [type]: next }));
-    } catch (err) {
-      toastError(errorText(err, 'Failed to update notification preference'));
-    } finally {
-      setPrefSaving(null);
     }
   };
 
@@ -305,43 +256,6 @@ const InstructorProfile: React.FC = () => {
                   <Box key={label} sx={{ display: 'flex', borderBottom: (theme) => `1px solid ${theme.palette.divider}`, pb: 1.5 }}>
                     <Typography sx={{ fontSize: 13, fontWeight: 600, color: (theme) => theme.palette.text.secondary, width: 140 }}>{label}</Typography>
                     <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.primary }}>{value}</Typography>
-                  </Box>
-                ))}
-              </Box>
-            )}
-          </Card>
-        </Grid>
-
-        {/* Notification Settings */}
-        <Grid item xs={12} md={6}>
-          <Card sx={cardSx}>
-            <Typography sx={{ ...sectionTitleSx, mb: 2 }}>Email Notifications</Typography>
-            {!prefsLoaded ? (
-              <CircularProgress size={20} aria-label="Loading notification preferences" />
-            ) : Object.keys(preferences).length === 0 ? (
-              <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>
-                Notification preferences are not available right now.
-              </Typography>
-            ) : (
-              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                {INSTRUCTOR_NOTIFICATION_TYPES.map(({ type, label, description }) => (
-                  <Box key={type} sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 2 }}>
-                    <Box>
-                      <Typography sx={{ fontSize: 13, fontWeight: 600, color: (theme) => theme.palette.text.primary }}>{label}</Typography>
-                      <Typography sx={{ fontSize: 12, color: (theme) => theme.palette.text.secondary }}>{description}</Typography>
-                    </Box>
-                    <FormControlLabel
-                      sx={{ m: 0 }}
-                      label=""
-                      control={
-                        <Switch
-                          checked={!!preferences[type]}
-                          disabled={prefSaving === type}
-                          onChange={() => handlePreferenceToggle(type)}
-                          inputProps={{ 'aria-label': `${label} email notifications` }}
-                        />
-                      }
-                    />
                   </Box>
                 ))}
               </Box>

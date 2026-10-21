@@ -52,26 +52,33 @@ vi.mock('react-router-dom', async (importOriginal) => {
 import { INSTRUCTOR_QUERY_KEYS } from '../../../../services/instructorService';
 import InstructorDashboard from '../../../instructor/InstructorDashboard';
 
-const FUTURE = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
-const PAST = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+// Real /instructor/classes/* shape: `date` is YYYY-MM-DD, the course type comes as
+// course_name and coursetypename (no camelCase layer).
+const localYmd = (offsetDays: number) => {
+  const d = new Date();
+  d.setDate(d.getDate() + offsetDays);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+};
+const FUTURE = localYmd(7);
+const PAST = localYmd(-7);
 
 const activeClasses = [
-  { id: 101, coursename: 'CPR Level C Recertification', date: FUTURE, studentcount: 17 },
+  { id: 101, course_name: 'CPR Level C Recertification', coursetypename: 'CPR Level C Recertification', date: FUTURE, studentcount: 17 },
 ];
 const todayClasses = [
-  { id: 202, coursetype: 'Standard First Aid', location: 'Etobicoke Depot', date: new Date().toISOString(), studentcount: 8 },
+  { id: 202, course_name: 'Standard First Aid', coursetypename: 'Standard First Aid', location: 'Etobicoke Depot', date: localYmd(0), studentcount: 8 },
 ];
 const completedClasses = [
-  { id: 303, coursename: 'BLS Provider Renewal', date: PAST, studentcount: 9 },
+  { id: 303, course_name: 'BLS Provider Renewal', coursetypename: 'BLS Provider Renewal', date: PAST, studentcount: 9 },
 ];
 const availability = [{ date: '2026-10-01' }, { date: '2026-10-02' }, { date: '2026-10-03' }];
 
-const renderDashboard = () => {
+const renderDashboard = (active: unknown[] = activeClasses) => {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   // Seed the cache so the dashboard renders with data on its first pass. The component
   // defaults each query to a fresh `[]` while it is pending, which makes its effect deps
   // change on every render - a loading-phase render loop that never settles in jsdom.
-  client.setQueryData(INSTRUCTOR_QUERY_KEYS.classes, activeClasses);
+  client.setQueryData(INSTRUCTOR_QUERY_KEYS.classes, active);
   client.setQueryData(INSTRUCTOR_QUERY_KEYS.classesToday, todayClasses);
   client.setQueryData(INSTRUCTOR_QUERY_KEYS.classesCompleted, completedClasses);
   client.setQueryData(INSTRUCTOR_QUERY_KEYS.availability, availability);
@@ -120,6 +127,19 @@ describe('InstructorDashboard', () => {
     // Neither of the empty-state placeholders should be on screen.
     expect(screen.queryByText('No upcoming classes scheduled.')).not.toBeInTheDocument();
     expect(screen.queryByText('No completed classes yet.')).not.toBeInTheDocument();
+  });
+
+  it("counts a class later today as upcoming, and shows it on its own date", async () => {
+    const todayOnly = [{ id: 404, course_name: 'Emergency First Aid', date: localYmd(0), studentcount: 4 }];
+    mockGetClassesActive.mockResolvedValue({ data: { success: true, data: todayOnly } });
+    renderDashboard(todayOnly);
+
+    await waitFor(() => {
+      expect(screen.getByText('Emergency First Aid')).toBeInTheDocument();
+    });
+    expect(screen.queryByText('No upcoming classes scheduled.')).not.toBeInTheDocument();
+    const expected = new Date().toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+    expect(screen.getByText(new RegExp(`${expected} • 4 students`))).toBeInTheDocument();
   });
 
   it("renders today's class from the today endpoint", async () => {

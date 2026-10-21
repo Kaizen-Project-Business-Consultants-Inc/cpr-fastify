@@ -1,7 +1,7 @@
 import React, { useEffect } from 'react';
 import { Box, Typography, CircularProgress } from '@mui/material';
 import api from '../../../services/api';
-import { formatDateWithoutTimezone } from '../../../utils/dateUtils';
+import { formatDateWithoutTimezone, toLocalDateString } from '../../../utils/dateUtils';
 import DataTable, { DataTableRow } from '../../gtacpr/DataTable';
 import useServerPagination from '../../../hooks/useServerPagination';
 
@@ -25,6 +25,14 @@ interface CancelledCourse {
   location: string;
   registeredStudents: number;
 }
+
+/** cancelled_at is a timestamp, so show it in local time (its UTC date can be a day ahead). */
+const cancelledOn = (value: string | null | undefined): string => {
+  if (!value) return '—';
+  if (!value.includes('T')) return formatDateWithoutTimezone(value);
+  const d = new Date(value);
+  return isNaN(d.getTime()) ? '—' : formatDateWithoutTimezone(toLocalDateString(d));
+};
 
 const CancelledCourses: React.FC = () => {
   // Server-side paging: `page`/`limit` opt the endpoint into a paginated
@@ -78,7 +86,7 @@ const CancelledCourses: React.FC = () => {
               <Typography sx={{ fontSize: 13.5, fontWeight: 600, color: (theme) => theme.palette.text.primary }}>{course.courseTypeName}</Typography>
               <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>{course.organizationName}</Typography>
               <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>{formatDateWithoutTimezone(course.scheduledDate)}</Typography>
-              <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>{formatDateWithoutTimezone(course.cancelledAt)}</Typography>
+              <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>{cancelledOn(course.cancelledAt)}</Typography>
               <Typography sx={{ fontSize: 12.5, color: (theme) => theme.palette.text.secondary }}>{course.cancellationReason}</Typography>
               <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>{course.location}</Typography>
               <Typography sx={{ fontSize: 13, fontWeight: 600, color: (theme) => theme.palette.text.primary, textAlign: 'right' }}>{course.registeredStudents}</Typography>

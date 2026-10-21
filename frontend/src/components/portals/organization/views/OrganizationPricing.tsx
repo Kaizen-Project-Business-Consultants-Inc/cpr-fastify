@@ -11,7 +11,8 @@ interface OrganizationPricingData {
   organizationId: number;
   classTypeId: number;
   pricePerStudent: number;
-  isActive: boolean;
+  /** TINYINT from the server: 0/1, not true/false. */
+  isActive: boolean | number;
   createdAt: string;
   updatedAt: string;
   classTypeName: string;
@@ -91,7 +92,7 @@ const OrganizationPricing: React.FC<OrganizationPricingProps> = ({ organizationI
               <Typography sx={{ fontSize: 13, fontWeight: 600, color: (theme) => theme.palette.text.primary, fontFamily: 'monospace', textAlign: 'right' }}>
                 {formatCurrency(pricing.pricePerStudent)}
               </Typography>
-              <StatusChip kind={pricing.isActive === false ? 'inactive' : 'active'} label={pricing.isActive === false ? 'Inactive' : 'Active'} />
+              <StatusChip kind={!pricing.isActive ? 'inactive' : 'active'} label={!pricing.isActive ? 'Inactive' : 'Active'} />
               <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>{formatDisplayDate(pricing.updatedAt)}</Typography>
             </DataTableRow>
           ))}

@@ -40,7 +40,8 @@ interface StudentAttendance {
   lastName?: string;
   last_name?: string;
   email?: string;
-  attended?: boolean;
+  // TINYINT from MariaDB: 0/1 (booleans only in old mocks)
+  attended?: boolean | number;
 }
 
 // Mirrors the (unexported) Payment shape expected by PaymentHistoryTable
@@ -59,21 +60,23 @@ interface ReceivablePayment {
   verifiedByAccountingAt?: string;
 }
 
+// Row shape sent by GET /accounting/invoices (InvoiceRepository.findAllWithDetails).
+// No case conversion happens anywhere, so these are the SQL column names.
 export interface ReceivableInvoice {
-  invoiceid: number | string;
+  id: number;
   amount?: string | number;
-  invoicenumber?: string;
-  invoicedate?: string;
-  duedate?: string;
-  organizationname?: string;
+  invoice_number?: string;
+  invoice_date?: string;
+  due_date?: string;
+  organization_name?: string;
   base_cost?: string | number;
   tax_amount?: string | number;
-  balancedue?: string | number;
-  paidtodate?: string | number;
-  paymentstatus?: string;
+  balance_due?: string | number;
+  amount_paid?: string | number;
+  payment_status?: string;
   approval_status?: string;
-  agingbucket?: string;
-  coursenumber?: string | number;
+  aging_bucket?: string;
+  course_request_id?: number | null;
 }
 
 // Helper function for approval status colors
@@ -109,7 +112,7 @@ const StudentAttendanceDialog = ({
   loadingStudents: boolean;
 }) => {
   const presentCount = students.filter((s) => s.attended).length;
-  const absentCount = students.filter((s) => s.attended === false).length;
+  const absentCount = students.filter((s) => !s.attended).length;
 
   return (
     <Dialog open={open} onClose={onClose} maxWidth="md" fullWidth>
@@ -267,10 +270,8 @@ const PaymentDetails = ({ invoiceId, onViewDetailsClick }: { invoiceId: number |
  * 
  * Displays invoices with outstanding balances for accounting users.
  * 
- * Field Mapping Note:
- * - invoice.coursenumber contains the course_request_id value
- * - This is due to backend API mapping: i.course_request_id as coursenumber
- * - Used for fetching student attendance data via /accounting/courses/:courseId/students
+ * invoice.course_request_id is used to fetch the attendance list via
+ * GET /courses/:id/students.
  */
 const AccountsReceivableTable = ({
   invoices,
@@ -293,7 +294,7 @@ const AccountsReceivableTable = ({
 
   /**
    * Fetch student attendance data for a specific course
-   * @param {string|number} courseId - The course request ID (from invoice.coursenumber)
+   * @param {string|number} courseId - The course request ID (from invoice.course_request_id)
    */
   const fetchStudents = async (courseId: number | string | undefined) => {
     setLoadingStudents(true);
@@ -310,7 +311,7 @@ const AccountsReceivableTable = ({
 
   /**
    * Handle opening the student attendance dialog
-   * @param {string|number} courseId - The course request ID (from invoice.coursenumber)
+   * @param {string|number} courseId - The course request ID (from invoice.course_request_id)
    */
   const handleViewStudents = (courseId: number | string | undefined) => {
     setSelectedCourseId(courseId ?? null);
@@ -330,7 +331,7 @@ const AccountsReceivableTable = ({
       const baseCost = parseFloat(String(invoice.base_cost)) || 0;
       const taxAmount = parseFloat(String(invoice.tax_amount)) || 0;
       const totalAmount = baseCost + taxAmount;
-      const balanceDue = parseFloat(String(invoice.balancedue)) || 0;
+      const balanceDue = parseFloat(String(invoice.balance_due)) || 0;
 
       if (baseCost === 0 && taxAmount === 0) {
         return {
@@ -408,7 +409,7 @@ const AccountsReceivableTable = ({
               const amounts = getInvoiceAmounts(invoice);
               
               return (
-                <React.Fragment key={invoice.invoiceid}>
+                <React.Fragment key={invoice.id}>
                   <TableRow
                     hover
                     sx={{
@@ -421,20 +422,20 @@ const AccountsReceivableTable = ({
                       <IconButton
                         aria-label='expand row'
                         size='small'
-                        onClick={() => handleExpandClick(invoice.invoiceid)}
+                        onClick={() => handleExpandClick(invoice.id)}
                       >
-                        {expandedRowId === invoice.invoiceid ? (
+                        {expandedRowId === invoice.id ? (
                           <KeyboardArrowUpIcon />
                         ) : (
                           <KeyboardArrowDownIcon />
                         )}
                       </IconButton>
                     </TableCell>
-                    <TableCell>{invoice.invoicenumber}</TableCell>
-                    <TableCell>{formatDate(invoice.invoicedate)}</TableCell>
-                    <TableCell>{formatDate(invoice.duedate)}</TableCell>
+                    <TableCell>{invoice.invoice_number}</TableCell>
+                    <TableCell>{formatDate(invoice.invoice_date)}</TableCell>
+                    <TableCell>{formatDate(invoice.due_date)}</TableCell>
                     <TableCell>
-                      {invoice.organizationname || '-'}
+                      {invoice.organization_name || '-'}
                     </TableCell>
                     <TableCell align='right'>
                       {amounts.error ? (
@@ -463,7 +464,7 @@ const AccountsReceivableTable = ({
                         formatCurrency(amounts.totalAmount)
                       )}
                     </TableCell>
-                    <TableCell align='right'>{formatCurrency(invoice.paidtodate)}</TableCell>
+                    <TableCell align='right'>{formatCurrency(invoice.amount_paid)}</TableCell>
                     <TableCell align='right'>
                       {amounts.error ? (
                         <Typography variant="body2" color="error.main" fontSize="small">
@@ -475,8 +476,8 @@ const AccountsReceivableTable = ({
                     </TableCell>
                     <TableCell align='center'>
                       <Chip
-                        label={invoice.paymentstatus || 'Unknown'}
-                        color={getStatusChipColor(invoice.paymentstatus)}
+                        label={invoice.payment_status || 'Unknown'}
+                        color={getStatusChipColor(invoice.payment_status)}
                         size='small'
                       />
                     </TableCell>
@@ -487,7 +488,7 @@ const AccountsReceivableTable = ({
                         size='small'
                       />
                     </TableCell>
-                    <TableCell>{invoice.agingbucket || '-'}</TableCell>
+                    <TableCell>{invoice.aging_bucket || '-'}</TableCell>
                     <TableCell align='center'>
                       <Box
                         sx={{ display: 'flex', gap: 0.5, justifyContent: 'center' }}
@@ -498,12 +499,12 @@ const AccountsReceivableTable = ({
                           {/* Wrap IconButton in span for tooltip on disabled */}
                           <span>
                             <IconButton
-                              aria-label={`Record payment for invoice ${invoice.invoicenumber}`}
+                              aria-label={`Record payment for invoice ${invoice.invoice_number}`}
                               color='success'
                               size='small'
                               onClick={() => onRecordPaymentClick(invoice)}
                               disabled={
-                                invoice.paymentstatus?.toLowerCase() === 'paid'
+                                invoice.payment_status?.toLowerCase() === 'paid'
                               }
                             >
                               <PaymentIcon fontSize='small' />
@@ -513,10 +514,10 @@ const AccountsReceivableTable = ({
                         {/* View Students Button */}
                         <Tooltip title='View Student Attendance'>
                           <IconButton
-                            aria-label={`View student attendance for invoice ${invoice.invoicenumber}`}
+                            aria-label={`View student attendance for invoice ${invoice.invoice_number}`}
                             color='info'
                             size='small'
-                            onClick={() => handleViewStudents(invoice.coursenumber)}
+                            onClick={() => handleViewStudents(invoice.course_request_id ?? undefined)}
                           >
                             <PeopleIcon fontSize='small' />
                           </IconButton>
@@ -524,10 +525,10 @@ const AccountsReceivableTable = ({
                         {/* Details Button */}
                         <Tooltip title='View Course/Invoice Details'>
                           <IconButton
-                            aria-label={`View details for invoice ${invoice.invoicenumber}`}
+                            aria-label={`View details for invoice ${invoice.invoice_number}`}
                             color='info'
                             size='small'
-                            onClick={() => onViewDetailsClick(invoice.invoiceid)}
+                            onClick={() => onViewDetailsClick(invoice.id)}
                           >
                             <VisibilityIcon fontSize='small' />
                           </IconButton>
@@ -543,13 +544,13 @@ const AccountsReceivableTable = ({
                     >
                       {/* Adjust colSpan based on total columns */}
                       <Collapse
-                        in={expandedRowId === invoice.invoiceid}
+                        in={expandedRowId === invoice.id}
                         timeout='auto'
                         unmountOnExit
                       >
                         {/* Render PaymentDetails component only when expanded */}
-                        {expandedRowId === invoice.invoiceid && (
-                          <PaymentDetails invoiceId={invoice.invoiceid} onViewDetailsClick={onViewDetailsClick} />
+                        {expandedRowId === invoice.id && (
+                          <PaymentDetails invoiceId={invoice.id} onViewDetailsClick={onViewDetailsClick} />
                         )}
                       </Collapse>
                     </TableCell>

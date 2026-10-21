@@ -46,20 +46,21 @@ interface OrgUser {
   lastName?: string;
   fullName?: string;
   mobile?: string;
-  organizationId?: string;
-  organizationName?: string;
-  locationId?: string;
+  organizationId?: number | null;
+  organizationName?: string | null;
+  locationId?: number | null;
   dateOnboarded?: string;
   userComments?: string;
 }
 
 interface Organization {
-  id: string;
-  organizationName: string;
+  id: number;
+  name: string;
+  status?: string | null;
 }
 
 interface OrgLocation {
-  id: string;
+  id: number;
   locationName: string;
 }
 
@@ -85,7 +86,8 @@ const roleLabels: Record<string, string> = {
   vendor: 'Vendor',
   sysadmin: 'System Admin',
 };
-const userStatuses = ['active', 'inactive', 'suspended'];
+// Must match the PUT /sysadmin/users/:id status enum ('deleted' is set only by Erase personal data).
+const userStatuses = ['active', 'inactive'];
 
 function getInitials(user: OrgUser): string {
   const first = user.firstName || '';
@@ -143,8 +145,9 @@ const UserManagement = ({ onShowSnackbar }: { onShowSnackbar?: (message: string,
 
   const loadOrganizations = async () => {
     try {
-      const response = await sysAdminApi.getOrganizations();
-      setOrganizations(response.data || []);
+      // ?basic=1: every organization as { id, name, status }, unpaged and without counts.
+      const response = await api.get('/sysadmin/organizations', { params: { basic: 1 } });
+      setOrganizations(response.data?.data || []);
     } catch (err) {
       logger.error('Error loading organizations:', err);
     }
@@ -182,11 +185,12 @@ const UserManagement = ({ onShowSnackbar }: { onShowSnackbar?: (message: string,
       username: user.username || '', email: user.email || '', password: '',
       firstName: user.firstName || '', lastName: user.lastName || '',
       fullName: user.fullName || '', role: user.role || '', mobile: user.mobile || '',
-      organizationId: user.organizationId || '', locationId: user.locationId || '',
+      organizationId: user.organizationId ? String(user.organizationId) : '',
+      locationId: user.locationId ? String(user.locationId) : '',
       dateOnboarded: user.dateOnboarded ? user.dateOnboarded.split('T')[0] : '',
       userComments: user.userComments || '', status: user.status || 'active',
     });
-    if (user.organizationId) await loadLocations(user.organizationId);
+    if (user.organizationId) await loadLocations(String(user.organizationId));
     else setLocations([]);
     setShowDialog(true);
   };
@@ -256,14 +260,18 @@ const UserManagement = ({ onShowSnackbar }: { onShowSnackbar?: (message: string,
     if (saving) return;
     try {
       setSaving(true);
-      const submitData = {
-        ...formData,
-        organizationId: formData.organizationId || null,
-        locationId: formData.locationId || null,
+      // fullName isn't editable here (the server keeps it); ids go as numbers, and a blank
+      // password is left out so an edit keeps the current one.
+      const { fullName: _fullName, ...fields } = formData;
+      const submitData: Record<string, unknown> = {
+        ...fields,
+        organizationId: formData.organizationId ? Number(formData.organizationId) : null,
+        // The location picker is shown only for organization users.
+        locationId: formData.role === 'organization' && formData.locationId ? Number(formData.locationId) : null,
         dateOnboarded: formData.dateOnboarded || null,
+        userComments: formData.userComments || null,
       };
-      const mutableSubmitData: Record<string, unknown> = { ...submitData };
-      if (!mutableSubmitData.password) delete mutableSubmitData.password;
+      if (!submitData.password) delete submitData.password;
 
       const isEdit = Boolean(editingUser);
       if (isEdit && editingUser) {
@@ -379,7 +387,7 @@ const UserManagement = ({ onShowSnackbar }: { onShowSnackbar?: (message: string,
             <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>{user.mobile || '—'}</Typography>
             {/* STATUS */}
             <StatusChip
-              kind={user.status === 'active' ? 'active' : user.status === 'suspended' ? 'danger' : 'inactive'}
+              kind={user.status === 'active' ? 'active' : 'inactive'}
               label={user.status || 'active'}
             />
             {/* ONBOARDED */}
@@ -486,7 +494,7 @@ const UserManagement = ({ onShowSnackbar }: { onShowSnackbar?: (message: string,
                 <FormControl fullWidth><InputLabel>Organization</InputLabel>
                   <Select name="organizationId" value={formData.organizationId} label="Organization" onChange={handleChange}>
                     <MenuItem value="">None</MenuItem>
-                    {organizations.map((org: Organization) => <MenuItem key={org.id} value={org.id}>{org.organizationName}</MenuItem>)}
+                    {organizations.map((org: Organization) => <MenuItem key={org.id} value={String(org.id)}>{org.status === 'inactive' ? `${org.name} (inactive)` : org.name}</MenuItem>)}
                   </Select>
                 </FormControl>
               </Grid>
@@ -495,7 +503,7 @@ const UserManagement = ({ onShowSnackbar }: { onShowSnackbar?: (message: string,
                   <FormControl fullWidth><InputLabel>Location</InputLabel>
                     <Select name="locationId" value={formData.locationId} label="Location" onChange={handleChange}>
                       <MenuItem value="">Select Location</MenuItem>
-                      {locations.map((loc: OrgLocation) => <MenuItem key={loc.id} value={loc.id}>{loc.locationName}</MenuItem>)}
+                      {locations.map((loc: OrgLocation) => <MenuItem key={loc.id} value={String(loc.id)}>{loc.locationName}</MenuItem>)}
                     </Select>
                   </FormControl>
                 </Grid>

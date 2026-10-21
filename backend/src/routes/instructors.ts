@@ -27,10 +27,10 @@ const CLASS_QUERY_BASE = `
     cr.confirmed_start_time as startTime, cr.confirmed_end_time as endTime,
     cr.status, cr.location, cr.registered_students as max_students,
     CASE WHEN cr.status = 'completed' THEN true ELSE false END as completed,
-    cr.created_at, cr.updated_at,
+    cr.created_at, cr.updated_at, cr.completed_at as completedAt,
     ct.name as course_name, ct.name as coursetypename,
     COALESCE(o.name, 'Unassigned') as organizationname,
-    COALESCE(cr.location, '') as notes,
+    COALESCE(cr.notes, '') as notes,
     COALESCE(cs_counts.studentcount, 0) as studentcount,
     COALESCE(cs_counts.studentsattendance, 0) as studentsattendance`;
 

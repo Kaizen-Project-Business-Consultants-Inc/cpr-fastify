@@ -17,6 +17,7 @@ import SearchBar from '../gtacpr/SearchBar';
 import { GhostButton } from '../gtacpr/Buttons';
 import { useDebounce } from '../../hooks/useDebounce';
 import { useServerPagination } from '../../hooks/useServerPagination';
+import { formatDisplayDate, getTodayDate } from '../../utils/formatters';
 
 interface WSIBReportingProps {
   onShowSnackbar: (message: string, severity: 'success' | 'error' | 'warning' | 'info') => void;
@@ -170,7 +171,7 @@ const WSIBReporting = ({ onShowSnackbar }: WSIBReportingProps) => {
       const url = window.URL.createObjectURL(new Blob([response.data]));
       const a = document.createElement('a');
       a.href = url;
-      a.download = `wsib-compliance-${new Date().toISOString().split('T')[0]}.csv`;
+      a.download = `wsib-compliance-${getTodayDate()}.csv`;
       a.click();
       window.URL.revokeObjectURL(url);
     } catch {
@@ -178,10 +179,8 @@ const WSIBReporting = ({ onShowSnackbar }: WSIBReportingProps) => {
     }
   };
 
-  const formatDate = (dateStr: string | null) => {
-    if (!dateStr) return '\u2014';
-    return new Date(dateStr).toLocaleDateString();
-  };
+  // Date-only values arrive as 'YYYY-MM-DDT00:00:00.000Z'; new Date() would show the day before.
+  const formatDate = (dateStr: string | null) => formatDisplayDate(dateStr, '\u2014');
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>

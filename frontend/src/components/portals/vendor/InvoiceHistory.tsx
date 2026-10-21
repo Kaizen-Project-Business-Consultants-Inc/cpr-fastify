@@ -69,7 +69,7 @@ interface PaymentHistory {
   id: number;
   amount: number;
   paymentDate: string;
-  paymentMethod: string;
+  paymentMethod: string | null;
   referenceNumber: string;
   notes: string;
   status: string;
@@ -685,7 +685,7 @@ const InvoiceHistory: React.FC = () => {
                         >
                           <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.primary }}>{formatDate(payment.paymentDate)}</Typography>
                           <Typography sx={{ fontSize: 13, fontWeight: 700, color: (theme) => theme.palette.text.primary, fontFamily: 'monospace', textAlign: 'right' }}>{formatCurrency(payment.amount)}</Typography>
-                          <Typography sx={{ fontSize: 12.5, color: (theme) => theme.palette.text.secondary }}>{payment.paymentMethod.replace(/_/g, ' ').toUpperCase()}</Typography>
+                          <Typography sx={{ fontSize: 12.5, color: (theme) => theme.palette.text.secondary }}>{payment.paymentMethod ? payment.paymentMethod.replace(/_/g, ' ').toUpperCase() : '—'}</Typography>
                           <Typography sx={{ fontSize: 12.5, color: (theme) => theme.palette.text.secondary }}>{payment.referenceNumber || '—'}</Typography>
                           <Typography sx={{ fontSize: 12.5, color: (theme) => theme.palette.text.secondary }}>{payment.processedByName || 'Unknown'}</Typography>
                           <StatusChip kind={payment.status === 'processed' ? 'success' : 'warning'} label={payment.status} />

@@ -19,11 +19,11 @@ import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
 import KeyboardArrowUpIcon from '@mui/icons-material/KeyboardArrowUp';
 import PictureAsPdfIcon from '@mui/icons-material/PictureAsPdf';
 import PreviewIcon from '@mui/icons-material/Preview';
-import { formatCurrency, formatDisplayDate, applyTax } from '../../utils/formatters';
+import { formatCurrency, formatDisplayDate } from '../../utils/formatters';
 import { useSnackbar } from '../../contexts/SnackbarContext';
 import PaymentHistoryTable from '../common/PaymentHistoryTable';
-import { getInvoicePayments } from '../../services/api';
-import { API_URL } from '../../config';
+import api, { getInvoicePayments } from '../../services/api';
+import { downloadBlob } from '../../utils/download';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import PendingIcon from '@mui/icons-material/Pending';
 import WarningIcon from '@mui/icons-material/Warning';
@@ -31,25 +31,35 @@ import ErrorIcon from '@mui/icons-material/Error';
 import InfoIcon from '@mui/icons-material/Info';
 import { getErrorMessage } from '../../utils/errorMessage';
 
-interface HistoryInvoice {
-  invoiceId: number | string;
-  invoiceNumber?: string;
-  invoiceDate?: string;
-  dueDate?: string;
-  organizationName?: string;
-  courseTypeName?: string;
-  location?: string;
-  dateCompleted?: string;
-  courseDate?: string;
-  studentsBilled?: number;
-  ratePerStudent?: number | string;
-  paidToDate?: number | string;
-  balanceDue?: number | string;
-  paymentStatus?: string;
+/**
+ * A row as GET /accounting/invoices sends it (InvoiceRepository.findAllWithDetails).
+ * There is no case conversion: these are the SQL names. DECIMALs arrive as
+ * strings and posted_to_org as 0/1.
+ */
+export interface HistoryInvoice {
+  id: number;
+  invoice_number?: string;
+  invoice_date?: string;
+  due_date?: string;
+  organization_id?: number;
+  organization_name?: string;
+  course_type_name?: string | null;
+  location?: string | null;
+  date_completed?: string | null;
+  students_billed?: number;
+  rate_per_student?: number | string;
+  base_cost?: number | string;
+  tax_amount?: number | string;
+  amount?: number | string;
+  amount_paid?: number | string;
+  balance_due?: number | string;
+  payment_status?: string;
   status?: string;
-  approvalStatus?: string;
-  agingBucket?: string;
-  postedToOrg?: boolean;
+  approval_status?: string;
+  approved_at?: string | null;
+  aging_bucket?: string;
+  posted_to_org?: boolean | number;
+  posted_to_org_at?: string | null;
 }
 
 // Mirrors the (unexported) Payment shape expected by PaymentHistoryTable
@@ -219,113 +229,28 @@ const InvoiceHistoryTable = ({
     setExpandedRowId(expandedRowId === invoiceId ? null : invoiceId); // Toggle expansion
   };
 
-  const handlePreview = (invoiceId: number | string) => {
-    const previewUrl = `${API_URL}/accounting/invoices/${invoiceId}/preview`;
-    window.open(previewUrl, '_blank', 'width=800,height=1000,scrollbars=yes');
+  // Both endpoints need the Bearer token, which only the shared api client
+  // adds; a plain window.open or fetch got 401. So fetch the file as a blob
+  // and open or save a local copy of it.
+  const handlePreview = async (invoiceId: number | string) => {
+    // Open the window first (inside the click) so popup blockers allow it.
+    const win = window.open('', '_blank', 'width=800,height=1000,scrollbars=yes');
+    try {
+      const response = await api.get(`/accounting/invoices/${invoiceId}/preview`, { responseType: 'blob' });
+      const url = window.URL.createObjectURL(new Blob([response.data], { type: 'text/html' }));
+      if (win) win.location.href = url;
+      else window.open(url, '_blank');
+      setTimeout(() => window.URL.revokeObjectURL(url), 60000);
+    } catch (error) {
+      win?.close();
+      showError(`Failed to preview invoice: ${getErrorMessage(error)}`);
+    }
   };
 
   const handleDownloadPDF = async (invoiceId: number | string, invoiceNumber: string | undefined) => {
     try {
-
-
-      const response = await fetch(
-        `${API_URL}/accounting/invoices/${invoiceId}/pdf`,
-        {
-          method: 'GET',
-          credentials: 'include',
-        }
-      );
-
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error(`[PDF Download] Error response:`, errorText);
-        throw new Error(
-          `HTTP error! status: ${response.status} - ${errorText}`
-        );
-      }
-
-      // Check if the response is actually a PDF
-      const contentType = response.headers.get('content-type');
-
-      if (!contentType || !contentType.includes('application/pdf')) {
-        console.error('Response is not a PDF:', contentType);
-        const text = await response.text();
-        console.error('Response body:', text);
-        throw new Error('Server did not return a PDF file');
-      }
-
-      // Get the PDF blob
-      const blob = await response.blob();
-
-      // Verify the blob size
-      if (blob.size === 0) {
-        throw new Error('PDF file is empty');
-      }
-
-      // Try different download approaches
-      // IE/Edge legacy support - msSaveOrOpenBlob doesn't exist on modern browsers
-      const nav = window.navigator as Navigator & { msSaveOrOpenBlob?: (blob: Blob, filename: string) => boolean };
-      if (nav.msSaveOrOpenBlob) {
-        // For IE/Edge
-        nav.msSaveOrOpenBlob(blob, `Invoice-${invoiceNumber}.pdf`);
-      } else {
-        // For modern browsers - try multiple methods
-        const url = window.URL.createObjectURL(blob);
-
-        // Method 1: Try programmatic download
-        try {
-          const link = document.createElement('a');
-          link.href = url;
-          link.download = `Invoice-${invoiceNumber}.pdf`;
-          link.style.display = 'none';
-
-          // Add to DOM, click, and remove
-          document.body.appendChild(link);
-
-          // Try to trigger download
-          link.click();
-
-          // Also try dispatching a click event as fallback
-          const clickEvent = new MouseEvent('click', {
-            view: window,
-            bubbles: true,
-            cancelable: true,
-          });
-          link.dispatchEvent(clickEvent);
-
-
-          // Clean up after a short delay
-          setTimeout(() => {
-            if (document.body.contains(link)) {
-              document.body.removeChild(link);
-            }
-            window.URL.revokeObjectURL(url);
-          }, 1000);
-        } catch (downloadError) {
-          console.error(
-            '[PDF Download] Programmatic download failed:',
-            downloadError
-          );
-
-          // Method 2: Fallback - open in new tab
-          const newWindow = window.open(url, '_blank');
-          if (newWindow) {
-            // Clean up after user has time to save
-            setTimeout(() => {
-              window.URL.revokeObjectURL(url);
-            }, 10000);
-          } else {
-            console.error(
-              '[PDF Download] Failed to open new tab - popup blocked?'
-            );
-            showError(
-              'Download blocked by browser. Please check your popup blocker settings or try right-clicking the download button and selecting "Save link as..."'
-            );
-          }
-        }
-      }
-
+      const response = await api.get(`/accounting/invoices/${invoiceId}/pdf`, { responseType: 'blob' });
+      downloadBlob(response.data, `Invoice-${invoiceNumber ?? invoiceId}.pdf`);
     } catch (error) {
       console.error('[PDF Download] Error:', error);
       showError(`Failed to download PDF: ${getErrorMessage(error)}`);
@@ -394,7 +319,7 @@ const InvoiceHistoryTable = ({
         </TableHead>
         <TableBody>
           {invoices.map((invoice, index) => (
-            <React.Fragment key={invoice.invoiceId || index}>
+            <React.Fragment key={invoice.id}>
               <TableRow
                 hover
                 sx={{
@@ -407,9 +332,9 @@ const InvoiceHistoryTable = ({
                   <IconButton
                     aria-label='expand row'
                     size='small'
-                    onClick={() => handleExpandClick(invoice.invoiceId)}
+                    onClick={() => handleExpandClick(invoice.id)}
                   >
-                    {expandedRowId === invoice.invoiceId ? (
+                    {expandedRowId === invoice.id ? (
                       <KeyboardArrowUpIcon />
                     ) : (
                       <KeyboardArrowDownIcon />
@@ -418,91 +343,77 @@ const InvoiceHistoryTable = ({
                 </TableCell>
                 <TableCell>
                   <strong>
-                    {invoice.invoiceNumber}
+                    {invoice.invoice_number}
                   </strong>
                 </TableCell>
               <TableCell>
-                {formatDisplayDate(invoice.invoiceDate)}
+                {formatDisplayDate(invoice.invoice_date)}
               </TableCell>
               <TableCell>
-                {formatDisplayDate(invoice.dueDate)}
+                {formatDisplayDate(invoice.due_date)}
               </TableCell>
               <TableCell>
-                {invoice.organizationName || '-'}
+                {invoice.organization_name || '-'}
               </TableCell>
               <TableCell>
-                {invoice.courseTypeName || '-'}
+                {invoice.course_type_name || '-'}
               </TableCell>
               <TableCell>{invoice.location || '-'}</TableCell>
               <TableCell>
-                {formatDisplayDate(invoice.dateCompleted || invoice.courseDate)}
+                {formatDisplayDate(invoice.date_completed)}
               </TableCell>
               <TableCell align='center'>
-                {invoice.studentsBilled || '-'}
+                {invoice.students_billed || '-'}
               </TableCell>
               <TableCell align='right'>
-                {invoice.ratePerStudent ?
-                  <strong>{formatCurrency(invoice.ratePerStudent)}</strong> :
+                {invoice.rate_per_student ?
+                  <strong>{formatCurrency(invoice.rate_per_student)}</strong> :
                   <Typography variant="body2" color="error.main" fontSize="small">
                     Pricing not configured
                   </Typography>
                 }
               </TableCell>
+              {/* The invoice's own stored figures, not a recalculation. */}
               <TableCell align='right'>
-                {invoice.ratePerStudent && invoice.studentsBilled ?
-                  <strong>{formatCurrency(applyTax(Number(invoice.ratePerStudent) * Number(invoice.studentsBilled)).subtotal)}</strong> :
-                  <Typography variant="body2" color="error.main" fontSize="small">
-                    N/A
-                  </Typography>
-                }
+                <strong>{formatCurrency(invoice.base_cost || 0)}</strong>
               </TableCell>
               <TableCell align='right'>
-                {invoice.ratePerStudent && invoice.studentsBilled ?
-                  <strong>{formatCurrency(applyTax(Number(invoice.ratePerStudent) * Number(invoice.studentsBilled)).tax)}</strong> :
-                  <Typography variant="body2" color="error.main" fontSize="small">
-                    N/A
-                  </Typography>
-                }
+                <strong>{formatCurrency(invoice.tax_amount || 0)}</strong>
               </TableCell>
               <TableCell align='right'>
-                {invoice.ratePerStudent && invoice.studentsBilled ?
-                  <strong>{formatCurrency(applyTax(Number(invoice.ratePerStudent) * Number(invoice.studentsBilled)).total)}</strong> :
-                  <Typography variant="body2" color="error.main" fontSize="small">
-                    N/A
-                  </Typography>
-                }
+                <strong>{formatCurrency(invoice.amount || 0)}</strong>
               </TableCell>
               <TableCell align='right'>
-                {formatCurrency(invoice.paidToDate || 0)}
+                {formatCurrency(invoice.amount_paid || 0)}
               </TableCell>
               <TableCell align='right'>
                 <strong>
-                  {formatCurrency(invoice.balanceDue || 0)}
+                  {formatCurrency(invoice.balance_due || 0)}
                 </strong>
               </TableCell>
               <TableCell align='center'>
                 <Chip
-                  icon={getStatusIcon(invoice.paymentStatus || invoice.status)}
-                  label={invoice.paymentStatus || invoice.status || 'Unknown'}
-                  color={getStatusChipColor(invoice.paymentStatus || invoice.status)}
+                  icon={getStatusIcon(invoice.payment_status || invoice.status)}
+                  label={invoice.payment_status || invoice.status || 'Unknown'}
+                  color={getStatusChipColor(invoice.payment_status || invoice.status)}
                   size='small'
                 />
               </TableCell>
               <TableCell align='center'>
                 <Chip
-                  icon={getApprovalStatusIcon(invoice.approvalStatus)}
-                  label={invoice.approvalStatus || 'Unknown'}
-                  color={getApprovalStatusChipColor(invoice.approvalStatus)}
+                  icon={getApprovalStatusIcon(invoice.approval_status)}
+                  label={invoice.approval_status || 'Unknown'}
+                  color={getApprovalStatusChipColor(invoice.approval_status)}
                   size='small'
                 />
               </TableCell>
               <TableCell>
-                {invoice.agingBucket || '-'}
+                {invoice.aging_bucket || '-'}
               </TableCell>
               <TableCell align='center'>
                 <Chip
-                  label={invoice.postedToOrg ? 'Yes' : 'No'}
-                  color={invoice.postedToOrg ? 'success' : 'default'}
+                  label={invoice.posted_to_org ? 'Yes' : 'No'}
+                  color={invoice.posted_to_org ? 'success' : 'default'}
                   size='small'
                   variant='outlined'
                 />
@@ -518,9 +429,9 @@ const InvoiceHistoryTable = ({
                 >
                   <Tooltip title='Preview Invoice'>
                     <IconButton
-                      aria-label={`Preview invoice ${invoice.invoiceNumber}`}
+                      aria-label={`Preview invoice ${invoice.invoice_number}`}
                       size='small'
-                      onClick={() => handlePreview(invoice.invoiceId)}
+                      onClick={() => handlePreview(invoice.id)}
                       color='primary'
                     >
                       <PreviewIcon fontSize='small' />
@@ -528,10 +439,10 @@ const InvoiceHistoryTable = ({
                   </Tooltip>
                   <Tooltip title='Download PDF'>
                     <IconButton
-                      aria-label={`Download PDF for invoice ${invoice.invoiceNumber}`}
+                      aria-label={`Download PDF for invoice ${invoice.invoice_number}`}
                       size='small'
                       onClick={() =>
-                        handleDownloadPDF(invoice.invoiceId, invoice.invoiceNumber)
+                        handleDownloadPDF(invoice.id, invoice.invoice_number)
                       }
                       color='secondary'
                     >
@@ -549,14 +460,14 @@ const InvoiceHistoryTable = ({
               >
                 {/* Adjust colSpan based on total columns */}
                 <Collapse
-                  in={expandedRowId === invoice.invoiceId}
+                  in={expandedRowId === invoice.id}
                   timeout='auto'
                   unmountOnExit
                 >
                                   {/* Render PaymentDetails component only when expanded */}
-                {expandedRowId === invoice.invoiceId && (
+                {expandedRowId === invoice.id && (
                   <PaymentDetails
-                    invoiceId={invoice.invoiceId}
+                    invoiceId={invoice.id}
                     onViewInvoice={handlePreview}
                   />
                 )}

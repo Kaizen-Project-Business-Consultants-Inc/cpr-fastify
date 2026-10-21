@@ -15,6 +15,7 @@ import {
   Alert,
 } from '@mui/material';
 import { api } from '../../../../services/api';
+import { getErrorMessage } from '../../../../utils/errorMessage';
 import { formatDisplayDate, getTodayDate } from '../../../../utils/formatters';
 import useServerPagination from '../../../../hooks/useServerPagination';
 import useDebounce from '../../../../hooks/useDebounce';
@@ -169,8 +170,7 @@ const OrganizationArchive: React.FC<OrganizationArchiveProps> = ({ courses }) =>
         setStudentError('Failed to load students');
       }
     } catch (error: unknown) {
-      const errObj = error as { response?: { data?: { error?: { message?: string } } } };
-      setStudentError(errObj.response?.data?.error?.message || 'Failed to load students');
+      setStudentError(getErrorMessage(error, 'Failed to load students'));
     } finally {
       setLoadingStudents(false);
     }

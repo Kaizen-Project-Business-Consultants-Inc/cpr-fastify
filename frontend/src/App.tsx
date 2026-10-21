@@ -15,7 +15,6 @@ import TransitionWrapper from './components/common/TransitionWrapper';
 const InstructorPortal = React.lazy(() => import('./components/portals/InstructorPortalContainer'));
 const OrganizationPortal = React.lazy(() => import('./components/portals/organization/OrganizationPortalContainer'));
 const CourseAdminPortal = React.lazy(() => import('./components/portals/courseAdmin/CourseAdminPortalContainer'));
-const SuperAdminPortal = React.lazy(() => import('./components/portals/SuperAdminPortal'));
 const AccountingPortal = React.lazy(() => import('./components/portals/AccountingPortal'));
 const SystemAdminPortal = React.lazy(() => import('./components/portals/SystemAdminPortal'));
 const HRPortal = React.lazy(() => import('./components/portals/HRPortal'));
@@ -86,15 +85,6 @@ function App() {
                   element={
                     <PrivateRoute role='accountant'>
                       <AccountingPortal />
-                    </PrivateRoute>
-                  }
-                />
-
-                <Route
-                  path='/superadmin/*'
-                  element={
-                    <PrivateRoute role='superadmin'>
-                      <SuperAdminPortal />
                     </PrivateRoute>
                   }
                 />

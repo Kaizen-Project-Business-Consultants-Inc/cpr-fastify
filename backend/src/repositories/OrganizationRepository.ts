@@ -12,6 +12,13 @@ export interface Organization {
   updated_at: Date;
 }
 
+/** The Profile screen's stat cards (snake_case, as that screen reads them). */
+export interface OrganizationProfileStats {
+  total_courses: number;
+  total_students: number;
+  active_instructors: number;
+}
+
 /** One row of HR → Personnel → Organizations, camelCase as that screen reads it. */
 export interface OrganizationWithStats {
   id: number;
@@ -91,6 +98,29 @@ export class OrganizationRepository extends BaseRepository<Organization> {
     return this.findById(id);
   }
 
+  /**
+   * Counts for the org Profile cards. Courses: not deleted, not cancelled.
+   * Students: roster rows (registered, not removed) on those courses.
+   * Instructors: distinct instructors assigned to those courses.
+   */
+  async getProfileStats(orgId: number): Promise<OrganizationProfileStats> {
+    const [row] = await this.query<RowDataPacket>(
+      `SELECT COUNT(DISTINCT cr.id) as total_courses,
+              COUNT(DISTINCT cr.instructor_id) as active_instructors,
+              COUNT(DISTINCT cs.id) as total_students
+       FROM course_requests cr
+       LEFT JOIN course_students cs ON cs.course_request_id = cr.id AND cs.deleted_at IS NULL
+       WHERE cr.organization_id = ? AND cr.deleted_at IS NULL
+         AND cr.status <> 'cancelled' AND COALESCE(cr.is_cancelled, 0) = 0`,
+      [orgId]
+    );
+    return {
+      total_courses: Number(row?.total_courses ?? 0),
+      total_students: Number(row?.total_students ?? 0),
+      active_instructors: Number(row?.active_instructors ?? 0),
+    };
+  }
+
   async getOrgCourses(orgId: number, options: { archived: boolean; limit: number; offset: number; from?: string; to?: string }): Promise<{ rows: RowDataPacket[]; total: number }> {
     let dateFilter = '';
     const dateParams: unknown[] = [];
@@ -112,21 +142,24 @@ export class OrganizationRepository extends BaseRepository<Organization> {
       `SELECT cr.*, cr.date_requested as request_submitted_date, cr.date_requested as requestSubmittedDate,
               cr.scheduled_date as scheduledDate, cr.confirmed_date as confirmedDate,
               cr.registered_students as registeredStudents,
+              cr.archived_at as archivedAt,
               ct.name as course_type_name, ct.name as courseTypeName,
               u.username as instructor,
-              (SELECT COUNT(*) FROM course_students cs WHERE cs.course_request_id = cr.id AND cs.attended = true) AS students_attended,
-              (SELECT COUNT(*) FROM course_students cs WHERE cs.course_request_id = cr.id AND cs.attended = true) AS studentsAttended
+              (SELECT COUNT(*) FROM course_students cs WHERE cs.course_request_id = cr.id AND cs.attended = true AND cs.deleted_at IS NULL) AS students_attended,
+              (SELECT COUNT(*) FROM course_students cs WHERE cs.course_request_id = cr.id AND cs.attended = true AND cs.deleted_at IS NULL) AS studentsAttended
        FROM course_requests cr
        LEFT JOIN class_types ct ON cr.course_type_id = ct.id
        LEFT JOIN users u ON cr.instructor_id = u.id
-       WHERE cr.organization_id = ? AND cr.archived = ?${dateFilter}
-       ORDER BY ${options.archived ? 'cr.archived_at' : 'cr.created_at'} DESC
+       WHERE cr.organization_id = ? AND cr.archived = ? AND cr.deleted_at IS NULL${dateFilter}
+       ORDER BY ${options.archived ? 'cr.archived_at' : 'cr.created_at'} DESC, cr.id DESC
        LIMIT ? OFFSET ?`,
       [orgId, options.archived, ...dateParams, options.limit, options.offset]
     );
 
     const [{ total }] = await this.query<{ total: number }>(
-      `SELECT COUNT(*) as total FROM course_requests WHERE organization_id = ? AND archived = ?${dateFilter}`,
+      // dateFilter uses the cr alias, so the count query needs it too
+      `SELECT COUNT(*) as total FROM course_requests cr
+       WHERE cr.organization_id = ? AND cr.archived = ? AND cr.deleted_at IS NULL${dateFilter}`,
       [orgId, options.archived, ...dateParams]
     );
 

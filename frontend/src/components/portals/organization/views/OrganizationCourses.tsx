@@ -229,8 +229,7 @@ const OrganizationCourses: React.FC<OrganizationCoursesProps> = ({
         setStudentError('Failed to load students');
       }
     } catch (error: unknown) {
-      const errObj = error as { response?: { data?: { error?: { message?: string } } } };
-      setStudentError(errObj.response?.data?.error?.message || 'Failed to load students');
+      setStudentError(getErrorMessage(error, 'Failed to load students'));
     } finally {
       setLoadingStudents(false);
     }

@@ -27,6 +27,7 @@ import {
 } from '@mui/icons-material';
 import { timesheetService, TimesheetSubmission as TimesheetSubmissionData, WeekCourses, Timesheet } from '../../services/timesheetService';
 import { useAuth } from '../../contexts/AuthContext';
+import { getErrorMessage } from '../../utils/errorMessage';
 
 interface TimesheetSubmissionProps {
   onTimesheetSubmitted?: () => void;
@@ -288,15 +289,15 @@ const TimesheetSubmission: React.FC<TimesheetSubmissionProps> = ({ onTimesheetSu
         onTimesheetSubmitted();
       }
     } catch (err: unknown) {
-      // Handle specific error cases with user-friendly messages
-      const errObj = err as { response?: { data?: { message?: string } }; message?: string };
-      const errorMessage = errObj.response?.data?.message || errObj.message || 'Failed to submit timesheet';
+      // Handle specific error cases with user-friendly messages. The server sends
+      // { error: '...' }; these match its exact wording in routes/timesheets.ts.
+      const errorMessage = getErrorMessage(err, 'Failed to submit timesheet');
 
-      if (errorMessage.includes('already exists for this week')) {
+      if (errorMessage.includes('Timesheet already exists for this week')) {
         setError('You have already submitted a timesheet for this week. You can view or update your existing timesheet in the timesheet history.');
       } else if (errorMessage.includes('Week start date must be a Monday')) {
         setError('The week start date must be a Monday. Please contact support if you see this error.');
-      } else if (errorMessage.includes('until the week has ended')) {
+      } else if (errorMessage.includes('Cannot submit timesheet until the week has ended')) {
         setError('Cannot submit timesheet until the week has ended. Please wait until after Sunday.');
       } else {
         setError(errorMessage);
@@ -308,8 +309,10 @@ const TimesheetSubmission: React.FC<TimesheetSubmissionProps> = ({ onTimesheetSu
 
   const formatDate = (dateString: string | undefined | null) => {
     if (!dateString) return 'N/A';
-    // Parse the date string as local time to avoid timezone issues
-    const [year, month, day] = dateString.split('-').map(Number);
+    // Parse the calendar date as local time to avoid timezone issues. The server sends
+    // DATE columns as ISO datetimes ('2026-10-19T00:00:00.000Z'), so keep only YYYY-MM-DD.
+    const [year, month, day] = String(dateString).slice(0, 10).split('-').map(Number);
+    if (!year || !month || !day) return 'N/A';
     const date = new Date(year, month - 1, day); // month is 0-indexed
     return date.toLocaleDateString('en-US', {
       month: 'short',

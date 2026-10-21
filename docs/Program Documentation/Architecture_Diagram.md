@@ -169,7 +169,6 @@ graph TB
         Instructor["InstructorPortal"]
         Organization["OrganizationPortal"]
         CourseAdmin["CourseAdminPortal"]
-        SuperAdmin["SuperAdminPortal"]
         Accounting["AccountingPortal"]
         SystemAdmin["SystemAdminPortal"]
         HR["HRPortal"]
@@ -210,7 +209,6 @@ graph TB
 | Instructor | `instructor` | `/instructor/*` | Class management, attendance, timesheets |
 | Organization | `organization` | `/organization/*` | Course requests, roster, billing |
 | Course Admin | `admin` | `/admin/*` | Course scheduling, instructor assignment |
-| Super Admin | `superadmin` | `/superadmin/*` | System-wide admin controls |
 | Accounting | `accountant` | `/accounting/*` | Invoicing, payments, revenue reports |
 | System Admin | `sysadmin` | `/sysadmin/*` | Users, orgs, courses, students, certs, audit logs, WSIB |
 | HR | `hr` | `/hr` | Employee management, pay rates |

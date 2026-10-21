@@ -13,6 +13,7 @@ import { FinancialSummaryService } from '../services/FinancialSummaryService.js'
 import { RowDataPacket } from 'mysql2/promise';
 import { verifiedPayment } from '../utils/paymentSql.js';
 import { loadInvoiceForAccounting, sendInvoicePdf, sendInvoicePreview } from '../services/invoiceDocument.js';
+import { torontoToday } from '../utils/torontoDate.js';
 
 // --- Schemas ---
 
@@ -45,6 +46,19 @@ const paymentSchema = z.object({
   paymentDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Use YYYY-MM-DD').optional(),
   notes: z.string().max(1000).optional(),
 });
+
+/** YYYY-MM-DD for a CSV cell. The pool runs in UTC, so a DATE is UTC midnight. */
+function csvDate(value: unknown): string {
+  if (value instanceof Date) {
+    if (Number.isNaN(value.getTime())) return '';
+    // A DATE column arrives as UTC midnight; a timestamp (invoice_date falls
+    // back to created_at) is shown as its Toronto day.
+    const iso = value.toISOString();
+    return iso.endsWith('T00:00:00.000Z') ? iso.slice(0, 10) : torontoToday(value);
+  }
+  if (typeof value === 'string') return value.slice(0, 10);
+  return '';
+}
 
 function handleError(err: unknown, reply: FastifyReply, request?: import('fastify').FastifyRequest) {
   if (err instanceof BillingError) return reply.status(err.statusCode).send({ error: err.message });
@@ -139,8 +153,12 @@ export async function billingRoutes(app: FastifyInstance) {
 
   // CSV Export: Invoices (must be before /invoices/:id to avoid param matching)
   app.get('/invoices/export/csv', { preHandler: acctRole }, async (_request, reply) => {
-    const result = await service.getAllInvoices();
-    const invoices = Array.isArray(result) ? result : result.data;
+    const invoices = (await service.getAllInvoicesForExport()).map((inv) => ({
+      ...inv,
+      // DATE columns arrive as JS Dates (UTC midnight); print the calendar date.
+      invoice_date: csvDate(inv.invoice_date),
+      due_date: csvDate(inv.due_date),
+    }));
     const csv = toCSV(invoices as unknown as Record<string, unknown>[], [
       { key: 'invoice_number', label: 'Invoice #' },
       { key: 'organization_name', label: 'Organization' },

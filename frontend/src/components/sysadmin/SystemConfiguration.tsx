@@ -9,6 +9,7 @@ import {
 } from '@mui/material';
 import { sysadminApi } from '../../services/api';
 import logger from '../../utils/logger';
+import { getErrorMessage } from '../../utils/errorMessage';
 import { PrimaryButton, GhostButton } from '../gtacpr/Buttons';
 import type { Theme } from '@mui/material/styles';
 
@@ -18,6 +19,8 @@ interface SystemConfig {
   configValue: string;
   description: string;
   category: string;
+  /** Passwords and keys: the server sends a mask, and saving the mask keeps the stored value. */
+  isSecret?: boolean;
   updatedBy?: number;
   updatedAt: string;
   createdAt: string;
@@ -34,6 +37,7 @@ const SystemConfiguration: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [editedValues, setEditedValues] = useState<Record<string, string>>({});
+  const [loadedValues, setLoadedValues] = useState<Record<string, string>>({});
 
   const loadConfigurations = async () => {
     try {
@@ -47,6 +51,7 @@ const SystemConfiguration: React.FC = () => {
           initialValues[config.configKey] = config.configValue;
         });
         setEditedValues(initialValues);
+        setLoadedValues(initialValues);
       } else {
         setError('Failed to load configurations');
       }
@@ -82,7 +87,7 @@ const SystemConfiguration: React.FC = () => {
       }
     } catch (err) {
       logger.error(`Error updating configuration ${key}:`, err);
-      setError(`Failed to update ${key}`);
+      setError(getErrorMessage(err, `Failed to update ${key}`));
     } finally {
       setSaving(false);
     }
@@ -93,7 +98,9 @@ const SystemConfiguration: React.FC = () => {
       setSaving(true);
       setError(null);
       setSuccess(null);
-      const updatePromises = Object.keys(editedValues).map(key =>
+      // Only the values that were changed are saved.
+      const changed = Object.keys(editedValues).filter(key => editedValues[key] !== loadedValues[key]);
+      const updatePromises = changed.map(key =>
         sysadminApi.updateConfiguration(key, editedValues[key])
       );
       await Promise.all(updatePromises);
@@ -101,7 +108,7 @@ const SystemConfiguration: React.FC = () => {
       await loadConfigurations();
     } catch (err) {
       logger.error('Error updating configurations:', err);
-      setError('Failed to update some configurations');
+      setError(getErrorMessage(err, 'Failed to update some configurations'));
     } finally {
       setSaving(false);
     }
@@ -170,7 +177,9 @@ const SystemConfiguration: React.FC = () => {
                 <TextField
                   fullWidth
                   size="small"
-                  value={editedValues[config.configKey] || config.configValue}
+                  type={config.isSecret ? 'password' : 'text'}
+                  helperText={config.isSecret ? 'Hidden. Type a new value to replace it.' : undefined}
+                  value={editedValues[config.configKey] ?? config.configValue ?? ''}
                   onChange={(e) => handleValueChange(config.configKey, e.target.value)}
                   sx={{
                     '& .MuiOutlinedInput-root': {

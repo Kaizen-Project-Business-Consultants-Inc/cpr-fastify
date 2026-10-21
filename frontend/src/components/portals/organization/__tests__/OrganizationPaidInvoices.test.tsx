@@ -20,10 +20,12 @@ vi.mock('../../../../contexts/SnackbarContext', () => ({
 
 import OrganizationPaidInvoices from '../views/OrganizationPaidInvoices';
 
+/** The shape GET /organization/paid-invoices really sends (id and invoice_id, invoice_date). */
 const invoice = (overrides: Partial<Record<string, unknown>> = {}) => ({
   id: 1,
+  invoice_id: 1,
   invoice_number: 'INV-2026-001',
-  created_at: '2026-08-01',
+  invoice_date: '2026-08-01T14:00:00.000Z',
   due_date: '2026-08-31',
   amount: 1234.56,
   status: 'paid',
@@ -96,7 +98,7 @@ describe('OrganizationPaidInvoices', () => {
     mockGet.mockResolvedValue(
       page([
         invoice(),
-        invoice({ id: 2, invoice_number: 'INV-2026-002', amount: 99.5, amount_paid: 99.5, course_type_name: 'First Aid' }),
+        invoice({ id: 2, invoice_id: 2, invoice_number: 'INV-2026-002', amount: 99.5, amount_paid: 99.5, course_type_name: 'First Aid' }),
       ])
     );
     renderScreen();
@@ -110,7 +112,7 @@ describe('OrganizationPaidInvoices', () => {
     mockGet.mockResolvedValue(
       page([
         invoice(),
-        invoice({ id: 2, invoice_number: 'INV-2026-002', course_type_name: 'First Aid' }),
+        invoice({ id: 2, invoice_id: 2, invoice_number: 'INV-2026-002', course_type_name: 'First Aid' }),
       ])
     );
     renderScreen();
@@ -141,7 +143,7 @@ describe('OrganizationPaidInvoices', () => {
     expect(await screen.findByText('INV-2026-001')).toBeInTheDocument();
 
     mockGet.mockResolvedValue(
-      page([invoice({ id: 2, invoice_number: 'INV-2026-050' })], {
+      page([invoice({ id: 2, invoice_id: 2, invoice_number: 'INV-2026-050' })], {
         current_page: 2,
         total_pages: 2,
         total_records: 26,
@@ -156,6 +158,25 @@ describe('OrganizationPaidInvoices', () => {
       })
     );
     expect(await screen.findByText('INV-2026-050')).toBeInTheDocument();
+  });
+
+  it('downloads the PDF for the invoice id the server sends', async () => {
+    mockGet.mockImplementation((url: string) =>
+      url === '/organization/paid-invoices'
+        ? Promise.resolve(page([invoice({ id: 42, invoice_id: 42 })]))
+        : Promise.resolve({ data: new Blob(['%PDF']) })
+    );
+    const createObjectURL = vi.fn(() => 'blob:x');
+    const revokeObjectURL = vi.fn();
+    Object.assign(window.URL, { createObjectURL, revokeObjectURL });
+    renderScreen();
+
+    fireEvent.click(await screen.findByLabelText('Download PDF for invoice INV-2026-001'));
+
+    await waitFor(() =>
+      expect(mockGet).toHaveBeenCalledWith('/invoices/42/pdf', { responseType: 'blob' })
+    );
+    expect(mockGet).not.toHaveBeenCalledWith('/invoices/undefined/pdf', expect.anything());
   });
 
   it('shows the empty state when there are no paid invoices', async () => {

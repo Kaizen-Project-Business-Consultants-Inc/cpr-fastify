@@ -19,7 +19,6 @@ import { useSnackbar } from '../../../contexts/SnackbarContext';
 
 interface MyClassesViewProps {
   combinedSchedule?: CombinedScheduleItem[];
-  onCompleteClass: (item: CombinedScheduleItem) => void;
   onRemoveAvailability?: (date: string) => Promise<{ success: boolean; error?: string }>;
 }
 
@@ -41,7 +40,6 @@ const columns = [
 
 const MyClassesView: React.FC<MyClassesViewProps> = ({
   combinedSchedule = [],
-  onCompleteClass: _onCompleteClass,
   onRemoveAvailability,
 }) => {
   // No column-header sort UI is wired up yet; sortedSchedule below is therefore always

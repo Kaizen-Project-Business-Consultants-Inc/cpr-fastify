@@ -59,7 +59,7 @@ interface OrganizationBreakdown {
   days_31_60: number;
   days_61_90: number;
   days_90_plus: number;
-  risk_score: string;
+  risk_score: number; // 0-100 from the server (routes/billing.ts)
 }
 
 interface AgingInvoiceDetail {
@@ -242,8 +242,18 @@ const AgingReportView = () => {
     }
   };
 
-  const getRiskKind = (riskScore: string): 'success' | 'warning' | 'danger' | 'neutral' => {
-    switch (riskScore) {
+  // The server sends a 0-100 score (balance weighted by how overdue it is);
+  // bucket it into thirds for the chip.
+  const getRiskLevel = (riskScore: number | string | null | undefined): 'Low' | 'Medium' | 'High' | null => {
+    const n = Number(riskScore);
+    if (riskScore === null || riskScore === undefined || Number.isNaN(n)) return null;
+    if (n < 34) return 'Low';
+    if (n < 67) return 'Medium';
+    return 'High';
+  };
+
+  const getRiskKind = (riskScore: number | string | null | undefined): 'success' | 'warning' | 'danger' | 'neutral' => {
+    switch (getRiskLevel(riskScore)) {
       case 'Low':
         return 'success';
       case 'Medium':
@@ -561,7 +571,7 @@ const AgingReportView = () => {
                   </Typography>
 
                   {/* Risk Score */}
-                  <StatusChip kind={getRiskKind(org.risk_score)} label={org.risk_score} />
+                  <StatusChip kind={getRiskKind(org.risk_score)} label={getRiskLevel(org.risk_score) ? `${getRiskLevel(org.risk_score)} (${org.risk_score})` : '-'} />
                 </DataTableRow>
               ))}
             </DataTable>

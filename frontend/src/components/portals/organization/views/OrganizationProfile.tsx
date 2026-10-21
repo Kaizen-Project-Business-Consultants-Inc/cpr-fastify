@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Box, Typography, Grid, TextField } from '@mui/material';
 import { useQueryClient } from '@tanstack/react-query';
 import { api } from '../../../../services/api';
+import { getErrorMessage } from '../../../../utils/errorMessage';
 import { useSnackbar } from '../../../../contexts/SnackbarContext';
 import logger from '../../../../utils/logger';
 import StatCard from '../../../gtacpr/StatCard';
@@ -100,8 +101,7 @@ const OrganizationProfile: React.FC<OrganizationProfileProps> = ({ organizationD
       setEditing(false);
     } catch (error: unknown) {
       logger.error('Failed to update organization profile', error);
-      const err = error as { response?: { data?: { message?: string; error?: { message?: string } } } };
-      showError(err.response?.data?.error?.message || err.response?.data?.message || 'Failed to update organization profile');
+      showError(getErrorMessage(error, 'Failed to update organization profile'));
     } finally {
       setSaving(false);
     }

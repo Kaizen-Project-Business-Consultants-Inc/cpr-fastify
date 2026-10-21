@@ -26,6 +26,25 @@ const templateSchema = z.object({
   isActive: z.boolean().optional(),
 });
 
+/**
+ * A template row as the Email Template Manager reads it: the raw columns plus
+ * camelCase names, with the TINYINT flags as real booleans (mysql2 returns 0/1,
+ * and the PUT schema's `isActive` must be a boolean when the screen sends it back).
+ * The table has no description / event-trigger / variable columns.
+ */
+function toApiTemplate(row: RowDataPacket) {
+  return {
+    ...row,
+    isActive: Boolean(row.is_active),
+    isSystem: Boolean(row.is_system),
+    subCategory: row.sub_category ?? '',
+    templateType: row.template_type ?? null,
+    htmlContent: row.body ?? '',
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
 export async function emailTemplateRoutes(app: FastifyInstance) {
   const pool = getPool();
   const adminRole = [requireRole('admin', 'sysadmin')];
@@ -55,7 +74,7 @@ export async function emailTemplateRoutes(app: FastifyInstance) {
     );
     const total = Number(countRows[0]?.count ?? 0);
 
-    return { success: true, data: rows, pagination: { page: pageNum, limit: limitNum, total, pages: Math.ceil(total / limitNum) } };
+    return { success: true, data: rows.map(toApiTemplate), pagination: { page: pageNum, limit: limitNum, total, pages: Math.ceil(total / limitNum) } };
   });
 
   // Create template
@@ -72,7 +91,7 @@ export async function emailTemplateRoutes(app: FastifyInstance) {
        data.isActive ?? true, request.userId, request.userId]
     );
     const [rows] = await pool.query<RowDataPacket[]>('SELECT * FROM email_templates WHERE id = ?', [result.insertId]);
-    return { success: true, data: rows[0] };
+    return { success: true, data: toApiTemplate(rows[0]) };
   });
 
   // Update template
@@ -93,14 +112,20 @@ export async function emailTemplateRoutes(app: FastifyInstance) {
     );
     if (result.affectedRows === 0) return reply.status(404).send({ error: 'Template not found' });
     const [rows] = await pool.query<RowDataPacket[]>('SELECT * FROM email_templates WHERE id = ?', [parseInt(id)]);
-    return { success: true, data: rows[0] };
+    return { success: true, data: toApiTemplate(rows[0]) };
   });
 
   // Delete template
   app.delete('/:id', { preHandler: adminRole }, async (request, reply) => {
     const { id } = request.params as { id: string };
-    const [result] = await pool.query<ResultSetHeader>('DELETE FROM email_templates WHERE id = ?', [parseInt(id)]);
-    if (result.affectedRows === 0) return reply.status(404).send({ error: 'Template not found' });
+    const [found] = await pool.query<RowDataPacket[]>('SELECT is_system FROM email_templates WHERE id = ?', [parseInt(id)]);
+    if (found.length === 0) return reply.status(404).send({ error: 'Template not found' });
+    if (found[0].is_system) {
+      return reply.status(400).send({ error: 'System templates cannot be deleted. You can edit them or switch them off instead.' });
+    }
+    // `AND is_system = 0` keeps the check and the delete in step if the flag changed in between.
+    const [result] = await pool.query<ResultSetHeader>('DELETE FROM email_templates WHERE id = ? AND is_system = 0', [parseInt(id)]);
+    if (result.affectedRows === 0) return reply.status(400).send({ error: 'System templates cannot be deleted. You can edit them or switch them off instead.' });
     return { success: true, message: 'Email template deleted successfully' };
   });
 
@@ -120,7 +145,7 @@ export async function emailTemplateRoutes(app: FastifyInstance) {
        original.subject, original.body, original.is_active, request.userId, request.userId]
     );
     const [newRows] = await pool.query<RowDataPacket[]>('SELECT * FROM email_templates WHERE id = ?', [result.insertId]);
-    return { success: true, message: 'Email template cloned successfully', data: newRows[0] };
+    return { success: true, message: 'Email template cloned successfully', data: toApiTemplate(newRows[0]) };
   });
 
   // Test-send a template
@@ -170,28 +195,6 @@ export async function emailTemplateRoutes(app: FastifyInstance) {
     } catch (err) {
       return reply.status(500).send({ error: 'Failed to send test email', details: (err as Error).message });
     }
-  });
-
-  // Get event triggers metadata
-  app.get('/meta/event-triggers', { preHandler: adminRole }, async () => {
-    return {
-      success: true,
-      data: [
-        { value: 'course_assigned_instructor', label: 'Course Assigned to Instructor', category: 'course' },
-        { value: 'course_scheduled_organization', label: 'Course Scheduled for Organization', category: 'course' },
-        { value: 'course_reminder_instructor', label: 'Course Reminder - Instructor', category: 'reminder' },
-        { value: 'course_reminder_student', label: 'Course Reminder - Student', category: 'reminder' },
-        { value: 'course_cancelled', label: 'Course Cancelled', category: 'course' },
-        { value: 'course_completed', label: 'Course Completed', category: 'course' },
-        { value: 'instructor_approved', label: 'Instructor Application Approved', category: 'notification' },
-        { value: 'instructor_rejected', label: 'Instructor Application Rejected', category: 'notification' },
-        { value: 'organization_approved', label: 'Organization Application Approved', category: 'notification' },
-        { value: 'organization_rejected', label: 'Organization Application Rejected', category: 'notification' },
-        { value: 'password_reset', label: 'Password Reset', category: 'system' },
-        { value: 'account_created', label: 'Account Created', category: 'system' },
-        { value: 'custom', label: 'Custom Event', category: 'custom' },
-      ],
-    };
   });
 
   // Get template variables metadata

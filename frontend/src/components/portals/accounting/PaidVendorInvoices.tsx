@@ -32,10 +32,9 @@ interface PaidVendorInvoice {
   dueDate: string;
   vendorName: string;
   vendorEmail: string;
-  vendorContact: string;
-  vendorPaymentMethod: string;
+  /** Method of the most recent processed payment, or null. */
+  vendorPaymentMethod: string | null;
   approvedByName: string;
-  approvedByEmail: string;
   sentToAccountingAt: string;
   totalPaid: number | string;
   balanceDue: number | string;
@@ -47,7 +46,7 @@ interface PaymentHistory {
   id: number;
   paymentDate: string;
   amount: number;
-  paymentMethod: string;
+  paymentMethod: string | null;
   referenceNumber: string;
   notes: string;
   status: string;
@@ -263,7 +262,7 @@ const PaidVendorInvoices: React.FC = () => {
                     <Grid item xs={12} md={6}>
                       <Box sx={{ display: 'flex', py: 0.5 }}>
                         <Typography sx={{ fontSize: 12, fontWeight: 600, color: (theme) => theme.palette.text.secondary, width: 120 }}>Payment Method</Typography>
-                        <Typography sx={{ fontSize: 12, color: (theme) => theme.palette.text.primary }}>{selectedInvoice.vendorPaymentMethod?.replace('_', ' ').toUpperCase() || 'CHECK'}</Typography>
+                        <Typography sx={{ fontSize: 12, color: (theme) => theme.palette.text.primary }}>{selectedInvoice.vendorPaymentMethod?.replace(/_/g, ' ').toUpperCase() || '—'}</Typography>
                       </Box>
                     </Grid>
                   </Grid>
@@ -344,7 +343,7 @@ const PaidVendorInvoices: React.FC = () => {
                       <DataTableRow key={payment.id} columns={paymentHistoryColumns}>
                         <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>{formatDate(payment.paymentDate)}</Typography>
                         <Typography sx={{ fontSize: 13, fontWeight: 600, color: (theme) => theme.palette.text.primary, fontFamily: 'monospace', textAlign: 'right' }}>{formatCurrency(payment.amount)}</Typography>
-                        <StatusChip kind="brand" label={payment.paymentMethod.replace('_', ' ').toUpperCase()} />
+                        <StatusChip kind="brand" label={payment.paymentMethod ? payment.paymentMethod.replace(/_/g, ' ').toUpperCase() : '—'} />
                         <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>{payment.referenceNumber || '-'}</Typography>
                         <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>{payment.processedByName || 'Unknown'}</Typography>
                         <StatusChip kind={payment.status === 'processed' ? 'success' : 'warning'} label={payment.status.toUpperCase()} />

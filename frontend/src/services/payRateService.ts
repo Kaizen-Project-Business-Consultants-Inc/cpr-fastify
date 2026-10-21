@@ -97,6 +97,15 @@ export interface BulkPayRateUpdate {
   changeReason?: string;
 }
 
+function toTierBody(tier: Partial<PayRateTierForm>) {
+  return {
+    name: tier.name,
+    description: tier.description,
+    base_hourly_rate: tier.baseHourlyRate,
+    course_bonus: tier.courseBonus,
+  };
+}
+
 class PayRateService {
   // Pay Rate Tiers
   async getTiers(): Promise<PayRateTier[]> {
@@ -104,13 +113,14 @@ class PayRateService {
     return response.data.data;
   }
 
+  // The tier routes take snake_case (base_hourly_rate, course_bonus, is_active).
   async createTier(tier: PayRateTierForm): Promise<PayRateTier> {
-    const response = await api.post('/pay-rates/tiers', tier);
+    const response = await api.post('/pay-rates/tiers', toTierBody(tier));
     return response.data.data;
   }
 
   async updateTier(id: number, tier: Partial<PayRateTierForm> & { isActive?: boolean }): Promise<PayRateTier> {
-    const response = await api.put(`/pay-rates/tiers/${id}`, tier);
+    const response = await api.put(`/pay-rates/tiers/${id}`, { ...toTierBody(tier), is_active: tier.isActive });
     return response.data.data;
   }
 
@@ -156,14 +166,17 @@ class PayRateService {
     return response.data.data;
   }
 
-  async updateInstructorRate(instructorId: number, rate: Partial<InstructorPayRateForm>): Promise<InstructorPayRate> {
-    const response = await api.put(`/pay-rates/instructors/${instructorId}`, rate);
-    return response.data.data;
-  }
-
-  // Bulk Operations
+  // Bulk Operations (POST /pay-rates/bulk-update takes snake_case, like setInstructorRate)
   async bulkUpdateRates(update: BulkPayRateUpdate): Promise<InstructorPayRate[]> {
-    const response = await api.post('/pay-rates/bulk-update', update);
+    const response = await api.post('/pay-rates/bulk-update', {
+      instructor_ids: update.instructorIds,
+      hourly_rate: update.hourlyRate,
+      course_bonus: update.courseBonus,
+      tier_id: update.tierId,
+      effective_date: update.effectiveDate,
+      notes: update.notes,
+      change_reason: update.changeReason,
+    });
     return response.data.data;
   }
 }

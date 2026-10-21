@@ -14,30 +14,27 @@ import {
 } from '@mui/material';
 import api from '../../../services/api';
 import { useSnackbar } from '../../../contexts/SnackbarContext';
+import { getErrorMessage } from '../../../utils/errorMessage';
 import { PrimaryButton, GhostButton } from '../../gtacpr/Buttons';
 
-/** Field names match backend/src/routes/vendors.ts updateProfileSchema. */
+/**
+ * Field names are the real `vendors` columns (see backend/src/routes/vendors.ts
+ * updateProfileSchema), which the staff vendor screens read too. The table has
+ * one contact name and one free-text address, not split fields.
+ */
 interface VendorProfileForm {
-  vendor_name: string;
-  contact_first_name: string;
-  contact_last_name: string;
-  phone: string;
-  address_street: string;
-  address_city: string;
-  address_province: string;
-  address_postal_code: string;
+  name: string;
+  contact_name: string;
+  contact_phone: string;
+  address: string;
   vendor_type: string;
 }
 
 const EMPTY: VendorProfileForm = {
-  vendor_name: '',
-  contact_first_name: '',
-  contact_last_name: '',
-  phone: '',
-  address_street: '',
-  address_city: '',
-  address_province: '',
-  address_postal_code: '',
+  name: '',
+  contact_name: '',
+  contact_phone: '',
+  address: '',
   vendor_type: '',
 };
 
@@ -53,21 +50,12 @@ const str = (v: unknown) => (v == null ? '' : String(v));
 
 /** GET /vendor/profile returns the raw vendors row; map it onto the editable form. */
 const toForm = (row: Record<string, unknown> | null | undefined): VendorProfileForm => ({
-  vendor_name: str(row?.vendor_name ?? row?.name),
-  contact_first_name: str(row?.contact_first_name),
-  contact_last_name: str(row?.contact_last_name),
-  phone: str(row?.phone ?? row?.contact_phone),
-  address_street: str(row?.address_street),
-  address_city: str(row?.address_city),
-  address_province: str(row?.address_province),
-  address_postal_code: str(row?.address_postal_code),
+  name: str(row?.name),
+  contact_name: str(row?.contact_name),
+  contact_phone: str(row?.contact_phone),
+  address: str(row?.address),
   vendor_type: str(row?.vendor_type),
 });
-
-const errorText = (err: unknown, fallback: string) => {
-  const axiosErr = err as { response?: { data?: { error?: string; message?: string } } };
-  return axiosErr.response?.data?.error || axiosErr.response?.data?.message || fallback;
-};
 
 const VendorProfile: React.FC = () => {
   const { showSuccess, showError } = useSnackbar();
@@ -86,7 +74,7 @@ const VendorProfile: React.FC = () => {
       setProfile(toForm(row));
       setContactEmail(str(row?.contact_email));
     } catch (err) {
-      setError(errorText(err, 'Failed to load profile'));
+      setError(getErrorMessage(err, 'Failed to load profile'));
     } finally {
       setLoading(false);
     }
@@ -104,7 +92,7 @@ const VendorProfile: React.FC = () => {
     setProfile(prev => ({ ...prev, [name]: value }));
   };
 
-  const nameValid = profile.vendor_name.trim().length > 0;
+  const nameValid = profile.name.trim().length > 0;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -113,11 +101,11 @@ const VendorProfile: React.FC = () => {
     try {
       await api.put('/vendor/profile', {
         ...profile,
-        vendor_name: profile.vendor_name.trim(),
+        name: profile.name.trim(),
       });
       showSuccess('Profile updated');
     } catch (err) {
-      showError(errorText(err, 'Failed to update profile. Please try again.'));
+      showError(getErrorMessage(err, 'Failed to update profile. Please try again.'));
     } finally {
       setSaving(false);
     }
@@ -153,8 +141,8 @@ const VendorProfile: React.FC = () => {
               <TextField
                 fullWidth
                 label="Company Name"
-                name="vendor_name"
-                value={profile.vendor_name}
+                name="name"
+                value={profile.name}
                 onChange={handleInputChange}
                 required
                 error={!nameValid}
@@ -165,6 +153,10 @@ const VendorProfile: React.FC = () => {
               <FormControl fullWidth>
                 <InputLabel id="vendor-type-label">Vendor Type</InputLabel>
                 <Select labelId="vendor-type-label" name="vendor_type" value={profile.vendor_type} onChange={handleSelectChange} label="Vendor Type">
+                  {/* Staff can set any vendor_type; keep a value outside the list selectable. */}
+                  {profile.vendor_type && !VENDOR_TYPES.some(t => t.value === profile.vendor_type) && (
+                    <MenuItem value={profile.vendor_type}>{profile.vendor_type}</MenuItem>
+                  )}
                   {VENDOR_TYPES.map(t => <MenuItem key={t.value} value={t.value}>{t.label}</MenuItem>)}
                 </Select>
               </FormControl>
@@ -175,11 +167,8 @@ const VendorProfile: React.FC = () => {
                 Contact Information
               </Typography>
             </Grid>
-            <Grid item xs={12} md={6}>
-              <TextField fullWidth label="Contact First Name" name="contact_first_name" value={profile.contact_first_name} onChange={handleInputChange} />
-            </Grid>
-            <Grid item xs={12} md={6}>
-              <TextField fullWidth label="Contact Last Name" name="contact_last_name" value={profile.contact_last_name} onChange={handleInputChange} />
+            <Grid item xs={12}>
+              <TextField fullWidth label="Contact Name" name="contact_name" value={profile.contact_name} onChange={handleInputChange} inputProps={{ maxLength: 255 }} />
             </Grid>
             <Grid item xs={12} md={6}>
               <TextField
@@ -191,7 +180,7 @@ const VendorProfile: React.FC = () => {
               />
             </Grid>
             <Grid item xs={12} md={6}>
-              <TextField fullWidth label="Contact Phone" name="phone" type="tel" value={profile.phone} onChange={handleInputChange} />
+              <TextField fullWidth label="Contact Phone" name="contact_phone" type="tel" value={profile.contact_phone} onChange={handleInputChange} inputProps={{ maxLength: 20 }} />
             </Grid>
 
             <Grid item xs={12}>
@@ -200,16 +189,16 @@ const VendorProfile: React.FC = () => {
               </Typography>
             </Grid>
             <Grid item xs={12}>
-              <TextField fullWidth label="Street" name="address_street" value={profile.address_street} onChange={handleInputChange} />
-            </Grid>
-            <Grid item xs={12} md={5}>
-              <TextField fullWidth label="City" name="address_city" value={profile.address_city} onChange={handleInputChange} />
-            </Grid>
-            <Grid item xs={6} md={3}>
-              <TextField fullWidth label="Province" name="address_province" value={profile.address_province} onChange={handleInputChange} />
-            </Grid>
-            <Grid item xs={6} md={4}>
-              <TextField fullWidth label="Postal Code" name="address_postal_code" value={profile.address_postal_code} onChange={handleInputChange} />
+              <TextField
+                fullWidth
+                multiline
+                minRows={2}
+                label="Address"
+                name="address"
+                value={profile.address}
+                onChange={handleInputChange}
+                placeholder="Street, city, province, postal code"
+              />
             </Grid>
 
             <Grid item xs={12}>

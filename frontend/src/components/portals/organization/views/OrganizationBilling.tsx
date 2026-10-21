@@ -37,7 +37,7 @@ import { PrimaryButton, GhostButton } from '../../../gtacpr/Buttons';
 interface Invoice {
   id: number;
   invoice_number: string;
-  created_at: string;
+  created_at?: string;
   invoice_date?: string;
   due_date: string;
   amount: number;
@@ -233,11 +233,6 @@ const OrganizationBilling: React.FC<OrganizationBillingProps> = ({
   } | null>(null);
   const [calculatingBalance, setCalculatingBalance] = useState(false);
 
-  // State for marking invoice as paid
-  const [markingAsPaid, setMarkingAsPaid] = useState<number | null>(null);
-  const [markAsPaidSuccess, setMarkAsPaidSuccess] = useState(false);
-  const [markAsPaidError, setMarkAsPaidError] = useState<string | null>(null);
-
   // State for payment history
   const [paymentHistory, setPaymentHistory] = useState<Payment[]>([]);
   const [loadingPaymentHistory, setLoadingPaymentHistory] = useState(false);
@@ -307,7 +302,7 @@ const OrganizationBilling: React.FC<OrganizationBillingProps> = ({
     fetchAllInvoices();
   }, [gridLoad, fetchAllInvoices]);
 
-  // The parent invalidates its invoice query after a payment or a mark-as-paid;
+  // The parent invalidates its invoice query after a payment;
   // a new array identity is the signal to refresh what is on screen.
   const didMount = useRef(false);
   useEffect(() => {
@@ -343,7 +338,10 @@ const OrganizationBilling: React.FC<OrganizationBillingProps> = ({
         [invoice.invoice_number, invoice.course_type_name, invoice.location]
           .filter(Boolean)
           .some((v) => String(v).toLowerCase().includes(term));
-      const matchesStatus = !statusFilter || status === statusFilter;
+      // payment_status is always the computed paid/overdue/pending, so
+      // "Payment Submitted" has to be read from the invoice's own status.
+      const matchesStatus = !statusFilter ||
+        (statusFilter === 'payment_submitted' ? invoice.status === 'payment_submitted' : status === statusFilter);
       const matchesCourseType = !courseTypeFilter || invoice.course_type_name === courseTypeFilter;
       return matchesSearch && matchesStatus && matchesCourseType;
     });
@@ -420,18 +418,11 @@ const OrganizationBilling: React.FC<OrganizationBillingProps> = ({
                payment.payment_date;
       });
 
-      // Remove duplicates based on payment ID and ensure valid data
-      const uniquePayments: Payment[] = validPayments
-        .filter((payment, index, self) =>
-          index === self.findIndex((p) => p.id === payment.id)
-        )
-        .map((payment) => ({
-          ...payment,
-          amount_paid: Number(payment.amount_paid || payment.amount || 0),
-          payment_date: payment.payment_date || payment.created_at,
-          payment_method: payment.payment_method || 'Not specified',
-          status: payment.status || 'pending_verification'
-        } as Payment));
+      // Remove duplicates. The server sends both camelCase and snake_case
+      // names, and PaymentHistoryTable reads either, so no re-mapping is needed.
+      const uniquePayments = validPayments.filter((payment, index, self) =>
+        index === self.findIndex((p) => p.id === payment.id)
+      ) as unknown as Payment[];
 
       setPaymentHistory(uniquePayments);
     } catch (error) {
@@ -462,44 +453,6 @@ const OrganizationBilling: React.FC<OrganizationBillingProps> = ({
     setDialogOpen(false);
     setSelectedInvoice(null);
     setPaymentHistory([]); // Clear payment history when dialog closes
-  };
-
-  // Handle mark invoice as paid
-  const handleMarkAsPaid = async (invoice: Invoice) => {
-    if (markingAsPaid) return;
-
-    const ok = await confirm({
-      title: 'Mark invoice as paid?',
-      message: `Invoice ${invoice.invoice_number} will be marked as paid. Accounting will be notified and this cannot be undone from this portal.`,
-      confirmLabel: 'Mark Paid',
-    });
-    if (!ok) return;
-
-    const invoiceId = invoice.id;
-    setMarkingAsPaid(invoiceId);
-    setMarkAsPaidError(null);
-
-    try {
-      const response = await api.post(`/organization/invoices/${invoiceId}/mark-as-paid`);
-
-      if (response.data.success) {
-        setMarkAsPaidSuccess(true);
-        // Refresh the page on screen and the unpaged list behind the ordering rule
-        refreshInvoices();
-        // Refresh invoice list using React Query instead of page reload
-        if (onPaymentSuccess) {
-          onPaymentSuccess();
-        }
-        // Close any open dialogs
-        handleDialogClose();
-      }
-    } catch (error: unknown) {
-      console.error('Error marking invoice as paid:', error);
-      const errObj = error as { response?: { data?: { message?: string } } };
-      setMarkAsPaidError(errObj.response?.data?.message || 'Failed to mark invoice as paid');
-    } finally {
-      setMarkingAsPaid(null);
-    }
   };
 
   // Handle payment submission with proper race condition prevention
@@ -581,17 +534,14 @@ const OrganizationBilling: React.FC<OrganizationBillingProps> = ({
     } catch (error: unknown) {
       console.error('Payment submission error:', error);
 
-      // Extract meaningful error message from response
-      const err = error as { response?: { data?: { message?: string }; status?: number } };
-      let errorMessage = 'Payment submission failed. Please try again.';
-
-      if (err.response?.status === 409) {
-        errorMessage = err.response?.data?.message || 'Duplicate payment detected. Please wait or refresh the page.';
-      } else if (err.response?.data?.message) {
-        errorMessage = err.response.data.message;
-      }
-
-      setPaymentError(errorMessage);
+      // The server sends { error: '...' } (overpayment, duplicate, already paid)
+      const status = (error as { response?: { status?: number } }).response?.status;
+      setPaymentError(getErrorMessage(
+        error,
+        status === 409
+          ? 'Duplicate payment detected. Please wait or refresh the page.'
+          : 'Payment submission failed. Please try again.'
+      ));
     } finally {
       setSubmittingPayment(false);
       isSubmittingRef.current = false;
@@ -653,7 +603,8 @@ const OrganizationBilling: React.FC<OrganizationBillingProps> = ({
 
 
     const balanceCheck = balanceDue > 0;
-    const statusCheck = status !== 'paid' && status !== 'payment_submitted';
+    // payment_status is never 'payment_submitted', so check the invoice status too
+    const statusCheck = status !== 'paid' && invoice.status !== 'payment_submitted';
     const olderInvoicesCheck = !hasOlderUnpaidInvoices(invoice);
 
 
@@ -705,7 +656,8 @@ const OrganizationBilling: React.FC<OrganizationBillingProps> = ({
     }
 
     // Try different date fields
-    const currentInvoiceDate = new Date(currentInvoice.created_at || currentInvoice.invoice_date || currentInvoice.created_at);
+    // The list sends invoice_date (the invoice's created_at), not created_at
+    const currentInvoiceDate = new Date(currentInvoice.invoice_date || currentInvoice.created_at || NaN);
     if (isNaN(currentInvoiceDate.getTime())) {
       // If we can't determine the date, don't block payment
       return false;
@@ -713,7 +665,7 @@ const OrganizationBilling: React.FC<OrganizationBillingProps> = ({
 
     // Find older invoices with outstanding balance
     const olderUnpaidInvoices = allInvoices.filter(invoice => {
-      const invoiceDate = new Date(invoice.created_at || invoice.invoice_date || invoice.created_at);
+      const invoiceDate = new Date(invoice.invoice_date || invoice.created_at || NaN);
 
       // Skip if date is invalid
       if (isNaN(invoiceDate.getTime())) {
@@ -722,8 +674,10 @@ const OrganizationBilling: React.FC<OrganizationBillingProps> = ({
 
       const balanceDue = Number(invoice.balance_due || 0);
 
+      // An invoice already paid in full and awaiting verification doesn't block newer ones
       return invoiceDate < currentInvoiceDate &&
              balanceDue > 0 &&
+             invoice.status !== 'payment_submitted' &&
              invoice.id !== currentInvoice.id;
     });
 
@@ -736,15 +690,14 @@ const OrganizationBilling: React.FC<OrganizationBillingProps> = ({
 
     const unpaidInvoices = allInvoices.filter(invoice => {
       const balanceDue = Number(invoice.balance_due || 0);
-      return balanceDue > 0;
+      return balanceDue > 0 && invoice.status !== 'payment_submitted';
     });
 
     if (unpaidInvoices.length === 0) return null;
 
     // Sort by creation date (oldest first)
-    return unpaidInvoices.sort((a, b) =>
-      new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
-    )[0];
+    const time = (i: Invoice) => new Date(i.invoice_date || i.created_at || 0).getTime() || 0;
+    return [...unpaidInvoices].sort((a, b) => time(a) - time(b))[0];
   };
 
   // Handle PDF download
@@ -1016,17 +969,7 @@ const OrganizationBilling: React.FC<OrganizationBillingProps> = ({
                     <LinkButton onClick={() => handleInvoiceClick(invoice)} aria-label={`View invoice ${invoice.invoice_number}`}>
                       View
                     </LinkButton>
-                    {invoice.balance_due <= 0 && invoice.payment_status !== 'paid' && (
-                      <LinkButton
-                        onClick={() => handleMarkAsPaid(invoice)}
-                        disabled={markingAsPaid !== null}
-                        aria-label={`Mark invoice ${invoice.invoice_number} as paid`}
-                        sx={{ color: '#16A34A' }}
-                      >
-                        {markingAsPaid === invoice.id ? 'Marking...' : 'Mark Paid'}
-                      </LinkButton>
-                    )}
-                    {invoice.balance_due > 0 && invoice.payment_status !== 'paid' && !canSubmitPayment(invoice) && (
+                    {invoice.balance_due > 0 && invoice.payment_status !== 'paid' && hasOlderUnpaidInvoices(invoice) && (
                       <Typography sx={{ fontSize: 12, color: '#ED6C02', fontWeight: 600 }}>
                         Pay Older First
                       </Typography>
@@ -1072,7 +1015,7 @@ const OrganizationBilling: React.FC<OrganizationBillingProps> = ({
                 <Grid xs={6} md={3}>
                   <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>
                     <strong>Invoice Date:</strong>{' '}
-                    {formatDisplayDate(selectedInvoice.created_at)}
+                    {formatDisplayDate(selectedInvoice.invoice_date || selectedInvoice.created_at)}
                   </Typography>
                 </Grid>
                 <Grid xs={6} md={3}>
@@ -1546,27 +1489,6 @@ const OrganizationBilling: React.FC<OrganizationBillingProps> = ({
       </Snackbar>
 
       {confirmDialog}
-
-      {/* Mark as Paid Success/Error Messages */}
-      <Snackbar
-        open={markAsPaidSuccess}
-        autoHideDuration={6000}
-        onClose={() => setMarkAsPaidSuccess(false)}
-      >
-        <Alert severity="success" onClose={() => setMarkAsPaidSuccess(false)}>
-          Invoice marked as paid successfully!
-        </Alert>
-      </Snackbar>
-
-      <Snackbar
-        open={!!markAsPaidError}
-        autoHideDuration={6000}
-        onClose={() => setMarkAsPaidError(null)}
-      >
-        <Alert severity="error" onClose={() => setMarkAsPaidError(null)}>
-          {markAsPaidError}
-        </Alert>
-      </Snackbar>
     </Box>
   );
 };

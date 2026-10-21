@@ -15,6 +15,7 @@ import { parseCSV, ParsedCSVResult } from '../../utils/csvParser';
 import { organizationApi } from '../../services/api';
 import { tokenService } from '../../services/tokenService';
 import { useSnackbar } from '../../contexts/SnackbarContext';
+import { getErrorMessage } from '../../utils/errorMessage';
 
 interface UploadResult {
   fileName: string;
@@ -129,20 +130,20 @@ const CSVUploadDialog: React.FC<CSVUploadDialogProps> = ({
     } catch (err: unknown) {
       console.error('[CSVUploadDialog] Upload error:', err);
 
-      // Enhanced error handling
-      const errObj = err as { response?: { status?: number }; message?: string };
-      if (errObj.response?.status === 401) {
+      // Show the server's own reason (e.g. "Course not found", a roster
+      // that can no longer be changed); 401 and 500 keep a plain message.
+      const status = (err as { response?: { status?: number } }).response?.status;
+      if (status === 401) {
         setError('Authentication failed. Please log in again.');
-      } else if (errObj.response?.status === 403) {
-        setError('Access denied. You do not have permission to upload students for this course.');
-      } else if (errObj.response?.status === 404) {
-        setError('Course not found. Please refresh the page and try again.');
-      } else if (errObj.response?.status === 500) {
+      } else if (status === 500) {
         setError('Server error occurred. Please try again or contact support.');
-      } else if (errObj.message) {
-        setError(errObj.message);
       } else {
-        setError('Failed to upload file. Please try again.');
+        setError(getErrorMessage(
+          err,
+          status === 403
+            ? 'Access denied. You do not have permission to upload students for this course.'
+            : 'Failed to upload file. Please try again.'
+        ));
       }
     } finally {
       setUploading(false);

@@ -16,7 +16,6 @@ import {
   CircularProgress,
   FormControlLabel,
   Switch,
-  Autocomplete,
 } from '@mui/material';
 import type { Theme } from '@mui/material/styles';
 import { emailTemplateApi } from '../../../services/api';
@@ -36,21 +35,9 @@ interface EmailTemplate {
   htmlContent: string;
   body?: string;
   textContent?: string;
-  description?: string;
-  category:
-    | 'Instructor'
-    | 'Organization'
-    | 'Course Admin'
-    | 'Accountant'
-    | 'Sys Admin'
-    | 'Other';
+  /** Free text in the DB: the seeded templates use 'system', new ones one of CATEGORY_CHOICES. */
+  category: string;
   subCategory?: string;
-  eventTriggers: string[];
-  availableVariables: Array<{
-    name: string;
-    description: string;
-    sampleValue: string;
-  }>;
   isActive: boolean;
   isSystem: boolean;
   createdBy?: {
@@ -67,12 +54,6 @@ interface EmailTemplate {
   [key: string]: unknown;
 }
 
-interface EventTrigger {
-  value: string;
-  label: string;
-  category: string;
-}
-
 interface TemplateVariable {
   name: string;
   description: string;
@@ -81,6 +62,9 @@ interface TemplateVariable {
 
 type EditorMode = 'rich' | 'html' | 'simple';
 type ViewMode = 'grid' | 'table';
+
+/** The categories offered when creating or editing (the DB also holds 'system'). */
+const CATEGORY_CHOICES = ['Instructor', 'Organization', 'Course Admin', 'Accountant', 'Sys Admin', 'Other'];
 
 const categoryOptions: Record<string, string[]> = {
   Instructor: ['On-boarding', 'Course Confirmed'],
@@ -136,7 +120,6 @@ const EmailTemplateManager: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [sortBy, setSortBy] = useState<string>('name');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
-  const [eventTriggers, setEventTriggers] = useState<EventTrigger[]>([]);
   const [commonVariables, setCommonVariables] = useState<TemplateVariable[]>([]);
   const [testEmail, setTestEmail] = useState('');
   const [previewVariables, setPreviewVariables] = useState<Record<string, string>>({});
@@ -148,31 +131,23 @@ const EmailTemplateManager: React.FC = () => {
     subject: '',
     htmlContent: '',
     textContent: '',
-    description: '',
     category: 'Other',
     subCategory: '',
-    eventTriggers: [],
-    availableVariables: [],
     isActive: true,
     isSystem: false,
   });
 
-  const fetchTemplates = useCallback(async (
-    currentCategoryFilter?: string,
-    currentSearchTerm?: string
-  ) => {
+  const fetchTemplates = useCallback(async (currentSearchTerm?: string) => {
     setLoading(true);
     try {
-      const effectiveCategoryFilter =
-        currentCategoryFilter !== undefined ? currentCategoryFilter : categoryFilter;
       const effectiveSearchTerm =
         currentSearchTerm !== undefined ? currentSearchTerm : searchTerm;
 
       try {
-        const params: Record<string, string> = { active: 'true' };
-        if (effectiveCategoryFilter !== 'all') {
-          params.category = effectiveCategoryFilter;
-        }
+        // Inactive templates are listed too (with an "Inactive" chip), so one that
+        // was switched off can be found and switched back on. The category filter
+        // runs on this screen, so its options can come from the templates loaded.
+        const params: Record<string, string> = {};
         if (effectiveSearchTerm) {
           params.search = effectiveSearchTerm;
         }
@@ -183,8 +158,6 @@ const EmailTemplateManager: React.FC = () => {
         const mappedTemplates = rawTemplates.map((t: Record<string, unknown>) => ({
           ...t,
           htmlContent: t.htmlContent || t.body,
-          eventTriggers: t.eventTriggers || [],
-          availableVariables: t.availableVariables || [],
         }));
 
         setTemplates(mappedTemplates);
@@ -197,15 +170,11 @@ const EmailTemplateManager: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [categoryFilter, searchTerm, showToast]);
+  }, [searchTerm, showToast]);
 
   const fetchMetadata = useCallback(async () => {
     try {
-      const [triggersResponse, variablesResponse] = await Promise.all([
-        emailTemplateApi.getEventTriggers(),
-        emailTemplateApi.getTemplateVariables(),
-      ]);
-      setEventTriggers(triggersResponse.data.data || triggersResponse.data);
+      const variablesResponse = await emailTemplateApi.getTemplateVariables();
       setCommonVariables(variablesResponse.data.data || variablesResponse.data);
     } catch (error: unknown) {
       console.error('[EmailTemplateManager] Error fetching metadata:', error);
@@ -218,7 +187,7 @@ const EmailTemplateManager: React.FC = () => {
   }, [showToast]);
 
   useEffect(() => {
-    fetchTemplates('all', '').catch(error => {
+    fetchTemplates('').catch(error => {
       console.error('[EmailTemplateManager] Error loading templates:', error);
       showToast({
         type: 'error',
@@ -239,7 +208,7 @@ const EmailTemplateManager: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    fetchTemplates(categoryFilter, searchTerm).catch(error => {
+    fetchTemplates(searchTerm).catch(error => {
       console.error('[EmailTemplateManager] Error refetching templates:', error);
       showToast({
         type: 'error',
@@ -247,7 +216,7 @@ const EmailTemplateManager: React.FC = () => {
         priority: 'normal',
       });
     });
-  }, [categoryFilter, searchTerm, fetchTemplates, showToast]);
+  }, [searchTerm, fetchTemplates, showToast]);
 
   const handleCreateTemplate = () => {
     setSelectedTemplate(null);
@@ -257,11 +226,8 @@ const EmailTemplateManager: React.FC = () => {
       subject: '',
       htmlContent: '',
       textContent: '',
-      description: '',
       category: 'Other',
       subCategory: '',
-      eventTriggers: [],
-      availableVariables: [],
       isActive: true,
       isSystem: false,
     });
@@ -273,23 +239,31 @@ const EmailTemplateManager: React.FC = () => {
     setFormData({
       ...template,
       htmlContent: template.htmlContent || template.body || '',
-      eventTriggers: template.eventTriggers || [],
-      availableVariables: template.availableVariables || [],
+      subCategory: template.subCategory || '',
     });
     setEditDialogOpen(true);
   };
 
   const handleSaveTemplate = async () => {
+    // Only the fields the server stores (routes/email-templates.ts templateSchema).
+    const payload = {
+      name: formData.name,
+      category: formData.category,
+      ...(formData.subCategory ? { subCategory: formData.subCategory } : {}),
+      subject: formData.subject,
+      htmlContent: formData.htmlContent || '',
+      isActive: Boolean(formData.isActive),
+    };
     try {
       if (selectedTemplate?.id) {
-        await emailTemplateApi.update(selectedTemplate.id, formData);
+        await emailTemplateApi.update(selectedTemplate.id, payload);
         showToast({
           type: 'success',
           message: 'Template updated successfully!',
           priority: 'normal',
         });
       } else {
-        await emailTemplateApi.create(formData);
+        await emailTemplateApi.create(payload);
         showToast({
           type: 'success',
           message: 'Template created successfully!',
@@ -297,7 +271,7 @@ const EmailTemplateManager: React.FC = () => {
         });
       }
       setEditDialogOpen(false);
-      fetchTemplates(categoryFilter, searchTerm);
+      fetchTemplates(searchTerm);
     } catch (error: unknown) {
       console.error('Error saving template:', error);
       showToast({
@@ -319,7 +293,7 @@ const EmailTemplateManager: React.FC = () => {
     if (ok) {
       try {
         await emailTemplateApi.delete(templateId);
-        fetchTemplates(categoryFilter, searchTerm);
+        fetchTemplates(searchTerm);
         showToast({
           type: 'success',
           message: 'Template deleted successfully!',
@@ -339,7 +313,7 @@ const EmailTemplateManager: React.FC = () => {
   const handleCloneTemplate = async (templateId: number, newName: string) => {
     try {
       await emailTemplateApi.clone(templateId, newName);
-      fetchTemplates(categoryFilter, searchTerm);
+      fetchTemplates(searchTerm);
       showToast({
         type: 'success',
         message: `Template cloned successfully as "${newName}"!`,
@@ -358,7 +332,7 @@ const EmailTemplateManager: React.FC = () => {
   const handlePreviewTemplate = async (template: EmailTemplate) => {
     setSelectedTemplate(template);
     const variables: Record<string, string> = {};
-    template.availableVariables.forEach(v => {
+    commonVariables.forEach(v => {
       variables[v.name] = v.sampleValue;
     });
     setPreviewVariables(variables);
@@ -368,7 +342,7 @@ const EmailTemplateManager: React.FC = () => {
   const handleTestEmail = async () => {
     if (!selectedTemplate) return;
     try {
-      await emailTemplateApi.sendTest(selectedTemplate.id!, testEmail, previewVariables);
+      await emailTemplateApi.sendTest(selectedTemplate.id!, testEmail);
       showToast({
         type: 'success',
         message: `Test email sent to ${testEmail}`,
@@ -441,9 +415,6 @@ const EmailTemplateManager: React.FC = () => {
           <Typography sx={{ fontSize: 15, fontWeight: 700, color: (theme) => theme.palette.text.primary, mb: 0.5 }}>
             {template.name}
           </Typography>
-          <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary, mb: 1 }}>
-            {template.description}
-          </Typography>
         </Box>
         <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
           <StatusChip kind="brand" label={template.category} />
@@ -457,25 +428,6 @@ const EmailTemplateManager: React.FC = () => {
           />
         </Box>
       </Box>
-
-      {template.eventTriggers.length > 0 && (
-        <Box sx={{ mb: 2 }}>
-          <Typography sx={{ ...sectionHeaderSx, fontSize: 11, mb: 0.5 }}>
-            Event Triggers:
-          </Typography>
-          <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap', mt: 0.5 }}>
-            {template.eventTriggers.map(trigger => (
-              <StatusChip
-                key={trigger}
-                kind="neutral"
-                label={
-                  eventTriggers.find(et => et.value === trigger)?.label || trigger
-                }
-              />
-            ))}
-          </Box>
-        </Box>
-      )}
 
       <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>
         Subject: {template.subject}
@@ -533,12 +485,27 @@ const EmailTemplateManager: React.FC = () => {
     if (
       searchTerm &&
       !template.name.toLowerCase().includes(searchTerm.toLowerCase()) &&
-      !(template.description || '').toLowerCase().includes(searchTerm.toLowerCase())
+      !(template.subject || '').toLowerCase().includes(searchTerm.toLowerCase())
     ) {
       return false;
     }
     return true;
   });
+
+  // Filter options come from the templates themselves (the seeded ones are all
+  // 'system'), so no template is unreachable through the filter.
+  const filterCategories = Array.from(
+    new Set([...templates.map(t => t.category).filter(Boolean), ...(categoryFilter !== 'all' ? [categoryFilter] : [])])
+  ).sort();
+  // The edit form offers the standard choices plus the template's own category.
+  const formCategories = formData.category && !CATEGORY_CHOICES.includes(formData.category)
+    ? [formData.category, ...CATEGORY_CHOICES]
+    : CATEGORY_CHOICES;
+  // Likewise keep a stored sub-category selectable even when it is not a standard one.
+  const standardSubCategories = categoryOptions[formData.category] ?? [];
+  const formSubCategories = formData.subCategory && !standardSubCategories.includes(formData.subCategory)
+    ? [formData.subCategory, ...standardSubCategories]
+    : standardSubCategories;
 
   const sortedTemplates = [...filteredTemplates].sort((a, b) => {
     let comparison = 0;
@@ -599,7 +566,7 @@ const EmailTemplateManager: React.FC = () => {
             label="Category"
           >
             <MenuItem value="all">All Categories</MenuItem>
-            {Object.keys(categoryOptions).map(cat => (
+            {filterCategories.map(cat => (
               <MenuItem key={cat} value={cat}>
                 {cat}
               </MenuItem>
@@ -728,18 +695,15 @@ const EmailTemplateManager: React.FC = () => {
                   onChange={e =>
                     setFormData({
                       ...formData,
-                      category: e.target.value as EmailTemplate['category'],
+                      category: e.target.value,
                       subCategory: '',
                     })
                   }
                   label="Category"
                 >
-                  <MenuItem value="Instructor">Instructor</MenuItem>
-                  <MenuItem value="Organization">Organization</MenuItem>
-                  <MenuItem value="Course Admin">Course Admin</MenuItem>
-                  <MenuItem value="Accountant">Accountant</MenuItem>
-                  <MenuItem value="Sys Admin">Sys Admin</MenuItem>
-                  <MenuItem value="Other">Other</MenuItem>
+                  {formCategories.map(cat => (
+                    <MenuItem key={cat} value={cat}>{cat}</MenuItem>
+                  ))}
                 </Select>
               </FormControl>
             </Grid>
@@ -750,12 +714,9 @@ const EmailTemplateManager: React.FC = () => {
                   value={formData.subCategory}
                   onChange={e => setFormData({ ...formData, subCategory: e.target.value })}
                   label="Sub-Category"
-                  disabled={
-                    !categoryOptions[formData.category] ||
-                    categoryOptions[formData.category].length === 0
-                  }
+                  disabled={formSubCategories.length === 0}
                 >
-                  {categoryOptions[formData.category]?.map(subCat => (
+                  {formSubCategories.map(subCat => (
                     <MenuItem key={subCat} value={subCat}>
                       {subCat}
                     </MenuItem>
@@ -765,54 +726,11 @@ const EmailTemplateManager: React.FC = () => {
             </Grid>
             <Grid item xs={12}>
               <TextField
-                label="Description"
-                value={formData.description}
-                onChange={e => setFormData({ ...formData, description: e.target.value })}
-                fullWidth
-                multiline
-                rows={2}
-              />
-            </Grid>
-            <Grid item xs={12}>
-              <TextField
                 label="Subject Line"
                 value={formData.subject}
                 onChange={e => setFormData({ ...formData, subject: e.target.value })}
                 fullWidth
                 required
-              />
-            </Grid>
-            <Grid item xs={12}>
-              <Autocomplete
-                multiple
-                options={eventTriggers}
-                getOptionLabel={option => option.label}
-                value={eventTriggers.filter(et =>
-                  formData.eventTriggers.includes(et.value)
-                )}
-                onChange={(_, newValue) => {
-                  setFormData({
-                    ...formData,
-                    eventTriggers: newValue.map(v => v.value),
-                  });
-                }}
-                renderInput={params => (
-                  <TextField {...params} label="Event Triggers" />
-                )}
-              />
-            </Grid>
-            <Grid item xs={12}>
-              <Autocomplete
-                multiple
-                options={commonVariables}
-                getOptionLabel={option => `${option.name} - ${option.description}`}
-                value={formData.availableVariables}
-                onChange={(_, newValue) => {
-                  setFormData({ ...formData, availableVariables: newValue });
-                }}
-                renderInput={params => (
-                  <TextField {...params} label="Available Variables" />
-                )}
               />
             </Grid>
             <Grid item xs={12}>
@@ -931,7 +849,7 @@ const EmailTemplateManager: React.FC = () => {
               <Box sx={{ mb: 3 }}>
                 <Typography sx={{ ...sectionHeaderSx, mb: 1 }}>Variables:</Typography>
                 <Grid container spacing={1}>
-                  {selectedTemplate.availableVariables.map(variable => (
+                  {commonVariables.map(variable => (
                     <Grid item xs={12} sm={6} key={variable.name}>
                       <TextField
                         size="small"
@@ -1000,7 +918,7 @@ const EmailTemplateManager: React.FC = () => {
             onChange={e => setTestEmail(e.target.value)}
             fullWidth
             sx={{ mt: 2 }}
-            helperText="Enter the email address to send the test to"
+            helperText="The test email fills the template with standard sample values"
           />
         </DialogContent>
         <DialogActions>

@@ -136,23 +136,6 @@ export const useRemoveAvailability = () => {
   });
 };
 
-export const useCompleteClass = () => {
-  const queryClient = useQueryClient();
-  
-  return useMutation({
-    mutationFn: async (courseId: number) => {
-      const response = await instructorApi.completeClass(courseId);
-      return extractData(response);
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: INSTRUCTOR_QUERY_KEYS.classes });
-      queryClient.invalidateQueries({ queryKey: INSTRUCTOR_QUERY_KEYS.classesCompleted });
-      queryClient.invalidateQueries({ queryKey: INSTRUCTOR_QUERY_KEYS.classesActive });
-    },
-    onError: (error) => handleError(error, { component: 'instructorService', action: 'complete class' }),
-  });
-};
-
 // Utility function to refresh all instructor data
 export const useRefreshInstructorData = () => {
   const queryClient = useQueryClient();

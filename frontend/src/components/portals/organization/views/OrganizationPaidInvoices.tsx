@@ -28,7 +28,9 @@ import { PrimaryButton, GhostButton } from '../../../gtacpr/Buttons';
 interface Invoice {
   id: number;
   invoice_number: string;
-  created_at: string;
+  /** The server sends the invoice's created_at as invoice_date. */
+  invoice_date?: string;
+  created_at?: string;
   due_date: string;
   amount: number;
   status: string;
@@ -329,7 +331,7 @@ const OrganizationPaidInvoices: React.FC<OrganizationPaidInvoicesProps> = ({
                     <Typography sx={{ fontSize: 13, fontWeight: 700, color: (theme) => theme.palette.text.secondary, textTransform: 'uppercase', letterSpacing: '0.07em', mb: 1 }}>Invoice Information</Typography>
                     {[
                       ['Invoice Number', selectedInvoice.invoice_number],
-                      ['Created Date', formatDisplayDate(selectedInvoice.created_at)],
+                      ['Created Date', formatDisplayDate(selectedInvoice.invoice_date || selectedInvoice.created_at)],
                       ['Due Date', formatDisplayDate(selectedInvoice.due_date)],
                       ['Paid Date', formatDisplayDate(selectedInvoice.paid_date, 'N/A')],
                     ].map(([l, v]) => (

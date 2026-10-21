@@ -10,6 +10,9 @@ const mockConn = {
   rollback: vi.fn(),
   release: vi.fn(),
 };
+const { mockSendInvoicePosted } = vi.hoisted(() => ({ mockSendInvoicePosted: vi.fn().mockResolvedValue(true) }));
+vi.mock('../services/EmailService.js', () => ({ emailService: { sendInvoicePostedEmail: mockSendInvoicePosted } }));
+vi.mock('../config/env.js', () => ({ env: { FRONTEND_URL: 'https://portal.test' } }));
 vi.mock('../config/database.js', () => ({
   getPool: () => ({ query: mockQuery, getConnection: () => Promise.resolve(mockConn) }),
 }));
@@ -209,7 +212,7 @@ describe('BillingLifecycle (T-3)', () => {
     it('posts invoice and archives completed course', async () => {
       const invoice = { id: 1, course_request_id: 10, posted_to_org: false, organization_name: 'Test Org' };
       mockConnQuery.mockResolvedValueOnce([[invoice]]); // SELECT invoice
-      mockConnQuery.mockResolvedValueOnce([{}]); // UPDATE invoices posted_to_org
+      mockConnQuery.mockResolvedValueOnce([{ affectedRows: 1 }]); // UPDATE invoices posted_to_org (claim)
       mockConnQuery.mockResolvedValueOnce([{}]); // UPDATE course_requests archived
       vi.mocked(invoiceRepo.findById).mockResolvedValue({ id: 1, posted_to_org: true } as any);
 
@@ -226,8 +229,8 @@ describe('BillingLifecycle (T-3)', () => {
       const archiveCourse = mockConnQuery.mock.calls[2];
       expect(archiveCourse[0]).toContain('archived = TRUE');
       expect(archiveCourse[0]).toContain("status = 'completed'");
-      expect(archiveCourse[1]).toContain(42); // archived_by = postedBy
-      expect(archiveCourse[1]).toContain(10); // course_request_id
+      expect(archiveCourse[0]).not.toContain('archived_by'); // no such column
+      expect(archiveCourse[1]).toEqual([10]); // course_request_id
     });
 
     it('throws 404 when invoice already posted', async () => {
@@ -241,7 +244,7 @@ describe('BillingLifecycle (T-3)', () => {
     it('skips course archive when no course_request_id', async () => {
       const invoice = { id: 2, course_request_id: null, posted_to_org: false };
       mockConnQuery.mockResolvedValueOnce([[invoice]]);
-      mockConnQuery.mockResolvedValueOnce([{}]); // UPDATE invoices only
+      mockConnQuery.mockResolvedValueOnce([{ affectedRows: 1 }]); // UPDATE invoices only
       vi.mocked(invoiceRepo.findById).mockResolvedValue({ id: 2, posted_to_org: true } as any);
 
       await service.postToOrg(2, 42);
@@ -249,6 +252,54 @@ describe('BillingLifecycle (T-3)', () => {
       // Only 2 queries: SELECT + UPDATE invoices (no course archive)
       expect(mockConnQuery).toHaveBeenCalledTimes(2);
       expect(mockConn.commit).toHaveBeenCalled();
+    });
+
+    it('refuses a second post that loses the race, without emailing', async () => {
+      mockConnQuery.mockResolvedValueOnce([[{ id: 4, course_request_id: null, contact_email: 'billing@org.test' }]]);
+      mockConnQuery.mockResolvedValueOnce([{ affectedRows: 0 }]); // someone else posted it first
+
+      await expect(service.postToOrg(4, 42)).rejects.toThrow('Invoice not found or already posted');
+      expect(mockConn.rollback).toHaveBeenCalled();
+      expect(mockSendInvoicePosted).not.toHaveBeenCalled();
+    });
+
+    it('emails the billing contact once after posting and records when', async () => {
+      mockSendInvoicePosted.mockClear().mockResolvedValueOnce(true);
+      mockConnQuery.mockResolvedValueOnce([[{
+        id: 5, course_request_id: null, contact_email: 'billing@org.test', invoice_number: 'INV-5',
+        organization_name: 'Org <b>', amount: '452.00', due_date: new Date('2026-11-20T00:00:00Z'),
+      }]]);
+      mockConnQuery.mockResolvedValueOnce([{ affectedRows: 1 }]);
+      vi.mocked(invoiceRepo.findById).mockResolvedValue({ id: 5, posted_to_org: true } as any);
+
+      await service.postToOrg(5, 42);
+
+      expect(mockSendInvoicePosted).toHaveBeenCalledTimes(1);
+      expect(mockSendInvoicePosted).toHaveBeenCalledWith('billing@org.test', {
+        invoiceNumber: 'INV-5', organizationName: 'Org <b>', amount: '$452.00', dueDate: '2026-11-20', portalUrl: 'https://portal.test',
+      });
+      // Sent after the connection is released, and the time is recorded.
+      expect(mockConn.release).toHaveBeenCalled();
+      expect(mockQuery).toHaveBeenCalledWith('UPDATE invoices SET email_sent_at = CURRENT_TIMESTAMP WHERE id = ?', [5]);
+    });
+
+    it('still posts when there is no contact email or the email fails', async () => {
+      for (const [contact, outcome] of [[null, 'skipped'], ['billing@org.test', false], ['billing@org.test', 'throws']] as const) {
+        vi.clearAllMocks();
+        mockSendInvoicePosted.mockReset();
+        if (outcome === 'throws') mockSendInvoicePosted.mockRejectedValueOnce(new Error('Resend down'));
+        else mockSendInvoicePosted.mockResolvedValueOnce(false);
+        mockConnQuery.mockResolvedValueOnce([[{ id: 6, course_request_id: null, contact_email: contact }]]);
+        mockConnQuery.mockResolvedValueOnce([{ affectedRows: 1 }]);
+        vi.mocked(invoiceRepo.findById).mockResolvedValue({ id: 6, posted_to_org: true } as any);
+
+        const posted = await service.postToOrg(6, 42);
+
+        expect(posted.posted_to_org).toBe(true);
+        expect(mockConn.commit).toHaveBeenCalled();
+        expect(mockSendInvoicePosted).toHaveBeenCalledTimes(contact ? 1 : 0);
+        expect(mockQuery).not.toHaveBeenCalledWith(expect.stringContaining('email_sent_at'), expect.anything());
+      }
     });
 
     it('rolls back on error', async () => {
@@ -339,7 +390,7 @@ describe('BillingLifecycle (T-3)', () => {
       // Step 3: Post to org
       vi.clearAllMocks();
       mockConnQuery.mockResolvedValueOnce([[{ id: 200, course_request_id: 10, posted_to_org: false }]]);
-      mockConnQuery.mockResolvedValueOnce([{}]);
+      mockConnQuery.mockResolvedValueOnce([{ affectedRows: 1 }]);
       mockConnQuery.mockResolvedValueOnce([{}]);
       vi.mocked(invoiceRepo.findById).mockResolvedValueOnce({
         id: 200, posted_to_org: true,

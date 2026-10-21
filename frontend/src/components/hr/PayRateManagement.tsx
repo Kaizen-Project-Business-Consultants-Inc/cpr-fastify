@@ -37,6 +37,7 @@ import { PrimaryButton, GhostButton } from '../gtacpr/Buttons';
 import { useSnackbar } from '../../contexts/SnackbarContext';
 import { useDebounce } from '../../hooks/useDebounce';
 import { formatCurrency, formatDisplayDate, getTodayDate } from '../../utils/formatters';
+import { getErrorMessage } from '../../utils/errorMessage';
 
 /** Dialog forms keep raw strings so fields can be cleared while typing; parsed on submit. */
 interface MoneyFormFields { hourlyRate: string; courseBonus: string; }
@@ -91,7 +92,7 @@ const PayRateManagement: React.FC = () => {
 
   const loadTiers = useCallback(async () => {
     try { setLoading(true); const data = await payRateService.getTiers(); setTiers(data); }
-    catch (err: unknown) { setError((err as { message?: string }).message || 'Failed to load tiers'); }
+    catch (err: unknown) { setError(getErrorMessage(err, 'Failed to load tiers')); }
     finally { setLoading(false); }
   }, []);
 
@@ -101,7 +102,7 @@ const PayRateManagement: React.FC = () => {
       const data = await payRateService.getInstructors({ page: pagination.page, limit: pagination.limit, search: debouncedSearch, ...(hasRateFilter && { has_rate: hasRateFilter as 'true' | 'false' }) });
       setInstructors(data.instructors);
       setPagination(data.pagination);
-    } catch (err: unknown) { setError((err as { message?: string }).message || 'Failed to load instructors'); }
+    } catch (err: unknown) { setError(getErrorMessage(err, 'Failed to load instructors')); }
     finally { setLoading(false); }
   }, [pagination.page, pagination.limit, debouncedSearch, hasRateFilter]);
 
@@ -130,7 +131,7 @@ const PayRateManagement: React.FC = () => {
       setTierForm({ name: '', description: '', baseHourlyRate: '', courseBonus: '50' });
       showSuccess(editingTier ? 'Tier updated' : 'Tier created');
       loadTiers();
-    } catch (err: unknown) { showError((err as { message?: string }).message || 'Failed to save tier'); }
+    } catch (err: unknown) { showError(getErrorMessage(err, 'Failed to save tier')); }
     finally { setSaving(false); }
   };
 
@@ -155,7 +156,7 @@ const PayRateManagement: React.FC = () => {
       setRateForm(emptyRateForm());
       showSuccess(`Pay rate set for ${selectedInstructor.username}`);
       loadInstructors();
-    } catch (err: unknown) { showError((err as { message?: string }).message || 'Failed to set rate'); }
+    } catch (err: unknown) { showError(getErrorMessage(err, 'Failed to set rate')); }
     finally { setSaving(false); }
   };
 
@@ -183,7 +184,7 @@ const PayRateManagement: React.FC = () => {
       setBulkForm(emptyRateForm());
       showSuccess(`Pay rates updated for ${count} instructor${count === 1 ? '' : 's'}`);
       loadInstructors();
-    } catch (err: unknown) { showError((err as { message?: string }).message || 'Failed to update rates'); }
+    } catch (err: unknown) { showError(getErrorMessage(err, 'Failed to update rates')); }
     finally { setSaving(false); }
   };
 
@@ -199,7 +200,7 @@ const PayRateManagement: React.FC = () => {
       const detail = await payRateService.getInstructorDetail(instructor.id);
       setInstructorDetail(detail);
       setHistoryDialogOpen(true);
-    } catch (err: unknown) { setError((err as { message?: string }).message || 'Failed to load history'); }
+    } catch (err: unknown) { setError(getErrorMessage(err, 'Failed to load history')); }
     finally { setLoading(false); }
   };
 

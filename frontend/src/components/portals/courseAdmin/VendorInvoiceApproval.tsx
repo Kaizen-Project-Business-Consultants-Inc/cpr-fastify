@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Box,
   Typography,
@@ -25,6 +25,7 @@ import SearchBar from '../../gtacpr/SearchBar';
 import { PrimaryButton, GhostButton } from '../../gtacpr/Buttons';
 import LinkButton from '../../gtacpr/LinkButton';
 import { formatCurrency, formatDisplayDate } from '../../../utils/formatters';
+import { getErrorMessage } from '../../../utils/errorMessage';
 
 interface VendorInvoice {
   id: number;
@@ -48,10 +49,9 @@ interface VendorInvoice {
   vendorEmail: string;
   adminNotes?: string;
   notes?: string;
-  approvedBy?: string;
+  approvedBy?: number | null;
   approvedAt?: string;
-  rejectedBy?: string;
-  rejectedAt?: string;
+  rejectedByName?: string | null;
   rejectionReason?: string;
   totalPaid?: number | string;
   balanceDue?: number | string;
@@ -64,7 +64,7 @@ interface PaymentHistory {
   id: number;
   amount: number;
   paymentDate: string;
-  paymentMethod: string;
+  paymentMethod: string | null;
   referenceNumber: string;
   notes: string;
   status: string;
@@ -118,6 +118,8 @@ const VendorInvoiceApproval: React.FC = () => {
   const [modalNotes, setModalNotes] = useState('');
   const [processing, setProcessing] = useState(false);
   const [paymentHistory, setPaymentHistory] = useState<PaymentHistory[]>([]);
+  // The invoice the dialog was last opened for, so a slow earlier response is ignored.
+  const viewingIdRef = useRef<number | null>(null);
   const [statusFilter, setStatusFilter] = useState('pending');
   const [searchTerm, setSearchTerm] = useState('');
   const [counts, setCounts] = useState<StatusCounts>(emptyCounts);
@@ -198,16 +200,20 @@ const VendorInvoiceApproval: React.FC = () => {
   const invoices = grid.items;
 
   const handleView = async (invoice: VendorInvoice) => {
+    viewingIdRef.current = invoice.id;
     setSelectedInvoice(invoice);
     setModalNotes(invoice.adminNotes || '');
 
     try {
       const historyResponse = await adminApi.getAccountingVendorInvoiceDetails(invoice.id);
-      if (historyResponse && historyResponse.data && historyResponse.data.payments) {
-        setPaymentHistory(historyResponse.data.payments);
-      } else {
-        setPaymentHistory([]);
+      // The detail row carries the up-to-date paid / balance figures; keep the list row's
+      // fields for anything it leaves out. Only apply it if the dialog still shows this
+      // invoice (another View may have been clicked while this was loading).
+      const detail = historyResponse?.data?.invoice;
+      if (detail) {
+        setSelectedInvoice((current) => (current?.id === invoice.id ? { ...current, ...detail } : current));
       }
+      if (viewingIdRef.current === invoice.id) setPaymentHistory(historyResponse?.data?.payments ?? []);
     } catch (error: unknown) {
       console.error('Error fetching payment history:', error);
       setPaymentHistory([]);
@@ -242,7 +248,7 @@ const VendorInvoiceApproval: React.FC = () => {
       logger.info(`Vendor invoice ${action}d successfully`);
     } catch (err: unknown) {
       logger.error(`Error ${action}ing vendor invoice:`, err);
-      setError(`Failed to ${action} invoice`);
+      setError(getErrorMessage(err, `Failed to ${action} invoice`));
     } finally {
       setProcessing(false);
     }
@@ -262,7 +268,7 @@ const VendorInvoiceApproval: React.FC = () => {
       window.URL.revokeObjectURL(url);
     } catch (err: unknown) {
       logger.error('Error downloading invoice:', err);
-      setError('Failed to download invoice');
+      setError(getErrorMessage(err, 'Failed to download invoice'));
     }
   };
 
@@ -280,7 +286,7 @@ const VendorInvoiceApproval: React.FC = () => {
       logger.info('Notes saved successfully');
     } catch (err: unknown) {
       logger.error('Error saving notes:', err);
-      setError('Failed to save notes');
+      setError(getErrorMessage(err, 'Failed to save notes'));
     } finally {
       setProcessing(false);
     }
@@ -494,7 +500,7 @@ const VendorInvoiceApproval: React.FC = () => {
             {selectedInvoice && (
               <StatusChip
                 kind={getStatusKind(selectedInvoice.status)}
-                label={selectedInvoice.status.replace('_', ' ').toUpperCase()}
+                label={getStatusLabel(selectedInvoice.status)}
               />
             )}
           </Box>
@@ -526,12 +532,12 @@ const VendorInvoiceApproval: React.FC = () => {
                       <Typography sx={{ fontSize: 20, fontWeight: 700, color: '#CC1F1F', mb: 1, fontFamily: 'monospace' }}>
                         {formatCurrency(Number(selectedInvoice.total) > 0 ? selectedInvoice.total : selectedInvoice.amount)}
                       </Typography>
-                      {selectedInvoice.totalPaid && (
+                      {Number(selectedInvoice.totalPaid) > 0 && (
                         <Typography sx={{ fontSize: 13, color: '#16A34A', mb: 1 }}>
                           Paid: {formatCurrency(selectedInvoice.totalPaid)}
                         </Typography>
                       )}
-                      {selectedInvoice.balanceDue && (
+                      {selectedInvoice.balanceDue != null && (
                         <Typography sx={{ fontSize: 13, fontWeight: 700, color: '#ED6C02' }}>
                           Balance: {formatCurrency(selectedInvoice.balanceDue)}
                         </Typography>
@@ -600,9 +606,8 @@ const VendorInvoiceApproval: React.FC = () => {
                       Amount Paid
                     </Typography>
                     <Typography sx={{ fontSize: 18, fontWeight: 700, color: '#16A34A', fontFamily: 'monospace' }}>
-                      {selectedInvoice.totalPaid && parseFloat(selectedInvoice.totalPaid.toString()) > 0
-                        ? formatCurrency(parseFloat(selectedInvoice.totalPaid.toString()))
-                        : formatCurrency(parseFloat(selectedInvoice.total?.toString() || '0'))}
+                      {/* What has really been paid: $0.00 before the first payment, never the invoice total. */}
+                      {formatCurrency(Number(selectedInvoice.totalPaid) || 0)}
                     </Typography>
                   </Grid>
                   <Grid item xs={12} md={4}>
@@ -637,26 +642,26 @@ const VendorInvoiceApproval: React.FC = () => {
                     </Typography>
                     <StatusChip
                       kind={getStatusKind(selectedInvoice.status)}
-                      label={selectedInvoice.status.replace('_', ' ').toUpperCase()}
+                      label={getStatusLabel(selectedInvoice.status)}
                     />
                   </Grid>
-                  {selectedInvoice.approvedBy && (
+                  {selectedInvoice.approvedByName && (
                     <Grid item xs={12} md={6}>
                       <Typography sx={{ fontSize: 12, color: (theme) => theme.palette.text.secondary, mb: 0.5 }}>
                         Approved By
                       </Typography>
                       <Typography sx={{ fontSize: 13.5, fontWeight: 600, color: (theme) => theme.palette.text.primary }}>
-                        {selectedInvoice.approvedBy}
+                        {selectedInvoice.approvedByName}
                       </Typography>
                     </Grid>
                   )}
-                  {selectedInvoice.rejectedBy && (
+                  {selectedInvoice.rejectedByName && (
                     <Grid item xs={12} md={6}>
                       <Typography sx={{ fontSize: 12, color: (theme) => theme.palette.text.secondary, mb: 0.5 }}>
                         Rejected By
                       </Typography>
                       <Typography sx={{ fontSize: 13.5, fontWeight: 600, color: (theme) => theme.palette.text.primary }}>
-                        {selectedInvoice.rejectedBy}
+                        {selectedInvoice.rejectedByName}
                       </Typography>
                     </Grid>
                   )}
@@ -722,7 +727,7 @@ const VendorInvoiceApproval: React.FC = () => {
                           <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary, fontFamily: 'monospace' }}>
                             {formatCurrency(payment.amount)}
                           </Typography>
-                          <StatusChip kind="active" label={payment.paymentMethod.replace('_', ' ').toUpperCase()} />
+                          <StatusChip kind="active" label={payment.paymentMethod ? payment.paymentMethod.replace(/_/g, ' ').toUpperCase() : '—'} />
                           <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>
                             {payment.referenceNumber || '-'}
                           </Typography>

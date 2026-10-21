@@ -75,6 +75,8 @@ export class CourseRequestRepository extends BaseRepository<CourseRequest> {
               cr.confirmed_start_time as confirmedStartTime,
               cr.confirmed_end_time as confirmedEndTime,
               cr.ready_for_billing as readyForBilling,
+              cr.cancelled_at as cancelledAt,
+              cr.cancellation_reason as cancellationReason,
               ct.name as course_type_name,
               ct.name as courseTypeName,
               o.name as organization_name,

@@ -16,6 +16,7 @@ import {
 import { organizationApi } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
 import logger from '../../utils/logger';
+import { getErrorMessage } from '../../utils/errorMessage';
 import { getTodayDate, toLocalDateString } from '../../utils/formatters';
 import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
 import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
@@ -29,6 +30,8 @@ interface CourseType {
   name: string;
   description?: string;
   duration_minutes?: number;
+  /** TINYINT from the server (0/1). */
+  is_active?: number | boolean | null;
 }
 
 interface FormData {
@@ -98,7 +101,9 @@ const ScheduleCourseForm: React.FC<ScheduleCourseFormProps> = ({ onCourseSchedul
       setIsLoadingTypes(true);
       try {
         const response = await organizationApi.getCourseTypes();
-        setCourseTypes(response as CourseType[]);
+        // /course-types returns every type; only active ones can be booked
+        const types = Array.isArray(response) ? (response as CourseType[]) : [];
+        setCourseTypes(types.filter((t) => t.is_active === undefined || t.is_active === null || !!t.is_active));
       } catch (err) {
         logger.error('Error fetching course types:', err);
         setError('Failed to load course types');
@@ -163,7 +168,7 @@ const ScheduleCourseForm: React.FC<ScheduleCourseFormProps> = ({ onCourseSchedul
       }
     } catch (err: unknown) {
       logger.error('Error submitting course request:', err);
-      setError('Failed to submit course request. Please try again.');
+      setError(getErrorMessage(err, 'Failed to submit course request. Please try again.'));
     } finally {
       setIsSubmitting(false);
     }

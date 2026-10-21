@@ -130,7 +130,6 @@ export interface InstructorDataState {
 export type InstructorView =
   | 'dashboard'
   | 'my-classes'
-  | 'attendance'
   | 'availability'
   | 'schedule'
   | 'archive'

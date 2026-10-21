@@ -4,9 +4,35 @@ import { formatDisplayDate } from '../../utils/dateUtils';
 import DataTable, { DataTableRow } from '../gtacpr/DataTable';
 import StatusChip from '../gtacpr/StatusChip';
 
-interface InstructorArchiveTableProps {
-  courses: { id?: number; courseId?: number; date?: string; displayDate?: string; organizationName?: string; organizationname?: string; location?: string; courseType?: string; coursetypename?: string; status?: string; studentsregistered?: number; studentsattendance?: number; maxStudents?: number; registeredStudents?: number; studentsAttended?: number; updatedAt?: string; name?: string }[];
+/** One row of GET /instructor/classes/completed (no camelCase layer, so mostly snake/lower names). */
+interface ArchiveCourse {
+  id?: number;
+  courseId?: number;
+  date?: string;
+  name?: string;
+  organizationname?: string;
+  location?: string;
+  /** Students on the roster. */
+  studentcount?: number;
+  /** Students the organization asked for (course_requests.registered_students). */
+  max_students?: number;
+  studentsattendance?: number;
+  /** course_requests.completed_at, a timestamp (ISO datetime). */
+  completedAt?: string | null;
 }
+
+interface InstructorArchiveTableProps {
+  courses: ArchiveCourse[];
+}
+
+/** Completed On: the completion timestamp in local time, else the class date. */
+const completedOn = (course: ArchiveCourse): string => {
+  if (course.completedAt) {
+    const d = new Date(course.completedAt);
+    if (!isNaN(d.getTime())) return formatDisplayDate(d);
+  }
+  return course.date ? formatDisplayDate(course.date) : '—';
+};
 
 const columns = [
   { key: 'date', label: 'CLASS DATE', width: '1fr' },
@@ -40,13 +66,13 @@ const InstructorArchiveTable: React.FC<InstructorArchiveTableProps> = ({ courses
           <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>{course.organizationname || 'Unassigned'}</Typography>
           <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>{course.location || 'TBD'}</Typography>
           <Typography sx={{ fontSize: 13, fontWeight: 600, color: (theme) => theme.palette.text.primary, textAlign: 'right' }}>
-            {course.maxStudents || course.registeredStudents || 0}
+            {course.studentcount || course.max_students || 0}
           </Typography>
           <Typography sx={{ fontSize: 13, fontWeight: 600, color: (theme) => theme.palette.text.primary, textAlign: 'right' }}>
-            {course.studentsattendance || course.studentsAttended || 0}
+            {course.studentsattendance || 0}
           </Typography>
           <Typography sx={{ fontSize: 12.5, color: (theme) => theme.palette.text.secondary }}>
-            {(course.updatedAt || course.date) ? formatDisplayDate((course.updatedAt || course.date)!) : '—'}
+            {completedOn(course)}
           </Typography>
           <StatusChip kind="success" label="Completed" />
         </DataTableRow>

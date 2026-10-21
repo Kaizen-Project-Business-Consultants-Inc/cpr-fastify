@@ -20,10 +20,12 @@ import {
 import WelcomeHeader from './WelcomeHeader';
 import TodayClassesList from './TodayClassesList';
 import QuickActionsGrid from './QuickActionsGrid';
+import { parseLocalDate, getTodayDate } from '../../utils/dateUtils';
 
 interface InstructorClass {
   id: number;
-  coursename?: string;
+  /** The class list sends the course type as course_name (no camelCase layer). */
+  course_name?: string;
   date: string;
   studentcount?: number;
   [key: string]: unknown;
@@ -60,8 +62,11 @@ const InstructorDashboard: React.FC = () => {
   const classesArray = scheduledClasses as InstructorClass[];
   const todayArray = todayClasses as InstructorClass[];
   const totalClasses = classesArray.length;
+  // Compare calendar dates as YYYY-MM-DD so today's classes count as upcoming
+  // (new Date('YYYY-MM-DD') is UTC midnight, already "past" in Ontario).
+  const today = getTodayDate();
   const upcomingClasses = classesArray.filter(
-    (cls) => new Date(cls.date) > new Date()
+    (cls) => !!cls.date && String(cls.date).slice(0, 10) >= today
   );
   const todayClassesCount = todayArray.length;
   const totalStudents = classesArray.reduce(
@@ -71,7 +76,9 @@ const InstructorDashboard: React.FC = () => {
 
   // Format date helper
   const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString('en-US', {
+    const d = parseLocalDate(dateString);
+    if (!d) return '';
+    return d.toLocaleDateString('en-US', {
       weekday: 'short',
       month: 'short',
       day: 'numeric',
@@ -141,7 +148,7 @@ const InstructorDashboard: React.FC = () => {
               {upcomingClasses.slice(0, 5).map((cls, index: number) => (
                 <Box key={index} sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', py: 1, borderBottom: (theme) => `1px solid ${theme.palette.divider}` }}>
                   <Box>
-                    <Typography sx={{ fontSize: 13.5, fontWeight: 600, color: (theme) => theme.palette.text.primary }}>{cls.coursename || 'Course'}</Typography>
+                    <Typography sx={{ fontSize: 13.5, fontWeight: 600, color: (theme) => theme.palette.text.primary }}>{cls.course_name || 'Course'}</Typography>
                     <Typography sx={{ fontSize: 12, color: (theme) => theme.palette.text.secondary }}>{formatDate(cls.date)} &bull; {cls.studentcount || 0} students</Typography>
                   </Box>
                   <ButtonBase onClick={() => navigate('/instructor/classes')} sx={{ fontSize: 12, fontWeight: 600, color: '#CC1F1F', '&:hover': { textDecoration: 'underline' }, '&:focus-visible': { outline: '2px solid #CC1F1F', outlineOffset: '2px' } }}>View</ButtonBase>
@@ -160,7 +167,7 @@ const InstructorDashboard: React.FC = () => {
               {(completedClasses as InstructorClass[]).slice(0, 5).map((cls, index: number) => (
                 <Box key={index} sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', py: 1, borderBottom: (theme) => `1px solid ${theme.palette.divider}` }}>
                   <Box>
-                    <Typography sx={{ fontSize: 13.5, fontWeight: 600, color: (theme) => theme.palette.text.primary }}>{cls.coursename || 'Course'}</Typography>
+                    <Typography sx={{ fontSize: 13.5, fontWeight: 600, color: (theme) => theme.palette.text.primary }}>{cls.course_name || 'Course'}</Typography>
                     <Typography sx={{ fontSize: 12, color: (theme) => theme.palette.text.secondary }}>{formatDate(cls.date)} &bull; {cls.studentcount || 0} students</Typography>
                   </Box>
                   <StatusChip kind="success" label="Completed" />

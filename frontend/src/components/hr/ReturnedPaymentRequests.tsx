@@ -26,6 +26,7 @@ import { PrimaryButton, GhostButton } from '../gtacpr/Buttons';
 import { useConfirm } from '../gtacpr/ConfirmDialog';
 import { useSnackbar } from '../../contexts/SnackbarContext';
 import { getErrorMessage } from '../../utils/errorMessage';
+import { formatDisplayDate } from '../../utils/formatters';
 
 interface ReturnedPaymentRequest {
   id: number;
@@ -78,7 +79,7 @@ const ReturnedPaymentRequestDetailDialog: React.FC<{
     }
 
     const amount = `$${Number(request.amount).toFixed(2)}`;
-    const week = new Date(request.weekStartDate).toLocaleDateString();
+    const week = formatDisplayDate(request.weekStartDate);
     const ok = await confirm(
       action === 'override_approve'
         ? {
@@ -142,7 +143,7 @@ const ReturnedPaymentRequestDetailDialog: React.FC<{
               <Box sx={{ border: (theme) => `1px solid ${theme.palette.divider}`, borderRadius: '10px', p: 3 }}>
                 <Typography sx={{ fontSize: 13, fontWeight: 700, color: (theme) => theme.palette.text.secondary, textTransform: 'uppercase', letterSpacing: '0.07em', mb: 1 }}>Payment Information</Typography>
                 <Typography sx={{ fontSize: 24, fontWeight: 700, fontFamily: 'monospace', color: '#16A34A', mb: 1 }}>${Number(request.amount).toFixed(2)}</Typography>
-                {[['Week Starting', new Date(request.weekStartDate).toLocaleDateString()], ['Hours', `${request.totalHours}h`], ['Courses', request.coursesTaught]].map(([l, v]) => (
+                {[['Week Starting', formatDisplayDate(request.weekStartDate)], ['Hours', `${request.totalHours}h`], ['Courses', request.coursesTaught]].map(([l, v]) => (
                   <Box key={String(l)} sx={{ display: 'flex', py: 0.25 }}>
                     <Typography sx={{ fontSize: 13, fontWeight: 600, color: (theme) => theme.palette.text.secondary, width: 100 }}>{l}</Typography>
                     <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.primary }}>{v}</Typography>
@@ -279,7 +280,7 @@ const ReturnedPaymentRequests: React.FC = () => {
                     <Typography sx={{ fontSize: 12, color: (theme) => theme.palette.text.secondary }}>ID: {request.instructorId}</Typography>
                   </Box>
                   <Typography sx={{ fontSize: 13, fontWeight: 600, fontFamily: 'monospace', color: (theme) => theme.palette.text.primary, textAlign: 'right' }}>${Number(request.amount).toFixed(2)}</Typography>
-                  <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>{new Date(request.weekStartDate).toLocaleDateString()}</Typography>
+                  <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>{formatDisplayDate(request.weekStartDate)}</Typography>
                   <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>{request.totalHours}h / {request.coursesTaught} courses</Typography>
                   <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>{new Date(request.updatedAt).toLocaleDateString()}</Typography>
                   <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>

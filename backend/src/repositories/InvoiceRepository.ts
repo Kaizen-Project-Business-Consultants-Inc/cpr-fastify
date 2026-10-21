@@ -134,13 +134,22 @@ export class InvoiceRepository extends BaseRepository<Invoice> {
     );
   }
 
-  async findAllWithDetails(pg?: PaginationParams): Promise<InvoiceWithDetails[] | PaginatedResult<InvoiceWithDetails>> {
+  /**
+   * Invoice list for the accounting screens (Organization Receivables, Invoice
+   * History and its statistics). They read these snake_case names directly.
+   * `maxRows` applies only without paging; the CSV export passes a high cap so
+   * it really holds every invoice.
+   */
+  async findAllWithDetails(pg?: PaginationParams, maxRows = 500): Promise<InvoiceWithDetails[] | PaginatedResult<InvoiceWithDetails>> {
+    // approved_at comes from the invoices row itself (joined on its primary
+    // key) for the "Approved Today" figure; the view isn't relied on for it.
     const dataSQL = `SELECT
          i.id, i.invoice_number, i.organization_id, i.course_request_id,
          COALESCE(i.invoice_date, i.created_at) as invoice_date,
          i.due_date, i.amount, i.base_cost, i.tax_amount,
          i.students_billed, i.rate_per_student,
          i.status, i.approval_status, i.posted_to_org, i.posted_to_org_at,
+         ia.approved_at,
          i.paid_date, i.created_at,
          o.name as organization_name, o.contact_email,
          cr.location, ct.name as course_type_name, cr.completed_at as date_completed,
@@ -159,6 +168,7 @@ export class InvoiceRepository extends BaseRepository<Invoice> {
            ELSE '90+ days'
          END as aging_bucket
        FROM invoice_with_breakdown i
+       JOIN invoices ia ON ia.id = i.id
        JOIN organizations o ON i.organization_id = o.id
        LEFT JOIN course_requests cr ON i.course_request_id = cr.id
        LEFT JOIN class_types ct ON cr.course_type_id = ct.id
@@ -174,23 +184,33 @@ export class InvoiceRepository extends BaseRepository<Invoice> {
         pg,
       );
     }
-    return this.query<InvoiceWithDetails>(`${dataSQL} LIMIT 500`);
+    return this.query<InvoiceWithDetails>(`${dataSQL} LIMIT ?`, [maxRows]);
   }
 
   async findByIdWithDetails(id: number): Promise<InvoiceWithDetails | null> {
     const rows = await this.query<InvoiceWithDetails>(
+      // The Invoice Detail and Payment Verification dialogs read these names.
+      // payment_status uses the same rule as the invoice list.
       `SELECT
-         i.*, o.name as organization_name, o.contact_email, o.address, o.contact_phone,
+         i.*, o.name as organization_name, o.contact_email, o.contact_name, o.address, o.contact_phone,
+         o.address_street, o.address_city, o.address_province, o.address_postal_code,
          cr.location, cr.scheduled_date as course_date, cr.completed_at as date_completed,
          cr.course_type_id, ct.name as course_type_name,
          COALESCE(cp.price_per_student, i.rate_per_student) as rate_per_student,
          COALESCE(NULLIF(TRIM(CONCAT(COALESCE(u.first_name,''),' ',COALESCE(u.last_name,''))), ''), u.username) as instructor_name,
+         COALESCE(NULLIF(TRIM(CONCAT(COALESCE(au.first_name,''),' ',COALESCE(au.last_name,''))), ''), au.username) as approved_by_name,
          COALESCE(p.total_paid, 0) as amount_paid,
-         GREATEST(0, i.amount - COALESCE(p.total_paid, 0)) as balance_due
+         GREATEST(0, i.amount - COALESCE(p.total_paid, 0)) as balance_due,
+         CASE
+           WHEN COALESCE(p.total_paid, 0) >= i.amount THEN 'paid'
+           WHEN CURRENT_DATE > i.due_date THEN 'overdue'
+           ELSE 'pending'
+         END as payment_status
        FROM invoices i
        JOIN organizations o ON i.organization_id = o.id
        LEFT JOIN course_requests cr ON i.course_request_id = cr.id
        LEFT JOIN users u ON cr.instructor_id = u.id
+       LEFT JOIN users au ON i.approved_by = au.id
        LEFT JOIN class_types ct ON cr.course_type_id = ct.id
        LEFT JOIN course_pricing cp ON cr.organization_id = cp.organization_id
          AND cr.course_type_id = cp.course_type_id AND cp.is_active = true
@@ -258,7 +278,15 @@ export class InvoiceRepository extends BaseRepository<Invoice> {
 
   async getPayments(invoiceId: number): Promise<PaymentRow[]> {
     return this.query<PaymentRow>(
-      `SELECT * FROM payments WHERE invoice_id = ? AND deleted_at IS NULL ORDER BY payment_date DESC`,
+      // PaymentHistoryTable reads the camelCase copies; the raw columns stay
+      // for RecordPaymentDialog (amount, status) and anything else on *.
+      `SELECT *,
+              invoice_id AS invoiceId, payment_date AS paymentDate,
+              payment_method AS paymentMethod, reference_number AS referenceNumber,
+              submitted_by_org_at AS submittedByOrgAt,
+              verified_by_accounting_at AS verifiedByAccountingAt,
+              created_at AS createdAt
+       FROM payments WHERE invoice_id = ? AND deleted_at IS NULL ORDER BY payment_date DESC`,
       [invoiceId]
     );
   }

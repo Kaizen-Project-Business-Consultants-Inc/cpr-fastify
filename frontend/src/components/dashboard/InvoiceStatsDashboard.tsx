@@ -3,16 +3,16 @@ import { Box, CircularProgress, Tooltip, Typography } from '@mui/material';
 import { formatCurrency } from '../../utils/formatters';
 import StatCard from '../gtacpr/StatCard';
 
+// GET /accounting/invoices rows (snake_case, as the server sends them).
+// DECIMALs arrive as strings.
 interface Invoice {
   id: number;
-  status: string;
-  amount: number;
-  createdAt?: string;
-  approvalStatus?: string;
-  approvedAt?: string;
-  postedToOrgAt?: string;
-  paymentStatus?: string;
-  paidToDate?: number;
+  amount?: number | string;
+  approval_status?: string;
+  approved_at?: string | null;
+  posted_to_org_at?: string | null;
+  payment_status?: string;
+  balance_due?: number | string;
 }
 
 interface InvoiceStatsDashboardProps {
@@ -38,30 +38,27 @@ const InvoiceStatsDashboard: React.FC<InvoiceStatsDashboardProps> = ({
 
     const pendingApprovals = invoices.filter(invoice =>
       ['pending approval', 'pending_approval', 'pending', 'draft', 'new'].includes(
-        (invoice.approvalStatus || '').toLowerCase()
+        (invoice.approval_status || '').toLowerCase()
       )
     ).length;
 
     const approvedToday = invoices.filter(invoice => {
-      if (!invoice.approvedAt) return false;
-      return new Date(invoice.approvedAt).toDateString() === today;
+      if (!invoice.approved_at) return false;
+      return new Date(invoice.approved_at).toDateString() === today;
     }).length;
 
     const postedToday = invoices.filter(invoice => {
-      if (!invoice.postedToOrgAt) return false;
-      return new Date(invoice.postedToOrgAt).toDateString() === today;
+      if (!invoice.posted_to_org_at) return false;
+      return new Date(invoice.posted_to_org_at).toDateString() === today;
     }).length;
 
     const totalOutstanding = invoices
       .filter(invoice => {
-        const status = (invoice.paymentStatus || '').toLowerCase();
+        const status = (invoice.payment_status || '').toLowerCase();
         return status !== 'paid' && status !== 'cancelled';
       })
-      .reduce((sum, invoice) => {
-        const amount = typeof invoice.amount === 'number' ? invoice.amount : parseFloat(String(invoice.amount)) || 0;
-        const paid = typeof invoice.paidToDate === 'number' ? invoice.paidToDate : parseFloat(String(invoice.paidToDate)) || 0;
-        return sum + (amount - paid);
-      }, 0);
+      // balance_due is the server's figure (verified payments only).
+      .reduce((sum, invoice) => sum + (parseFloat(String(invoice.balance_due ?? 0)) || 0), 0);
 
     return {
       pendingApprovals,

@@ -32,6 +32,15 @@ const bulkUpdateSchema = z.object({
   change_reason: z.string().optional(),
 });
 
+// PayRateManagement.tsx reads tiers in camelCase (DECIMAL arrives as a string, TINYINT as 0/1).
+function toTier(row: RowDataPacket) {
+  return {
+    ...row,
+    baseHourlyRate: Number(row.base_hourly_rate), courseBonus: Number(row.course_bonus),
+    isActive: Boolean(row.is_active), createdAt: row.created_at, updatedAt: row.updated_at,
+  };
+}
+
 export async function payRateRoutes(app: FastifyInstance) {
   const pool = getPool();
   const hrRole = [requireRole('hr')];
@@ -41,7 +50,7 @@ export async function payRateRoutes(app: FastifyInstance) {
     const [rows] = await pool.query<RowDataPacket[]>(
       'SELECT * FROM pay_rate_tiers WHERE is_active = true ORDER BY base_hourly_rate ASC'
     );
-    return { success: true, data: rows };
+    return { success: true, data: rows.map(toTier) };
   });
 
   app.post('/tiers', { preHandler: hrRole }, async (request) => {
@@ -52,7 +61,7 @@ export async function payRateRoutes(app: FastifyInstance) {
     );
     logAudit({ userId: request.userId, action: 'create_pay_rate_tier', entityType: 'pay_rate_tier', entityId: result.insertId, details: { name: data.name, baseHourlyRate: data.base_hourly_rate, courseBonus: data.course_bonus }, ipAddress: request.ip });
     const [rows] = await pool.query<RowDataPacket[]>('SELECT * FROM pay_rate_tiers WHERE id = ?', [result.insertId]);
-    return { success: true, message: 'Pay rate tier created successfully.', data: rows[0] };
+    return { success: true, message: 'Pay rate tier created successfully.', data: toTier(rows[0]) };
   });
 
   app.put('/tiers/:id', { preHandler: hrRole }, async (request, reply) => {
@@ -69,7 +78,7 @@ export async function payRateRoutes(app: FastifyInstance) {
     if (result.affectedRows === 0) return reply.status(404).send({ error: 'Pay rate tier not found' });
     logAudit({ userId: request.userId, action: 'update_pay_rate_tier', entityType: 'pay_rate_tier', entityId: parseInt(id), details: { name, baseHourlyRate: base_hourly_rate, courseBonus: course_bonus, isActive: is_active }, ipAddress: request.ip });
     const [rows] = await pool.query<RowDataPacket[]>('SELECT * FROM pay_rate_tiers WHERE id = ?', [id]);
-    return { success: true, message: 'Pay rate tier updated successfully.', data: rows[0] };
+    return { success: true, message: 'Pay rate tier updated successfully.', data: toTier(rows[0]) };
   });
 
   // ===== Instructor pay rates listing =====
@@ -90,10 +99,11 @@ export async function payRateRoutes(app: FastifyInstance) {
               ipr.hourly_rate, ipr.hourly_rate as hourlyRate,
               ipr.course_bonus, ipr.course_bonus as courseBonus,
               ipr.effective_date, ipr.effective_date as effectiveDate,
-              ipr.is_active as rate_active,
+              ipr.is_active as rate_active, ipr.is_active as rateActive,
               prt.name as tier_name, prt.name as tierName,
               prt.description as tier_description, prt.description as tierDescription,
-              CASE WHEN ipr.id IS NOT NULL THEN 'Set' ELSE 'Not Set' END as rate_status
+              CASE WHEN ipr.id IS NOT NULL THEN 'Set' ELSE 'Not Set' END as rate_status,
+              CASE WHEN ipr.id IS NOT NULL THEN 'Set' ELSE 'Not Set' END as rateStatus
        FROM users u
        LEFT JOIN instructor_pay_rates ipr ON u.id = ipr.instructor_id AND ipr.is_active = true
          AND (ipr.end_date IS NULL OR ipr.end_date >= CURRENT_DATE)
@@ -113,7 +123,7 @@ export async function payRateRoutes(app: FastifyInstance) {
 
     return {
       success: true,
-      data: { instructors: rows, pagination: { page: parseInt(page), limit: safeLimit, total, pages: Math.ceil(total / safeLimit) } },
+      data: { instructors: rows.map((r) => ({ ...r, rateActive: r.rateActive == null ? null : Boolean(r.rateActive) })), pagination: { page: parseInt(page), limit: safeLimit, total, pages: Math.ceil(total / safeLimit) } },
     };
   });
 

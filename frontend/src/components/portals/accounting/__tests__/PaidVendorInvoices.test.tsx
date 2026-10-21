@@ -32,7 +32,6 @@ const invoice = (overrides: Record<string, unknown> = {}) => ({
   vendorContact: 'Pat',
   vendorPaymentMethod: 'direct_deposit',
   approvedByName: 'Admin',
-  approvedByEmail: 'admin@example.com',
   sentToAccountingAt: '2026-08-02',
   totalPaid: 1000,
   balanceDue: 250,
@@ -198,6 +197,23 @@ describe('accounting PaidVendorInvoices', () => {
       })
     );
     expect(await screen.findByText('VI-1008')).toBeInTheDocument();
+  });
+
+  it('renders a payment with no method recorded, and never invents CHECK', async () => {
+    mockGet.mockImplementation((...args: unknown[]) =>
+      Promise.resolve(
+        isSummaryCall(args) ? summary : page([invoice({ vendorPaymentMethod: null })])
+      )
+    );
+    mockGetDetails.mockResolvedValue({
+      success: true,
+      data: { payments: [{ id: 1, paymentDate: '2026-08-15', amount: '1000.00', paymentMethod: null, referenceNumber: null, notes: null, status: 'processed', processedByName: 'acct' }] },
+    });
+    render(<PaidVendorInvoices />);
+    fireEvent.click(await screen.findByRole('button', { name: 'View invoice VI-1007' }));
+
+    expect(await screen.findByText('acct')).toBeInTheDocument();
+    expect(screen.queryByText('CHECK')).not.toBeInTheDocument();
   });
 
   it('computes Balance Due as total minus totalPaid in the detail dialog', async () => {

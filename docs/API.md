@@ -5,7 +5,7 @@ _Generated from the route table by `npm run docs:api` (backend/scripts/generate-
 Base URL: `/api/v1` (except the two root-level health/metrics endpoints).
 Auth: send the access token as `Authorization: Bearer <token>`. Role guards are enforced per route (`requireRole`); see the route file for the exact roles.
 
-**211 endpoints across 24 groups.**
+**208 endpoints across 24 groups.**
 
 ## Accounting
 
@@ -132,7 +132,6 @@ Email template CRUD, preview, test send
 | DELETE | `/email-templates/{id}` | Bearer |  |
 | POST | `/email-templates/{id}/clone` | Bearer |  |
 | POST | `/email-templates/{id}/test-send` | Bearer |  |
-| GET | `/email-templates/meta/event-triggers` | Bearer |  |
 | GET | `/email-templates/meta/variables` | Bearer |  |
 
 ## Health
@@ -234,7 +233,6 @@ Organization portal — profile, courses, billing, archives
 | GET | `/organization/courses/export/csv` | Bearer |  |
 | GET | `/organization/dashboard` | Bearer |  |
 | GET | `/organization/invoices` | Bearer |  |
-| POST | `/organization/invoices/{id}/mark-as-paid` | Bearer |  |
 | POST | `/organization/invoices/{id}/payment-submission` | Bearer |  |
 | GET | `/organization/invoices/{id}/payments` | Bearer |  |
 | GET | `/organization/invoices/export/csv` | Bearer |  |
@@ -364,5 +362,4 @@ Vendor portal — invoice submission, profile, dashboard
 | POST | `/vendor/invoices/{id}/submit-to-admin` | Bearer |  |
 | GET | `/vendor/profile` | Bearer |  |
 | PUT | `/vendor/profile` | Bearer |  |
-| GET | `/vendor/vendors` | Bearer |  |
 

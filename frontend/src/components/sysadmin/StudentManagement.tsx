@@ -76,8 +76,9 @@ const StudentManagement = ({ onShowSnackbar }: StudentManagementProps) => {
 
   // Search is server-side: `/sysadmin/students` takes `q` (min 2 chars) and
   // matches across the whole directory. On the search path the endpoint
-  // answers with every match and no `pagination` block — the hook treats that
-  // as a single page, which is the behaviour this screen already had.
+  // answers with the first 50 matches and no `pagination` block — the hook
+  // treats that as a single page — and `truncated: true` when there are more.
+  const [searchTruncated, setSearchTruncated] = useState(false);
   const grid = useServerPagination<Student>({
     pageSize: 25,
     fetchFn: ({ page, limit }) => {
@@ -86,7 +87,10 @@ const StudentManagement = ({ onShowSnackbar }: StudentManagementProps) => {
         .get('/sysadmin/students', {
           params: { page, limit, q: q.length >= 2 ? q : undefined },
         })
-        .then(r => r.data);
+        .then(r => {
+          setSearchTruncated(Boolean(r.data?.truncated));
+          return r.data;
+        });
     },
     onError: () => onShowSnackbar('Failed to load students', 'error'),
   });
@@ -192,6 +196,12 @@ const StudentManagement = ({ onShowSnackbar }: StudentManagementProps) => {
         </Typography>
         <GhostButton onClick={handleExportCSV} sx={{ ml: 'auto' }}>Export CSV</GhostButton>
       </Box>
+
+      {searchTruncated && (
+        <Typography sx={{ fontSize: 12, color: (theme) => theme.palette.text.secondary, mt: -1.5 }}>
+          Showing the first {students.length} matches. Type more of the name or email to narrow the search.
+        </Typography>
+      )}
 
       {/* Table */}
       <DataTable

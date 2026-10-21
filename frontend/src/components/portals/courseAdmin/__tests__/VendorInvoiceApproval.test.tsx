@@ -15,6 +15,7 @@ vi.mock('../../../../services/api', () => ({
 }));
 
 import VendorInvoiceApproval from '../VendorInvoiceApproval';
+import { adminApi } from '../../../../services/api';
 
 const invoice = (overrides: Record<string, unknown> = {}) => ({
   id: 3,
@@ -33,6 +34,12 @@ const invoice = (overrides: Record<string, unknown> = {}) => ({
   dueDate: '2026-08-31',
   vendorName: 'Rescue Supply Co',
   vendorEmail: 'ap@rescuesupply.example',
+  // GET /admin/vendor-invoices also sends these (vendor-admin.ts VI_PAYMENT_COLS).
+  totalPaid: '0.00',
+  balanceDue: '1130.00',
+  approvedBy: null,
+  approvedByName: null,
+  rejectedByName: null,
   ...overrides,
 });
 
@@ -177,6 +184,34 @@ describe('VendorInvoiceApproval', () => {
       })
     );
     expect(await screen.findByText('VI-3002')).toBeInTheDocument();
+  });
+
+  it('detail dialog shows the paid / balance figures and names from the invoice detail', async () => {
+    vi.mocked(adminApi.getAccountingVendorInvoiceDetails).mockResolvedValueOnce({
+      success: true,
+      data: {
+        invoice: invoice({ totalPaid: '500.00', balanceDue: '630.00', approvedBy: 12, approvedByName: 'courseadmin' }),
+        payments: [{
+          id: 1, amount: '500.00', paymentDate: '2026-08-10T00:00:00.000Z', paymentMethod: null,
+          referenceNumber: null, notes: null, status: 'processed', processedAt: '2026-08-10', processedByName: 'acct',
+        }],
+      },
+    });
+    render(<VendorInvoiceApproval />);
+    fireEvent.click(await screen.findByRole('button', { name: 'View invoice VI-3001' }));
+
+    expect(await screen.findByText('courseadmin')).toBeInTheDocument();
+    expect(screen.getByText('Approved By')).toBeInTheDocument();
+    expect(screen.queryByText('12')).not.toBeInTheDocument();
+    expect(screen.getAllByText('$630.00').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('$500.00').length).toBeGreaterThan(0);
+    // A payment with no method recorded renders instead of crashing.
+    expect(screen.getByText('acct')).toBeInTheDocument();
+  });
+
+  it('shows the Item column from the server', async () => {
+    render(<VendorInvoiceApproval />);
+    expect(await screen.findByText('Training')).toBeInTheDocument();
   });
 
   it('sends the picked status straight through to the server', async () => {

@@ -42,16 +42,17 @@ interface HistoryPayment {
   verifiedByAccountingAt?: string;
 }
 
+// A row from GET /accounting/payment-verifications (camelCase SQL aliases in
+// routes/org-billing.ts). DECIMALs arrive as strings.
 interface Payment {
   paymentId?: number;
   id?: number;
   organizationName?: string;
-  organizationname?: string;
   invoiceNumber?: string;
-  invoicenumber?: string;
   invoiceId?: number;
   courseRequestId?: number;
-  amount?: number;
+  amount?: number | string;
+  invoiceAmount?: number | string;
   paymentMethod?: string;
   referenceNumber?: string;
   paymentDate?: string;
@@ -59,23 +60,36 @@ interface Payment {
   status?: string;
   verifiedByAccountingAt?: string;
   notes?: string;
-  location?: string;
-  courseTypeName?: string;
-  courseType?: string;
-  name?: string;
+  location?: string | null;
+  courseTypeName?: string | null;
   studentsAttended?: number;
-  studentsattendance?: number;
-  registeredStudents?: number;
-  ratePerStudent?: number;
-  baseCost?: number;
-  taxAmount?: number;
-  paymentstatus?: string;
-  amountPaid?: number;
-  balanceDue?: number;
-  courseDate?: string;
-  duedate?: string;
-  [key: string]: unknown;
+  ratePerStudent?: number | string | null;
+  baseCost?: number | string | null;
+  taxAmount?: number | string | null;
 }
+
+// GET /accounting/invoices/:id (InvoiceRepository.findByIdWithDetails), in
+// the server's snake_case names.
+interface InvoiceDetail {
+  id: number;
+  invoice_number?: string;
+  organization_name?: string;
+  course_type_name?: string | null;
+  location?: string | null;
+  course_date?: string | null;
+  students_billed?: number;
+  amount?: number | string;
+  amount_paid?: number | string;
+  balance_due?: number | string;
+  due_date?: string | null;
+  payment_status?: string;
+}
+
+const invoiceStatusKind = (status: string | undefined): 'success' | 'warning' | 'danger' => {
+  if (status === 'paid') return 'success';
+  if (status === 'overdue') return 'danger';
+  return 'warning';
+};
 
 const PAYMENT_TABLE_COLUMNS = [
   { key: 'organization', label: 'Organization', width: '20%' },
@@ -121,7 +135,7 @@ const PaymentVerificationView = () => {
 
   // State for invoice viewing
   const [invoiceDialogOpen, setInvoiceDialogOpen] = useState(false);
-  const [selectedInvoice, setSelectedInvoice] = useState<Payment | null>(null);
+  const [selectedInvoice, setSelectedInvoice] = useState<InvoiceDetail | null>(null);
   const [loadingInvoice, setLoadingInvoice] = useState(false);
 
   const queryClient = useQueryClient();
@@ -295,7 +309,7 @@ const PaymentVerificationView = () => {
       setInvoiceDialogOpen(true);
     } catch (error) {
       console.error('Error loading invoice:', error);
-      showError('Failed to load invoice details.');
+      showError(getErrorMessage(error, 'Failed to load invoice details.'));
     } finally {
       setLoadingInvoice(false);
     }
@@ -318,12 +332,13 @@ const PaymentVerificationView = () => {
     return [{
       date: payment.paymentDate || payment.submittedByOrgAt || '',
       location: payment.location || 'N/A',
-      course: payment.courseTypeName || payment.courseType || 'N/A',
-      students: payment.studentsAttended || payment.registeredStudents || 0,
+      course: payment.courseTypeName || 'N/A',
+      students: Number(payment.studentsAttended) || 0,
       ratePerStudent: Number(payment.ratePerStudent),
       baseCost: Number(payment.baseCost),
       tax: Number(payment.taxAmount),
-      total: Number(payment.amount ?? 0),
+      // The invoice total; the payment itself may be a part payment.
+      total: Number(payment.invoiceAmount ?? payment.amount ?? 0),
     }];
   };
 
@@ -493,13 +508,13 @@ const PaymentVerificationView = () => {
                   <Grid container spacing={1}>
                     {[
                       ['Date', selectedPayment.paymentDate || selectedPayment.submittedByOrgAt ? formatDisplayDate(selectedPayment.paymentDate || selectedPayment.submittedByOrgAt) : '—'],
-                      ['Course', selectedPayment.courseTypeName || selectedPayment.courseType || '—'],
+                      ['Course', selectedPayment.courseTypeName || '—'],
                       ['Location', selectedPayment.location || '—'],
-                      ['Students', selectedPayment.studentsAttended ?? selectedPayment.registeredStudents ?? '—'],
+                      ['Students', selectedPayment.studentsAttended ?? '—'],
                       ['Rate / Student', formatCurrencyOrDash(selectedPayment.ratePerStudent)],
                       ['Subtotal', formatCurrencyOrDash(selectedPayment.baseCost)],
                       ['Tax', formatCurrencyOrDash(selectedPayment.taxAmount)],
-                      ['Total', formatCurrencyOrDash(selectedPayment.amount)],
+                      ['Total', formatCurrencyOrDash(selectedPayment.invoiceAmount ?? selectedPayment.amount)],
                     ].map(([label, value]) => (
                       <Grid item xs={6} sm={3} key={String(label)}>
                         <Typography sx={{ fontSize: 11, color: (theme) => theme.palette.text.secondary, textTransform: 'uppercase', letterSpacing: '0.05em' }}>{label}</Typography>
@@ -763,37 +778,37 @@ const PaymentVerificationView = () => {
                 <Grid item xs={12} sm={6}>
                   <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>Invoice Number</Typography>
                   <Typography sx={{ fontSize: 13.5, fontWeight: 600, color: (theme) => theme.palette.text.primary }}>
-                    {selectedInvoice.invoicenumber}
+                    {selectedInvoice.invoice_number}
                   </Typography>
                 </Grid>
                 <Grid item xs={12} sm={6}>
                   <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>Organization</Typography>
                   <Typography sx={{ fontSize: 13.5, fontWeight: 600, color: (theme) => theme.palette.text.primary }}>
-                    {selectedInvoice.organizationname}
+                    {selectedInvoice.organization_name}
                   </Typography>
                 </Grid>
                 <Grid item xs={12} sm={6}>
                   <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>Course Type</Typography>
                   <Typography sx={{ fontSize: 13.5, fontWeight: 600, color: (theme) => theme.palette.text.primary }}>
-                    {selectedInvoice.name}
+                    {selectedInvoice.course_type_name || 'N/A'}
                   </Typography>
                 </Grid>
                 <Grid item xs={12} sm={6}>
                   <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>Location</Typography>
                   <Typography sx={{ fontSize: 13.5, fontWeight: 600, color: (theme) => theme.palette.text.primary }}>
-                    {selectedInvoice.location}
+                    {selectedInvoice.location || 'N/A'}
                   </Typography>
                 </Grid>
                 <Grid item xs={12} sm={6}>
                   <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>Course Date</Typography>
                   <Typography sx={{ fontSize: 13.5, fontWeight: 600, color: (theme) => theme.palette.text.primary }}>
-                    {selectedInvoice.courseDate ? formatDisplayDate(selectedInvoice.courseDate) : 'N/A'}
+                    {selectedInvoice.course_date ? formatDisplayDate(selectedInvoice.course_date) : 'N/A'}
                   </Typography>
                 </Grid>
                 <Grid item xs={12} sm={6}>
                   <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>Students Billed</Typography>
                   <Typography sx={{ fontSize: 13.5, fontWeight: 600, color: (theme) => theme.palette.text.primary }}>
-                    {selectedInvoice.studentsattendance}
+                    {selectedInvoice.students_billed ?? 'N/A'}
                   </Typography>
                 </Grid>
                 <Grid item xs={12} sm={6}>
@@ -805,7 +820,7 @@ const PaymentVerificationView = () => {
                 <Grid item xs={12} sm={6}>
                   <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>Amount Paid</Typography>
                   <Typography sx={{ fontSize: 13.5, fontWeight: 600, color: '#16A34A', fontFamily: 'monospace' }}>
-                    ${Number(selectedInvoice.amountPaid || 0).toFixed(2)}
+                    ${Number(selectedInvoice.amount_paid || 0).toFixed(2)}
                   </Typography>
                 </Grid>
                 <Grid item xs={12}>
@@ -815,23 +830,23 @@ const PaymentVerificationView = () => {
                       fontSize: 13.5,
                       fontWeight: 600,
                       fontFamily: 'monospace',
-                      color: Number(selectedInvoice.balanceDue || 0) > 0 ? '#CC1F1F' : '#16A34A',
+                      color: Number(selectedInvoice.balance_due || 0) > 0 ? '#CC1F1F' : '#16A34A',
                     }}
                   >
-                    ${Number(selectedInvoice.balanceDue || 0).toFixed(2)}
+                    ${Number(selectedInvoice.balance_due || 0).toFixed(2)}
                   </Typography>
                 </Grid>
                 <Grid item xs={12} sm={6}>
                   <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>Due Date</Typography>
                   <Typography sx={{ fontSize: 13.5, fontWeight: 600, color: (theme) => theme.palette.text.primary }}>
-                    {selectedInvoice.duedate ? formatDisplayDate(selectedInvoice.duedate) : 'N/A'}
+                    {selectedInvoice.due_date ? formatDisplayDate(selectedInvoice.due_date) : 'N/A'}
                   </Typography>
                 </Grid>
                 <Grid item xs={12} sm={6}>
                   <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary, mb: 0.5 }}>Status</Typography>
                   <StatusChip
-                    kind={getPaymentStatusKind(selectedInvoice).kind}
-                    label={String(selectedInvoice.paymentstatus || selectedInvoice.status || 'unknown').toUpperCase()}
+                    kind={invoiceStatusKind(selectedInvoice.payment_status)}
+                    label={String(selectedInvoice.payment_status || 'unknown').toUpperCase()}
                   />
                 </Grid>
               </Grid>

@@ -174,6 +174,24 @@ export class EmailService {
     return this.sendEmail(to, t.subject, t.html);
   }
 
+  /** Tells an organization a new invoice is in its portal (sent when accounting posts it). */
+  async sendInvoicePostedEmail(
+    to: string,
+    data: { invoiceNumber: string; organizationName: string; amount: string; dueDate: string; portalUrl: string }
+  ): Promise<boolean> {
+    const html = safeHtml`
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+        <h2 style="color: #007bff;">New invoice ${data.invoiceNumber}</h2>
+        <p>Hello ${data.organizationName},</p>
+        <p>A new invoice is ready in your CPR Training Portal.</p>
+        <p><strong>Amount:</strong> ${data.amount}<br><strong>Due:</strong> ${data.dueDate}</p>
+        <p>Sign in and open <strong>Bills Payable</strong> to view and pay it:</p>
+        <p><a href="${data.portalUrl}">${data.portalUrl}</a></p>
+      </div>
+    `;
+    return this.sendEmail(to, `CPR Training Portal - Invoice ${data.invoiceNumber}`, html);
+  }
+
   async sendPasswordResetEmail(userEmail: string, username: string, resetLink: string): Promise<boolean> {
     const html = safeHtml`
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">

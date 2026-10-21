@@ -16,7 +16,8 @@ const updateProfileSchema = z.object({
   name: z.string().min(1),
   address: z.string().optional().default(''),
   contactPhone: z.string().optional().default(''),
-  contactEmail: z.string().email().optional().default(''),
+  // The email is optional, and the screen sends '' when it is blank
+  contactEmail: z.union([z.literal(''), z.string().email()]).optional().default(''),
 });
 
 const courseRequestSchema = z.object({
@@ -46,7 +47,7 @@ export async function organizationRoutes(app: FastifyInstance) {
   app.get('/profile', { preHandler: orgRole }, async (request, reply) => {
     try {
       if (!request.userOrgId) return reply.status(400).send({ error: 'No organization linked to this account' });
-      return { success: true, data: await service.getOrganization(request.userOrgId) };
+      return { success: true, data: await service.getProfile(request.userOrgId) };
     } catch (err) { return handleError(err, reply); }
   });
 
@@ -192,6 +193,13 @@ export async function organizationRoutes(app: FastifyInstance) {
   app.post('/course-request', { preHandler: orgRole }, async (request, reply) => {
     if (!request.userOrgId) return reply.status(400).send({ error: 'No organization linked' });
     const { courseTypeId, scheduledDate, location, locationId, registeredStudents, notes } = courseRequestSchema.parse(request.body);
+
+    // The form hides inactive course types; refuse them here too
+    const [types] = await getPool().query<RowDataPacket[]>('SELECT is_active FROM class_types WHERE id = ?', [courseTypeId]);
+    if (types.length === 0) return reply.status(400).send({ error: 'Course type not found' });
+    if (types[0].is_active !== null && !types[0].is_active) {
+      return reply.status(400).send({ error: 'This course type is no longer offered. Please choose another one.' });
+    }
 
     try {
       const course = await courseService.createRequest({

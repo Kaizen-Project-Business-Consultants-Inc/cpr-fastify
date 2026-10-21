@@ -300,8 +300,6 @@ export const instructorApi = {
   // Availability management
   addAvailability: (date: string) => api.post('/instructor/availability', { date }),
   removeAvailability: (date: string) => api.delete(`/instructor/availability/${date}`),
-
-  getTodayClasses: () => api.get('/instructor/classes/today'),
 };
 
 // Export the api instance for use in other services
@@ -570,10 +568,6 @@ export const sysAdminApi = {
     const response = await api.get(`/sysadmin/organizations/${orgId}/locations`);
     return response.data;
   },
-  getOrganizationLocation: async (orgId: number, locationId: number) => {
-    const response = await api.get(`/sysadmin/organizations/${orgId}/locations/${locationId}`);
-    return response.data;
-  },
   createOrganizationLocation: async (orgId: number, locationData: Record<string, unknown>) => {
     const response = await api.post(`/sysadmin/organizations/${orgId}/locations`, locationData);
     return response.data;
@@ -657,8 +651,9 @@ export const adminApi = {
     });
     return response.data;
   },
+  // The PDF route lives with the vendor routes; it lets staff download any invoice.
   downloadVendorInvoice: async (invoiceId: number) => {
-    const response = await api.get(`/admin/vendor-invoices/${invoiceId}/download`, {
+    const response = await api.get(`/vendor/invoices/${invoiceId}/download`, {
       responseType: 'blob'
     });
     return response;
@@ -699,15 +694,12 @@ export const emailTemplateApi = {
   update: (id: number, data: EmailTemplateData) =>
     api.put(`/email-templates/${id}`, data),
   delete: (id: number) => api.delete(`/email-templates/${id}`),
-  sendTest: (id: number, recipientEmail: string, variables: Record<string, unknown>) =>
-    api.post(`/email-templates/${id}/test-send`, {
-      recipientEmail,
-      variables,
-    }),
+  // The server's testSendSchema takes only `to`; it fills the template with
+  // sample values itself, so the preview variables are not sent.
+  sendTest: (id: number, recipientEmail: string) =>
+    api.post(`/email-templates/${id}/test-send`, { to: recipientEmail }),
   clone: (id: number, newName: string) =>
     api.post(`/email-templates/${id}/clone`, { name: newName }),
-  getEventTriggers: () =>
-    api.get('/email-templates/meta/event-triggers'),
   getTemplateVariables: () => api.get('/email-templates/meta/variables'),
 };
 
@@ -769,12 +761,6 @@ export const vendorApi = {
   },
   updateProfile: async (profileData: Record<string, unknown>) => {
     const response = await api.put('/vendor/profile', profileData);
-    return response.data;
-  },
-
-  // Get all vendors for dropdown selection
-  getVendors: async () => {
-    const response = await api.get('/vendor/vendors');
     return response.data;
   },
 
@@ -853,21 +839,10 @@ export const collegesApi = {
 // Top-level convenience exports for components using `import * as api`
 // =============================================================================
 
-// Organization Management (wraps sysAdminApi methods)
-export const updateOrganization = sysAdminApi.updateOrganization;
-export const addOrganization = sysAdminApi.createOrganization;
 // Organization Locations (wraps sysAdminApi methods)
 export const getOrganizationLocations = sysAdminApi.getOrganizationLocations;
 export const createOrganizationLocation = sysAdminApi.createOrganizationLocation;
 export const deleteOrganizationLocation = sysAdminApi.deleteOrganizationLocation;
-
-// User Management (wraps sysAdminApi methods)
-export const getUsers = sysAdminApi.getUsers;
-// Pricing Rules (wraps organization pricing methods)
-export const getPricingRules = getOrganizationPricing;
-export const deletePricingRule = deleteOrganizationPricing;
-export const updatePricingRule = updateOrganizationPricing;
-export const addPricingRule = createOrganizationPricing;
 
 // Course Types
 export const getCourseTypes = async () => {

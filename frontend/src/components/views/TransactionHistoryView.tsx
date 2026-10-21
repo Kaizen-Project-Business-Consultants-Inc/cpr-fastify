@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import logger from '../../utils/logger';
 import {
   Box,
@@ -13,8 +13,8 @@ import {
 } from '@mui/material';
 import api, { getInvoices, getOrganizations } from '../../services/api';
 import { downloadBlob } from '../../utils/download';
-import { getTodayDate } from '../../utils/formatters';
-import InvoiceHistoryTable from '../tables/InvoiceHistoryTable';
+import { getTodayDate, parseLocalDate } from '../../utils/formatters';
+import InvoiceHistoryTable, { type HistoryInvoice } from '../tables/InvoiceHistoryTable';
 import InvoiceStatsDashboard from '../dashboard/InvoiceStatsDashboard';
 import StatCard from '../gtacpr/StatCard';
 import { GhostButton } from '../gtacpr/Buttons';
@@ -22,19 +22,8 @@ import useServerPagination from '../../hooks/useServerPagination';
 import useDebounce from '../../hooks/useDebounce';
 import { getErrorMessage } from '../../utils/errorMessage';
 
-interface TransactionInvoice {
-  invoiceId: number | string;
-  invoiceNumber?: string;
-  invoiceDate?: string;
-  organizationId?: number;
-  organizationName?: string;
-  courseTypeName?: string;
-  paymentStatus?: string;
-  amount?: number | string;
-  paidToDate?: number | string;
-  balanceDue?: number | string;
-  [key: string]: unknown;
-}
+// GET /accounting/invoices rows, in the server's own (snake_case) names.
+type TransactionInvoice = HistoryInvoice;
 
 interface OrganizationOption {
   id: number | string;
@@ -130,18 +119,19 @@ const TransactionHistoryView = () => {
     let result = [...list];
     if (debouncedSearch) {
       const lower = debouncedSearch.toLowerCase();
-      result = result.filter(inv => inv.invoiceNumber?.toLowerCase().includes(lower) || inv.courseTypeName?.toLowerCase().includes(lower) || inv.organizationName?.toLowerCase().includes(lower));
+      result = result.filter(inv => inv.invoice_number?.toLowerCase().includes(lower) || inv.course_type_name?.toLowerCase().includes(lower) || inv.organization_name?.toLowerCase().includes(lower));
     }
-    if (selectedOrgId) result = result.filter(inv => inv.organizationId === parseInt(selectedOrgId));
+    if (selectedOrgId) result = result.filter(inv => Number(inv.organization_id) === parseInt(selectedOrgId));
     if (selectedMonth) {
-      try {
-        const start = new Date(selectedMonth + '-01T00:00:00');
-        const nextMonth = new Date(start);
-        nextMonth.setMonth(start.getMonth() + 1);
-        result = result.filter(inv => { if (!inv.invoiceDate) return false; const d = new Date(inv.invoiceDate); return d >= start && d < nextMonth; });
-      } catch (e) { logger.error('Error parsing month filter date'); }
+      // invoice_date is a date-only value: compare its calendar month, so a
+      // first-of-the-month invoice isn't pushed into the previous month.
+      result = result.filter(inv => {
+        const d = parseLocalDate(inv.invoice_date);
+        if (!d) return false;
+        return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}` === selectedMonth;
+      });
     }
-    if (selectedStatus) result = result.filter(inv => inv.paymentStatus?.toLowerCase() === selectedStatus.toLowerCase());
+    if (selectedStatus) result = result.filter(inv => inv.payment_status?.toLowerCase() === selectedStatus.toLowerCase());
     return result;
   }, [debouncedSearch, selectedOrgId, selectedMonth, selectedStatus]);
 
@@ -214,11 +204,7 @@ const TransactionHistoryView = () => {
         <Alert severity="error">{errorMessage}</Alert>
       ) : (
         <>
-          {/* InvoiceStatsDashboard's own Invoice type (id/status/amount required) predates
-              this file's TransactionInvoice shape and isn't exported to type-check against
-              directly; the /accounting/invoices rows it actually receives here satisfy it
-              at runtime (unchanged from before this typing pass). */}
-          <InvoiceStatsDashboard invoices={summaryInvoices as unknown as React.ComponentProps<typeof InvoiceStatsDashboard>['invoices']} loading={grid.loading} />
+          <InvoiceStatsDashboard invoices={summaryInvoices} loading={grid.loading} />
           <InvoiceHistoryTable invoices={pageInvoices} />
 
           {/* Server-driven paging for the table above */}
@@ -236,8 +222,8 @@ const TransactionHistoryView = () => {
             <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'repeat(2, 1fr)', md: 'repeat(4, 1fr)' }, gap: 2 }}>
               <StatCard label="Total Invoices" value={summaryInvoices.length} sub="All invoices" />
               <StatCard label="Total Amount" value={`$${summaryInvoices.reduce((sum, inv) => sum + (Number(inv.amount) || 0), 0).toFixed(2)}`} sub="All invoices" />
-              <StatCard label="Total Paid" value={`$${summaryInvoices.reduce((sum, inv) => sum + (Number(inv.paidToDate) || 0), 0).toFixed(2)}`} sub="All invoices" dotColor="#16A34A" />
-              <StatCard label="Total Outstanding" value={`$${summaryInvoices.reduce((sum, inv) => sum + (Number(inv.balanceDue ?? inv.amount) || 0), 0).toFixed(2)}`} sub="All invoices" dotColor="#CC1F1F" />
+              <StatCard label="Total Paid" value={`$${summaryInvoices.reduce((sum, inv) => sum + (Number(inv.amount_paid) || 0), 0).toFixed(2)}`} sub="All invoices" dotColor="#16A34A" />
+              <StatCard label="Total Outstanding" value={`$${summaryInvoices.reduce((sum, inv) => sum + (Number(inv.balance_due ?? inv.amount) || 0), 0).toFixed(2)}`} sub="All invoices" dotColor="#CC1F1F" />
             </Box>
           )}
         </>

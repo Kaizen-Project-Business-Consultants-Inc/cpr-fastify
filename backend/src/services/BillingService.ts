@@ -9,8 +9,12 @@ import type { PaymentRow, BillingQueueRow } from '../types/billing.js';
 import type { RowDataPacket, ResultSetHeader } from 'mysql2/promise';
 import { writeAudit, type AuditActor } from '../utils/auditLog.js';
 import { verifiedPayment } from '../utils/paymentSql.js';
+import { emailService } from './EmailService.js';
+import { env } from '../config/env.js';
 
 const INVOICE_DUE_DAYS = 30;
+// A safety cap only: far above the number of invoices the business makes.
+const EXPORT_MAX_ROWS = 100000;
 
 export class BillingError extends Error {
   constructor(message: string, public statusCode: number = 400) {
@@ -155,6 +159,12 @@ export class BillingService {
     return this.invoiceRepo.findAllWithDetails(pg);
   }
 
+  /** Every invoice for the CSV export (the screen promises all of them). */
+  async getAllInvoicesForExport(): Promise<InvoiceWithDetails[]> {
+    const rows = await this.invoiceRepo.findAllWithDetails(undefined, EXPORT_MAX_ROWS);
+    return Array.isArray(rows) ? rows : rows.data;
+  }
+
   async getInvoiceById(id: number): Promise<InvoiceWithDetails> {
     const invoice = await this.invoiceRepo.findByIdWithDetails(id);
     if (!invoice) throw new BillingError('Invoice not found', 404);
@@ -225,6 +235,7 @@ export class BillingService {
   async postToOrg(id: number, postedBy: number, actor?: AuditActor): Promise<Invoice> {
     const pool = getPool();
     const conn = await pool.getConnection();
+    let invoice: RowDataPacket;
 
     try {
       await conn.beginTransaction();
@@ -235,40 +246,67 @@ export class BillingService {
          WHERE i.id = ? AND i.posted_to_org = FALSE`,
         [id]
       );
-
       if (invoiceRows.length === 0) {
         throw new BillingError('Invoice not found or already posted', 404);
       }
 
-      await conn.query(
+      // Claim the invoice: two accountants (or a retry) posting at once must
+      // not both get through and send the email twice.
+      const [claimed] = await conn.query<ResultSetHeader>(
         `UPDATE invoices SET posted_to_org = TRUE, posted_to_org_at = CURRENT_TIMESTAMP,
-         updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+         updated_at = CURRENT_TIMESTAMP WHERE id = ? AND posted_to_org = FALSE`,
         [id]
       );
+      if (claimed.affectedRows !== 1) {
+        throw new BillingError('Invoice not found or already posted', 404);
+      }
 
-      // Archive the course
-      const invoice = invoiceRows[0];
+      // Archive the course. (There is no archived_by column; the audit row
+      // below records who posted it.)
+      invoice = invoiceRows[0];
       if (invoice.course_request_id) {
         await conn.query(
           `UPDATE course_requests SET archived = TRUE, archived_at = CURRENT_TIMESTAMP,
-           archived_by = ?, updated_at = CURRENT_TIMESTAMP
+           updated_at = CURRENT_TIMESTAMP
            WHERE id = ? AND status = 'completed'`,
-          [postedBy, invoice.course_request_id]
+          [invoice.course_request_id]
         );
       }
 
       if (actor) {
-        await writeAudit(conn, { ...actor, action: 'post_invoice_to_org', entityType: 'invoice', entityId: id, details: { invoiceNumber: invoice.invoice_number } });
+        await writeAudit(conn, { ...actor, action: 'post_invoice_to_org', entityType: 'invoice', entityId: id, details: { invoiceNumber: invoice.invoice_number, postedBy } });
       }
       await conn.commit();
-
-      logger.info({ invoiceId: id }, 'Invoice posted to org');
-      return (await this.invoiceRepo.findById(id))!;
     } catch (err) {
       await conn.rollback();
       throw err;
     } finally {
       conn.release();
+    }
+
+    logger.info({ invoiceId: id }, 'Invoice posted to org');
+    // After the connection is released, so a slow email doesn't hold it.
+    await this.notifyInvoicePosted(id, invoice);
+    return (await this.invoiceRepo.findById(id))!;
+  }
+
+  /** Emails the organization's contact; a failed email never undoes the posting. */
+  private async notifyInvoicePosted(id: number, invoice: RowDataPacket): Promise<void> {
+    if (!invoice.contact_email) {
+      logger.warn({ invoiceId: id }, 'Invoice posted, but the organization has no contact email');
+      return;
+    }
+    try {
+      const sent = await emailService.sendInvoicePostedEmail(invoice.contact_email, {
+        invoiceNumber: String(invoice.invoice_number ?? id),
+        organizationName: String(invoice.organization_name ?? ''),
+        amount: `$${Number(invoice.amount ?? 0).toFixed(2)}`,
+        dueDate: invoice.due_date ? new Date(invoice.due_date).toISOString().slice(0, 10) : 'on receipt',
+        portalUrl: env.FRONTEND_URL,
+      });
+      if (sent) await getPool().query('UPDATE invoices SET email_sent_at = CURRENT_TIMESTAMP WHERE id = ?', [id]);
+    } catch (err) {
+      logger.error({ invoiceId: id, err: err instanceof Error ? err.message : err }, 'Invoice email failed');
     }
   }
 

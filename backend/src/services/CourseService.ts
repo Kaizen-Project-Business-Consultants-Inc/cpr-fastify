@@ -522,7 +522,7 @@ export class CourseService {
   async addStudents(
     courseId: number,
     orgId: number,
-    students: Array<{ firstName: string; lastName: string; email?: string }>
+    students: Array<{ firstName: string; lastName: string; email?: string; phone?: string }>
   ): Promise<{ added: number; skipped: number }> {
     // Verify course belongs to org
     const course = await this.courseRepo.forOrg(orgId).findById(courseId);

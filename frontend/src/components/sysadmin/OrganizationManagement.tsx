@@ -25,6 +25,7 @@ import { useDebounce } from '../../hooks/useDebounce';
 import { useServerPagination } from '../../hooks/useServerPagination';
 import { getTodayDate } from '../../utils/formatters';
 import { getErrorMessage } from '../../utils/errorMessage';
+import { toOrganizationBody } from './organizationBody';
 import type { Theme } from '@mui/material/styles';
 
 interface Organization {
@@ -40,6 +41,7 @@ interface Organization {
   contactEmail?: string;
   contactPhone?: string;
   organizationComments?: string;
+  status?: string | null;
   userCount?: number;
   courseCount?: number;
 }
@@ -123,7 +125,8 @@ const OrganizationManagement = () => {
     try {
       setSaving(true);
       setError('');
-      await sysAdminApi.updateOrganization(editingOrg.id, formData);
+      if (!formData.name.trim()) { setError('Organization name is required'); return; }
+      await sysAdminApi.updateOrganization(editingOrg.id, toOrganizationBody(formData));
       setSuccess('Organization updated successfully');
       handleCloseDialog();
       grid.reload();
@@ -142,19 +145,19 @@ const OrganizationManagement = () => {
 
   const handleDelete = async (org: Organization) => {
     const ok = await confirm({
-      title: 'Delete organization?',
-      message: `"${org.organizationName}" and its locations will be permanently deleted. This cannot be undone.`,
-      confirmLabel: 'Delete',
+      title: 'Deactivate organization?',
+      message: `"${org.organizationName}" will be marked inactive. Its locations and history are kept.`,
+      confirmLabel: 'Deactivate',
       danger: true,
     });
     if (!ok) return;
     try {
       setError('');
       await sysAdminApi.deleteOrganization(org.id);
-      setSuccess('Organization deleted successfully');
+      setSuccess('Organization deactivated');
       grid.reload();
     } catch (err) {
-      setError(getErrorMessage(err, 'Failed to delete organization'));
+      setError(getErrorMessage(err, 'Failed to deactivate organization'));
     }
   };
 
@@ -224,6 +227,9 @@ const OrganizationManagement = () => {
                 <Typography sx={{ fontSize: 13.5, fontWeight: 600, color: (theme) => theme.palette.text.primary }}>
                   {org.organizationName}
                 </Typography>
+                {org.status === 'inactive' && (
+                  <Typography sx={{ fontSize: 11.5, color: (theme) => theme.palette.text.secondary }}>Inactive</Typography>
+                )}
                 {org.organizationComments && (
                   <Typography sx={{ fontSize: 11.5, color: (theme) => theme.palette.text.secondary, maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {org.organizationComments}
@@ -268,10 +274,10 @@ const OrganizationManagement = () => {
               <LinkButton onClick={() => setLocationsDialogOrg(org)} aria-label={`Locations for ${org.organizationName}`}>Locations</LinkButton>
               <Typography sx={{ fontSize: 12, color: (theme) => theme.palette.divider }}>|</Typography>
               <LinkButton onClick={() => handleOpenDialog(org)} aria-label={`Edit ${org.organizationName}`}>Edit</LinkButton>
-              {org.userCount === 0 && org.courseCount === 0 && (
+              {org.userCount === 0 && org.courseCount === 0 && org.status !== 'inactive' && (
                 <>
                   <Typography sx={{ fontSize: 12, color: (theme) => theme.palette.divider }}>|</Typography>
-                  <LinkButton tone="neutral" onClick={() => handleDelete(org)} aria-label={`Delete ${org.organizationName}`}>Delete</LinkButton>
+                  <LinkButton tone="neutral" onClick={() => handleDelete(org)} aria-label={`Deactivate ${org.organizationName}`}>Deactivate</LinkButton>
                 </>
               )}
             </Box>

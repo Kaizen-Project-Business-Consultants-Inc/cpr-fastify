@@ -1,4 +1,4 @@
-import { OrganizationRepository, Organization } from '../repositories/OrganizationRepository.js';
+import { OrganizationRepository, Organization, OrganizationProfileStats } from '../repositories/OrganizationRepository.js';
 
 export class OrgError extends Error {
   constructor(message: string, public statusCode: number = 400) {
@@ -14,6 +14,12 @@ export class OrganizationService {
     const org = await this.orgRepo.findById(orgId);
     if (!org) throw new OrgError('Organization not found', 404);
     return org;
+  }
+
+  /** The org's own record plus the counts its Profile cards show. */
+  async getProfile(orgId: number): Promise<Organization & OrganizationProfileStats> {
+    const org = await this.getOrganization(orgId);
+    return { ...org, ...(await this.orgRepo.getProfileStats(orgId)) };
   }
 
   async updateProfile(orgId: number, data: { name: string; address: string; contactPhone: string; contactEmail: string }): Promise<Organization> {

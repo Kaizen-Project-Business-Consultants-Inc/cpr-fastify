@@ -141,4 +141,25 @@ describe('InstructorManagement', () => {
     expect(screen.getByText('Email is required')).toBeInTheDocument();
     expect(mockPost).not.toHaveBeenCalled();
   });
+
+  it('marks username and email and shows the server reason when POST /instructors answers 409', async () => {
+    mockPost.mockRejectedValue({
+      response: { status: 409, data: { error: 'Username or email already exists' } },
+      message: 'Request failed with status code 409',
+    });
+    renderWithQuery();
+    fireEvent.click(screen.getByRole('button', { name: 'Add Instructor' }));
+    await waitFor(() => expect(screen.getByLabelText(/Username/)).toBeInTheDocument());
+
+    fireEvent.change(screen.getByLabelText(/First name/), { target: { value: 'Pat' } });
+    fireEvent.change(screen.getByLabelText(/Last name/), { target: { value: 'Lee' } });
+    fireEvent.change(screen.getByLabelText(/Username/), { target: { value: 'patlee' } });
+    fireEvent.change(screen.getByLabelText(/Email/), { target: { value: 'pat@example.com' } });
+    fireEvent.change(screen.getByLabelText(/^Password/), { target: { value: 'longenough1' } });
+    const dialog = screen.getByRole('dialog');
+    fireEvent.click(dialog.querySelector('button[type="submit"]') as HTMLButtonElement);
+
+    await waitFor(() => expect(mockShowError).toHaveBeenCalledWith('Username or email already exists'));
+    expect(screen.getAllByText('Username or email already in use')).toHaveLength(2);
+  });
 });

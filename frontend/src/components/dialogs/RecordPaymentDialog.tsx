@@ -119,7 +119,7 @@ const RecordPaymentDialog = ({
       });
       
       logger.info(`Payment recorded successfully for invoice: ${invoice?.invoiceid}`);
-      onSuccess(paymentData.notes || 'Payment recorded successfully.'); // Notify parent
+      onSuccess('Payment recorded successfully.'); // Notify parent
     } catch (err) {
       console.error('❌ [RecordPaymentDialog] Payment recording failed:', err);
       logger.error('Failed to record payment:', err);
@@ -152,13 +152,15 @@ const RecordPaymentDialog = ({
           // GET /accounting/invoices/:id/payments returns { success, data: rows }
           // and the rows are raw `payments` columns, so the amount is `amount`.
           const response = await getInvoicePayments(invoice.invoiceid);
-          const rows: Array<{ amount?: number | string }> = Array.isArray(response)
+          const rows: Array<{ amount?: number | string; status?: string }> = Array.isArray(response)
             ? response
             : (response?.data ?? []);
-          const totalPaid = rows.reduce(
-            (sum: number, p) => sum + parseFloat(String(p.amount || 0)),
-            0
-          );
+          // Only verified payments count, the same rule the server uses for
+          // the balance (utils/paymentSql.ts); pending, rejected and reversed
+          // rows are in the list too.
+          const totalPaid = rows
+            .filter((p) => p.status === 'verified')
+            .reduce((sum: number, p) => sum + parseFloat(String(p.amount || 0)), 0);
           const originalAmount = parseFloat(String(invoice.amount || 0));
           setPaidToDate(totalPaid);
           setBalanceDue(originalAmount - totalPaid);

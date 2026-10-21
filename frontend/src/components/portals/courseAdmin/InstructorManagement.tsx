@@ -537,13 +537,7 @@ const InstructorManagement: React.FC = () => {
         }
       } catch (err: unknown) {
         console.error('Error fetching available instructors:', err);
-        const axiosErr = err as {
-          response?: { status?: number; data?: { error?: { message?: string } } };
-          message?: string;
-        };
-        console.error('Error response:', axiosErr.response);
-        console.error('Error status:', axiosErr.response?.status);
-        console.error('Error data:', axiosErr.response?.data);
+        const axiosErr = err as { response?: { status?: number } };
 
         if (axiosErr.response?.status === 401) {
           setError('Authentication error. Please log in again.');
@@ -551,7 +545,7 @@ const InstructorManagement: React.FC = () => {
           setError('You do not have permission to view available instructors.');
         } else {
           setError(
-            `Failed to fetch available instructors: ${axiosErr.response?.data?.error?.message || axiosErr.message}`
+            `Failed to fetch available instructors: ${getErrorMessage(err, 'Unknown error')}`
           );
         }
         setAvailableInstructors([]);
@@ -645,14 +639,12 @@ const InstructorManagement: React.FC = () => {
       await queryClient.invalidateQueries({ queryKey: ['instructors'] });
       handleClose();
     } catch (err: unknown) {
-      const axiosErr = err as { response?: { status?: number; data?: { error?: { message?: string } | string; message?: string } } };
-      const data = axiosErr.response?.data;
-      const serverMessage =
-        (typeof data?.error === 'object' ? data.error?.message : data?.error) || data?.message;
+      const axiosErr = err as { response?: { status?: number } };
+      // POST/PUT /instructors answer a taken username or email with 409.
       if (axiosErr.response?.status === 409) {
         setFormErrors({ username: 'Username or email already in use', email: 'Username or email already in use' });
       }
-      showError(serverMessage || 'Failed to save instructor');
+      showError(getErrorMessage(err, 'Failed to save instructor'));
     } finally {
       setSavingInstructor(false);
     }
@@ -670,8 +662,8 @@ const InstructorManagement: React.FC = () => {
       showSuccess('Availability updated');
       queryClient.invalidateQueries({ queryKey: ['instructors'] });
       handleAvailabilityClose();
-    } catch {
-      showError('Failed to update availability');
+    } catch (err: unknown) {
+      showError(getErrorMessage(err, 'Failed to update availability'));
     } finally {
       setSavingAvailability(false);
     }
@@ -690,8 +682,8 @@ const InstructorManagement: React.FC = () => {
       await api.delete(`/instructors/${instructor.id}`);
       showSuccess(`${instructor.instructorName} deactivated`);
       queryClient.invalidateQueries({ queryKey: ['instructors'] });
-    } catch {
-      showError('Failed to deactivate instructor');
+    } catch (err: unknown) {
+      showError(getErrorMessage(err, 'Failed to deactivate instructor'));
     }
   };
 
@@ -778,8 +770,7 @@ The course status has been updated to "Confirmed" and moved to the confirmed cou
       }
     } catch (err: unknown) {
       console.error('Error assigning instructor:', err);
-      const axiosErr = err as { response?: { data?: { error?: { message?: string } } } };
-      setError(axiosErr.response?.data?.error?.message || 'Failed to assign instructor');
+      setError(getErrorMessage(err, 'Failed to assign instructor'));
     } finally {
       setAssigning(false);
     }

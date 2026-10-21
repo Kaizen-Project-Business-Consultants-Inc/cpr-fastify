@@ -53,7 +53,7 @@ export class CourseStudentRepository extends BaseRepository<CourseStudent> {
    */
   async addStudents(
     courseRequestId: number,
-    students: Array<{ firstName: string; lastName: string; email?: string }>,
+    students: Array<{ firstName: string; lastName: string; email?: string; phone?: string }>,
     organizationId?: number | null,
   ): Promise<{ added: number; skipped: number }> {
     if (students.length === 0) return { added: 0, skipped: 0 };
@@ -96,15 +96,15 @@ export class CourseStudentRepository extends BaseRepository<CourseStudent> {
     );
 
     // Multi-row INSERT with student_id link
-    const placeholders = toInsert.map(() => '(?, ?, ?, ?, ?)').join(', ');
+    const placeholders = toInsert.map(() => '(?, ?, ?, ?, ?, ?)').join(', ');
     const values = toInsert.flatMap(s => {
       const email = s.email?.trim().toLowerCase() ?? null;
       const studentId = email ? (emailMap.get(email) ?? null) : null;
-      return [courseRequestId, s.firstName, s.lastName, s.email ?? null, studentId];
+      return [courseRequestId, s.firstName, s.lastName, s.email ?? null, s.phone?.trim() || null, studentId];
     });
 
     await this.execute(
-      `INSERT INTO course_students (course_request_id, first_name, last_name, email, student_id) VALUES ${placeholders}`,
+      `INSERT INTO course_students (course_request_id, first_name, last_name, email, phone, student_id) VALUES ${placeholders}`,
       values
     );
     return { added: toInsert.length, skipped };

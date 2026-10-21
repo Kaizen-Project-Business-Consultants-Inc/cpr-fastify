@@ -1,4 +1,4 @@
-import { toLocalDateString } from '../../utils/formatters';
+import { toLocalDateString, parseLocalDate } from '../../utils/formatters';
 import React, { useState, useEffect } from 'react';
 import {
   Box,
@@ -28,6 +28,10 @@ import {
   Refresh as RefreshIcon,
 } from '@mui/icons-material';
 import { timesheetService, Timesheet } from '../../services/timesheetService';
+import { getErrorMessage } from '../../utils/errorMessage';
+
+/** The server caps a page at 100; an instructor files one a week, so that is ~2 years. */
+const HISTORY_LIMIT = 100;
 
 interface TimesheetHistoryProps {
   onRefresh?: () => void;
@@ -52,17 +56,18 @@ const TimesheetHistory: React.FC<TimesheetHistoryProps> = ({ onRefresh }) => {
   const [error, setError] = useState<string | null>(null);
   const [selectedTimesheet, setSelectedTimesheet] = useState<Timesheet | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [total, setTotal] = useState(0);
 
   const loadTimesheets = async () => {
     setLoading(true);
     setError(null);
     
     try {
-      const response = await timesheetService.getTimesheets();
+      const response = await timesheetService.getTimesheets({ limit: HISTORY_LIMIT });
       setTimesheets(response.timesheets || []);
+      setTotal(response.pagination?.total ?? (response.timesheets || []).length);
     } catch (err: unknown) {
-      const errObj = err as { response?: { data?: { message?: string } }; message?: string };
-      setError(errObj.response?.data?.message || errObj.message || 'Failed to load timesheets');
+      setError(getErrorMessage(err, 'Failed to load timesheets'));
     } finally {
       setLoading(false);
     }
@@ -104,20 +109,28 @@ const TimesheetHistory: React.FC<TimesheetHistoryProps> = ({ onRefresh }) => {
     }
   };
 
+  const DISPLAY: Intl.DateTimeFormatOptions = { year: 'numeric', month: 'short', day: 'numeric' };
+
+  /** Timestamps (createdAt, updatedAt): shown in local time. */
   const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString('en-US', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric',
-    });
+    const d = new Date(dateString);
+    return isNaN(d.getTime()) ? 'N/A' : d.toLocaleDateString('en-US', DISPLAY);
+  };
+
+  /** Calendar dates (week start, course date): the YYYY-MM-DD part read as local,
+      so new Date('2026-10-19T00:00:00.000Z') can't show as the Sunday before. */
+  const formatDay = (dateString: string) => {
+    const d = parseLocalDate(dateString);
+    return d ? d.toLocaleDateString('en-US', DISPLAY) : 'N/A';
   };
 
   const formatWeekRange = (weekStartDate: string) => {
-    const start = new Date(weekStartDate);
+    const start = parseLocalDate(weekStartDate);
+    if (!start) return 'N/A';
     const end = new Date(start);
     end.setDate(start.getDate() + 6);
-    
-    return `${formatDate(weekStartDate)} - ${formatDate(toLocalDateString(end))}`;
+
+    return `${formatDay(weekStartDate)} - ${formatDay(toLocalDateString(end))}`;
   };
 
   if (loading) {
@@ -162,6 +175,12 @@ const TimesheetHistory: React.FC<TimesheetHistoryProps> = ({ onRefresh }) => {
           <Alert severity="error" sx={{ mb: 2 }}>
             {error}
           </Alert>
+        )}
+
+        {total > timesheets.length && (
+          <Typography variant="body2" color="textSecondary" sx={{ mb: 1 }}>
+            Showing the latest {timesheets.length} of {total} timesheets.
+          </Typography>
         )}
 
         {timesheets.length === 0 ? (
@@ -295,7 +314,7 @@ const TimesheetHistory: React.FC<TimesheetHistoryProps> = ({ onRefresh }) => {
                         <TableBody>
                           {selectedTimesheet.courseDetails.map((course: CourseDetail, index: number) => (
                             <TableRow key={index}>
-                              <TableCell>{formatDate(course.date)}</TableCell>
+                              <TableCell>{formatDay(course.date)}</TableCell>
                               <TableCell>
                                 {course.startTime && course.endTime
                                   ? `${course.startTime} - ${course.endTime}`

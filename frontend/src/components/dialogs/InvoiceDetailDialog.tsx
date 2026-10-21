@@ -22,51 +22,48 @@ import {
 } from '@mui/material';
 import api, { getInvoiceDetails, postInvoiceToOrganization } from '../../services/api';
 import { useConfirm } from '../gtacpr';
-import { applyTax } from '../../utils/formatters';
 import { tokenService } from '../../services/tokenService';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import { CheckCircle as PresentIcon, Cancel as AbsentIcon, People as PeopleIcon } from '@mui/icons-material';
 import logger from '../../utils/logger';
+import { getErrorMessage } from '../../utils/errorMessage';
 import { formatDisplayDate } from '../../utils/dateUtils';
 import { API_URL } from '../../config';
 import ServiceDetailsTable from '../common/ServiceDetailsTable';
 import PaymentHistoryTable from '../common/PaymentHistoryTable';
 
+/**
+ * GET /accounting/invoices/:id (InvoiceRepository.findByIdWithDetails). The
+ * names are the SQL ones; DECIMALs arrive as strings, posted_to_org as 0/1.
+ */
 interface InvoiceData {
   id?: number;
-  amount?: number;
-  duedate?: string;
-  paymentstatus?: string;
-  notes?: string;
-  coursenumber?: string;
-  invoicenumber?: string;
-  organizationname?: string;
-  organizationid?: number;
-  invoicedate?: string;
-  coursetype?: string;
-  courseid?: number;
-  location?: string;
-  studentsattended?: number;
-  registeredstudents?: number;
-  paidtodate?: number;
-  // Additional fields for display
-  name?: string;
-  datecompleted?: string;
-  studentsattendance?: number;
-  ratePerStudent?: number;
-  addressstreet?: string;
-  addresscity?: string;
-  addressprovince?: string;
-  addresspostalcode?: string;
-  contactname?: string;
-  contactemail?: string;
+  invoice_number?: string;
+  invoice_date?: string;
+  due_date?: string;
+  amount?: number | string;
+  base_cost?: number | string;
+  tax_amount?: number | string;
+  students_billed?: number;
+  rate_per_student?: number | string;
+  payment_status?: string;
+  notes?: string | null;
+  course_request_id?: number | null;
+  course_type_name?: string | null;
+  location?: string | null;
+  date_completed?: string | null;
+  organization_name?: string;
+  contact_name?: string | null;
+  contact_email?: string | null;
+  address?: string | null;
+  address_street?: string | null;
+  address_city?: string | null;
+  address_province?: string | null;
+  address_postal_code?: string | null;
   approval_status?: string;
-  approved_by_username?: string;
-  approved_at?: string;
-  posted_to_org?: boolean;
-  emailsentat?: string;
-  approvalStatus?: string;
-  [key: string]: unknown;
+  approved_by_name?: string | null;
+  approved_at?: string | null;
+  posted_to_org?: boolean | number;
 }
 
 interface StudentRecord {
@@ -74,7 +71,7 @@ interface StudentRecord {
   firstName: string;
   lastName: string;
   email?: string;
-  attended: boolean;
+  attended: boolean | number; // TINYINT: 0/1
 }
 
 interface Payment {
@@ -98,7 +95,7 @@ const InvoiceDetailDialog = ({
   invoiceId,
   onActionSuccess,
   onActionError,
-  showPostToOrgButton: _showPostToOrgButton = true, // New prop to control Post to Org button visibility (kept for caller API compatibility)
+  showPostToOrgButton = true, // Shows Post to Organization for an approved invoice that isn't posted yet
   showApprovalActions = false, // New prop to show Approve/Reject buttons for pending approvals
   onApprove,
   onReject,
@@ -141,17 +138,16 @@ const InvoiceDetailDialog = ({
   const getServiceDetails = (invoiceData: InvoiceData | null) => {
     if (!invoiceData) return [];
 
-    const base = invoiceData.ratePerStudent ? invoiceData.ratePerStudent * (invoiceData.studentsattendance || 0) : 0;
-    const { tax, total } = applyTax(base);
+    // The invoice's own stored figures, so this matches the PDF and the list.
     return [{
-      date: invoiceData.datecompleted || '',
+      date: invoiceData.date_completed || '',
       location: invoiceData.location || '',
-      course: `${invoiceData.name} (${invoiceData.coursenumber})`,
-      students: invoiceData.studentsattendance || 0,
-      ratePerStudent: invoiceData.ratePerStudent || 0,
-      baseCost: base,
-      tax,
-      total,
+      course: `${invoiceData.course_type_name || 'Course'} (#${invoiceData.course_request_id ?? '-'})`,
+      students: Number(invoiceData.students_billed) || 0,
+      ratePerStudent: Number(invoiceData.rate_per_student) || 0,
+      baseCost: Number(invoiceData.base_cost) || 0,
+      tax: Number(invoiceData.tax_amount) || 0,
+      total: Number(invoiceData.amount) || 0,
     }];
   };
 
@@ -258,8 +254,8 @@ const InvoiceDetailDialog = ({
           setInvoice(data);
 
           // Fetch students for this course
-          if (data.coursenumber) {
-            fetchStudents(data.coursenumber);
+          if (data.course_request_id) {
+            fetchStudents(data.course_request_id);
           }
         
         // Fetch payment history
@@ -268,15 +264,15 @@ const InvoiceDetailDialog = ({
           logger.error('Failed to fetch invoice details:', err);
 
           // Handle authentication errors specifically
-          const errObj = err as { message?: string };
-          if (errObj.message?.includes('No token provided') || errObj.message?.includes('Unauthorized')) {
+          const errObj = err as { response?: { status?: number } };
+          if (errObj.response?.status === 401) {
             setError('Please log in to view invoice details. Redirecting to login...');
             // Redirect to login after a short delay
             setTimeout(() => {
               window.location.href = '/login';
             }, 2000);
           } else {
-            setError(errObj.message || 'Failed to load invoice details');
+            setError(getErrorMessage(err, 'Failed to load invoice details'));
           }
         } finally {
           setIsLoading(false);
@@ -350,7 +346,7 @@ const InvoiceDetailDialog = ({
       const url = window.URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
-      link.download = `Invoice-${invoice.invoicenumber}.pdf`;
+      link.download = `Invoice-${invoice.invoice_number}.pdf`;
       link.style.display = 'none';
 
       // Add to DOM, click, and remove
@@ -369,8 +365,32 @@ const InvoiceDetailDialog = ({
       logger.info('[PDF Download] Download initiated successfully');
     } catch (error: unknown) {
       logger.error('[PDF Download] Error:', error);
-      const errObj = error as { message?: string };
-      if (onActionError) onActionError(`Failed to download PDF: ${errObj.message || 'Unknown error'}`);
+      if (onActionError) onActionError(`Failed to download PDF: ${getErrorMessage(error)}`);
+    }
+  };
+
+  // An invoice approved from Pending Approvals is approved but not yet
+  // posted, so the organization can't see it until it is posted here.
+  const handlePostToOrg = async () => {
+    if (!invoice?.id || processingPayment) return;
+    const ok = await confirm({
+      title: 'Post this invoice to the organization?',
+      message: `Invoice ${invoice.invoice_number || ''} will be posted to the portal of ${invoice.organization_name || 'the organization'}, where their users can see and pay it, and its billing contact is emailed. This cannot be undone.`,
+      confirmLabel: 'Post Invoice',
+      danger: true,
+    });
+    if (!ok) return;
+
+    setProcessingPayment(true);
+    try {
+      await postInvoiceToOrganization(invoice.id);
+      if (onActionSuccess) onActionSuccess('Invoice posted to the organization portal');
+      onClose();
+    } catch (err: unknown) {
+      logger.error('Error posting invoice to organization:', err);
+      if (onActionError) onActionError(getErrorMessage(err, 'Failed to post invoice to organization'));
+    } finally {
+      setProcessingPayment(false);
     }
   };
 
@@ -378,9 +398,9 @@ const InvoiceDetailDialog = ({
     if (!invoice?.id || processingPayment) return;
 
     const ok = await confirm({
-      title: 'Approve and send this invoice?',
-      message: `Invoice ${invoice.invoicenumber || ''} for ${invoice.organizationname || 'this organization'} will be approved, posted to the organization portal and emailed to their billing contact. These steps cannot be undone.`,
-      confirmLabel: 'Approve & Send',
+      title: 'Approve and post this invoice?',
+      message: `Invoice ${invoice.invoice_number || ''} for ${invoice.organization_name || 'this organization'} will be approved and posted to the organization portal, where their users can see and pay it, and its billing contact is emailed. These steps cannot be undone.`,
+      confirmLabel: 'Approve & Post',
       danger: true,
     });
     if (!ok) return;
@@ -399,15 +419,15 @@ const InvoiceDetailDialog = ({
         throw new Error(approveResponse.data.message || `Failed to approve invoice`);
       }
       
-      // Step 2: Post to organization and send email
-      logger.info(`Posting invoice ${invoice.id} to organization and sending email`);
+      // Step 2: Post to the organization portal (the server emails the billing contact)
+      logger.info(`Posting invoice ${invoice.id} to organization`);
       const postResponse = await postInvoiceToOrganization(invoice.id);
       
       if (!postResponse.success) {
         throw new Error(postResponse.message || `Failed to post invoice to organization`);
       }
       
-      const message = `Invoice approved, posted to organization, and email sent successfully`;
+      const message = `Invoice approved and posted to the organization portal`;
       
       // Refresh the invoice data to show updated status
       const updatedInvoice = await getInvoiceDetails(invoice.id) as InvoiceData;
@@ -416,9 +436,8 @@ const InvoiceDetailDialog = ({
       if (onActionSuccess) onActionSuccess(message);
       onClose();
     } catch (err: unknown) {
-      logger.error(`Error processing invoice approval, posting, and email:`, err);
-      const errObj = err as { message?: string };
-      if (onActionError) onActionError(errObj?.message || `Failed to approve, post, and email invoice`);
+      logger.error(`Error processing invoice approval and posting:`, err);
+      if (onActionError) onActionError(getErrorMessage(err, `Failed to approve and post invoice`));
     } finally {
       setProcessingPayment(false);
     }
@@ -429,7 +448,7 @@ const InvoiceDetailDialog = ({
       <DialogTitle>
         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <Typography variant="h6">
-            Invoice Details {invoice ? `(#${invoice.invoicenumber})` : ''}
+            Invoice Details {invoice ? `(#${invoice.invoice_number})` : ''}
           </Typography>
         </Box>
       </DialogTitle>
@@ -447,23 +466,23 @@ const InvoiceDetailDialog = ({
               {/* Header Info - Remove 'item' prop */}
               <Grid xs={6} md={3}>
                 <Typography variant='body2'>
-                  <strong>Invoice #:</strong> {invoice.invoicenumber}
+                  <strong>Invoice #:</strong> {invoice.invoice_number}
                 </Typography>
               </Grid>
               <Grid xs={6} md={3}>
                 <Typography variant='body2'>
                   <strong>Invoice Date:</strong>{' '}
-                  {invoice.invoicedate ? formatDisplayDate(invoice.invoicedate) : ''}
+                  {invoice.invoice_date ? formatDisplayDate(invoice.invoice_date) : ''}
                 </Typography>
               </Grid>
               <Grid xs={6} md={3}>
                 <Typography variant='body2'>
-                  <strong>Due Date:</strong> {invoice.duedate ? formatDisplayDate(invoice.duedate) : ''}
+                  <strong>Due Date:</strong> {invoice.due_date ? formatDisplayDate(invoice.due_date) : ''}
                 </Typography>
               </Grid>
               <Grid xs={6} md={3}>
                 <Typography variant='body2'>
-                  <strong>Status:</strong> {invoice.paymentstatus}
+                  <strong>Status:</strong> {invoice.payment_status}
                 </Typography>
               </Grid>
             </Grid>
@@ -472,21 +491,23 @@ const InvoiceDetailDialog = ({
             <Typography variant='subtitle1' gutterBottom>
               Bill To:
             </Typography>
-            <Typography variant='body1'>{invoice.organizationname}</Typography>
-            {invoice.addressstreet && (
-              <Typography variant='body2'>{invoice.addressstreet}</Typography>
+            <Typography variant='body1'>{invoice.organization_name}</Typography>
+            {invoice.address_street ? (
+              <Typography variant='body2'>{invoice.address_street}</Typography>
+            ) : invoice.address ? (
+              <Typography variant='body2'>{invoice.address}</Typography>
+            ) : null}
+            {invoice.address_city && (
+              <Typography variant='body2'>{`${invoice.address_city}, ${invoice.address_province || ''} ${invoice.address_postal_code || ''}`}</Typography>
             )}
-            {invoice.addresscity && (
-              <Typography variant='body2'>{`${invoice.addresscity}, ${invoice.addressprovince || ''} ${invoice.addresspostalcode || ''}`}</Typography>
-            )}
-            {invoice.contactname && (
+            {invoice.contact_name && (
               <Typography variant='body2'>
-                Attn: {invoice.contactname}
+                Attn: {invoice.contact_name}
               </Typography>
             )}
-            {invoice.contactemail && (
+            {invoice.contact_email && (
               <Typography variant='body2'>
-                Email: {invoice.contactemail}
+                Email: {invoice.contact_email}
               </Typography>
             )}
             <Divider sx={{ my: 2 }} />
@@ -514,7 +535,7 @@ const InvoiceDetailDialog = ({
                 <Box sx={{ mb: 2 }}>
                   <Typography variant="body2" color="textSecondary">
                     Present: {students.filter(s => s.attended).length} | 
-                    Absent: {students.filter(s => s.attended === false).length} | 
+                    Absent: {students.filter(s => !s.attended).length} | 
                     Total: {students.length}
                   </Typography>
                 </Box>
@@ -596,7 +617,7 @@ const InvoiceDetailDialog = ({
               <Box sx={{ mb: 2 }}>
                 <Alert severity="success" sx={{ mb: 2 }}>
                   <Typography variant="body2">
-                    <strong>Approved by:</strong> {invoice.approved_by_username || 'Unknown'} 
+                    <strong>Approved by:</strong> {invoice.approved_by_name || 'Unknown'} 
                     {invoice.approved_at && (
                       <span> on {formatDisplayDate(invoice.approved_at)}</span>
                     )}
@@ -622,7 +643,9 @@ const InvoiceDetailDialog = ({
             {['pending approval', 'pending_approval', 'pending', 'draft', 'new'].includes((invoice?.approval_status || '').toLowerCase()) && (
               <>
                 <Typography variant='body2' color='text.secondary' sx={{ mb: 2 }}>
-                  (Approval will post the invoice to the organization portal and send notification email)
+                  {showApprovalActions
+                    ? "(Approving does not post the invoice yet. Post it from Organization Receivables; posting emails the organization's billing contact.)"
+                    : "(Approve & Post puts the invoice in the organization's portal and emails its billing contact.)"}
                 </Typography>
                 <Grid container spacing={2} sx={{ mt: 1 }}>
                   <Grid xs={12} sm={6}>
@@ -738,7 +761,19 @@ const InvoiceDetailDialog = ({
           >
             {processingPayment
               ? 'Processing...'
-              : 'Approve Invoice & Send Email'}
+              : 'Approve & Post Invoice'}
+          </Button>
+        )}
+
+        {showPostToOrgButton && invoice?.approval_status === 'approved' && !invoice.posted_to_org && (
+          <Button
+            variant='contained'
+            color='primary'
+            onClick={handlePostToOrg}
+            disabled={processingPayment}
+            startIcon={processingPayment ? <CircularProgress size={20} color='inherit' /> : undefined}
+          >
+            {processingPayment ? 'Posting...' : 'Post to Organization'}
           </Button>
         )}
 

@@ -36,16 +36,15 @@ function validateMagicBytes(filePath: string, declaredMime: string): boolean {
   }
 }
 
+// Field names are the real `vendors` columns, which the staff vendor screens
+// (routes/admin.ts /vendors) also read. The table has one free-text `address`
+// and one `contact_name`; there are no split address or first/last name columns.
 const updateProfileSchema = z.object({
-  vendor_name: z.string().min(1),
-  contact_first_name: z.string().optional(),
-  contact_last_name: z.string().optional(),
-  phone: z.string().optional(),
-  address_street: z.string().optional(),
-  address_city: z.string().optional(),
-  address_province: z.string().optional(),
-  address_postal_code: z.string().optional(),
-  vendor_type: z.string().optional(),
+  name: z.string().trim().min(1, 'Company name is required').max(255),
+  contact_name: z.string().trim().max(255).optional(),
+  contact_phone: z.string().trim().max(20).optional(),
+  address: z.string().trim().optional(),
+  vendor_type: z.string().trim().max(100).optional(),
 });
 
 const submitInvoiceSchema = z.object({
@@ -56,7 +55,6 @@ const submitInvoiceSchema = z.object({
   due_date: z.string().optional(),
   manual_type: z.string().optional(),
   quantity: z.number().int().positive().optional(),
-  detected_vendor_id: z.number().int().positive().optional(),
   rate: z.number().optional().default(0),
   subtotal: z.number().optional(),
   hst: z.number().optional().default(0),
@@ -76,17 +74,6 @@ export async function vendorRoutes(app: FastifyInstance) {
   const pool = getPool();
   const vendorRole = [requireRole('vendor')];
 
-  // ===== Vendor list (for dropdowns) =====
-  app.get('/vendors', { preHandler: [requireAuth] }, async (request) => {
-    const result = await maybePaginate(
-      'SELECT id, name as vendor_name, vendor_type FROM vendors WHERE is_active = true ORDER BY name',
-      'SELECT COUNT(*) as count FROM vendors WHERE is_active = true',
-      [],
-      request.query as Record<string, string>,
-    );
-    return paginatedResponse(result);
-  });
-
   // ===== Profile =====
   app.get('/profile', { preHandler: vendorRole }, async (request, reply) => {
     try {
@@ -105,13 +92,11 @@ export async function vendorRoutes(app: FastifyInstance) {
       const { email } = await getVendorIdForUser(pool, request.userId);
       const data = updateProfileSchema.parse(request.body);
       await pool.query(
-        `UPDATE vendors SET vendor_name = ?, contact_first_name = ?, contact_last_name = ?,
-         phone = ?, address_street = ?, address_city = ?, address_province = ?,
-         address_postal_code = ?, vendor_type = ?, updated_at = CURRENT_TIMESTAMP
+        `UPDATE vendors SET name = ?, contact_name = ?, contact_phone = ?, address = ?,
+         vendor_type = ?, updated_at = CURRENT_TIMESTAMP
          WHERE contact_email = ?`,
-        [data.vendor_name, data.contact_first_name ?? null, data.contact_last_name ?? null,
-         data.phone ?? null, data.address_street ?? null, data.address_city ?? null,
-         data.address_province ?? null, data.address_postal_code ?? null, data.vendor_type ?? null, email]
+        [data.name, data.contact_name || null, data.contact_phone || null,
+         data.address || null, data.vendor_type || null, email]
       );
       return { success: true, message: 'Profile updated successfully' };
     } catch (err) {
@@ -125,19 +110,28 @@ export async function vendorRoutes(app: FastifyInstance) {
   app.get('/dashboard', { preHandler: vendorRole }, async (request, reply) => {
     try {
       const { vendorId } = await getVendorIdForUser(pool, request.userId);
-      const [[pending], [total], [paid], [avg]] = await Promise.all([
-        pool.query<RowDataPacket[]>(`SELECT COUNT(*) as count FROM vendor_invoices WHERE vendor_id = ? AND status = 'submitted'`, [vendorId]),
-        pool.query<RowDataPacket[]>('SELECT COUNT(*) as count FROM vendor_invoices WHERE vendor_id = ?', [vendorId]),
-        pool.query<RowDataPacket[]>(`SELECT COALESCE(SUM(amount), 0) as total FROM vendor_invoices WHERE vendor_id = ? AND status = 'paid'`, [vendorId]),
-        pool.query<RowDataPacket[]>(`SELECT COALESCE(AVG(DATEDIFF(payment_date, created_at)), 0) as avg_days FROM vendor_invoices WHERE vendor_id = ? AND status = 'paid' AND payment_date IS NOT NULL`, [vendorId]),
-      ]);
+      // One pass over the vendor's invoices. "Pending" = sent in and awaiting
+      // review (Course Admin or Accounting); drafts (pending_submission) and
+      // rejected ones are the vendor's to act on, so they are not counted.
+      // Paid money is the invoice total (amount is the pre-tax figure), and the
+      // payment time runs to paid_at: vendor_invoices.payment_date is never written.
+      const [rows] = await pool.query<RowDataPacket[]>(
+        `SELECT SUM(status IN ('submitted_to_admin', 'submitted_to_accounting')) as pending,
+                COUNT(*) as total,
+                COALESCE(SUM(CASE WHEN status = 'paid' THEN COALESCE(total, amount) END), 0) as paid_total,
+                COALESCE(AVG(CASE WHEN status = 'paid' AND paid_at IS NOT NULL
+                                  THEN DATEDIFF(paid_at, COALESCE(submitted_at, created_at)) END), 0) as avg_days
+         FROM vendor_invoices WHERE vendor_id = ?`,
+        [vendorId]
+      );
+      const r = rows[0] ?? {};
       return {
         success: true,
         data: {
-          pendingInvoices: Number(pending[0]?.count ?? 0),
-          totalInvoices: Number(total[0]?.count ?? 0),
-          totalPaid: Number(paid[0]?.total ?? 0),
-          averagePaymentTime: Math.round(Number(avg[0]?.avg_days ?? 0)),
+          pendingInvoices: Number(r.pending ?? 0),
+          totalInvoices: Number(r.total ?? 0),
+          totalPaid: Number(r.paid_total ?? 0),
+          averagePaymentTime: Math.round(Number(r.avg_days ?? 0)),
         },
       };
     } catch (err) {
@@ -166,7 +160,7 @@ export async function vendorRoutes(app: FastifyInstance) {
         `SELECT vi.*, v.name as company, v.name as billing_company, v.name as billingCompany,
                 vi.invoice_number as invoiceNumber, vi.due_date as dueDate,
                 vi.payment_date as paymentDate, vi.pdf_filename as pdfFilename,
-                vi.created_at as createdAt,
+                vi.created_at as createdAt, vi.manual_type as item, vi.invoice_date as invoiceDate,
                 COALESCE(vi.rate, 0) as rate, COALESCE(vi.amount, 0) as amount,
                 COALESCE(vi.amount, 0) as subtotal, COALESCE(vi.hst, 0) as hst,
                 COALESCE(vi.total, vi.amount) as total
@@ -243,16 +237,9 @@ export async function vendorRoutes(app: FastifyInstance) {
         hst: fields.hst ? Number(fields.hst) : 0,
         total: fields.total ? Number(fields.total) : undefined,
         quantity: fields.quantity ? Number(fields.quantity) : undefined,
-        detected_vendor_id: fields.detected_vendor_id ? Number(fields.detected_vendor_id) : undefined,
       });
 
-      let targetVendorId = vendorId;
-      // A vendor may only file invoices for itself; staff roles may override the vendor.
-      if (data.detected_vendor_id && request.userRole !== 'vendor') {
-        const [detected] = await pool.query<RowDataPacket[]>('SELECT id FROM vendors WHERE id = ? AND is_active = true', [data.detected_vendor_id]);
-        if (detected.length > 0) targetVendorId = detected[0].id;
-      }
-
+      // The route is vendor-only, and a vendor always files under its own account.
       const subtotal = data.subtotal ?? data.amount;
       const total = data.total ?? data.amount;
 
@@ -261,12 +248,12 @@ export async function vendorRoutes(app: FastifyInstance) {
            vendor_id, invoice_number, amount, description, invoice_date, due_date,
            manual_type, quantity, pdf_filename, status, rate, subtotal, hst, total, submitted_by, submitted_at
          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending_submission', ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`,
-        [targetVendorId, data.invoice_number, data.amount, data.description ?? null,
+        [vendorId, data.invoice_number, data.amount, data.description ?? null,
          data.date, data.due_date ?? null, data.manual_type ?? null, data.quantity ?? null,
          pdfFilename, data.rate, subtotal, data.hst, total, request.userId]
       );
 
-      logAudit({ userId: request.userId, action: 'create_vendor_invoice', entityType: 'vendor_invoice', entityId: result.insertId, details: { vendorId: targetVendorId, invoiceNumber: data.invoice_number, total: Number(total) }, ipAddress: request.ip });
+      logAudit({ userId: request.userId, action: 'create_vendor_invoice', entityType: 'vendor_invoice', entityId: result.insertId, details: { vendorId, invoiceNumber: data.invoice_number, total: Number(total) }, ipAddress: request.ip });
       return { success: true, message: 'Invoice submitted successfully', invoice_id: result.insertId };
     } catch (err) {
       const { statusCode, message } = httpError(err);
@@ -283,8 +270,10 @@ export async function vendorRoutes(app: FastifyInstance) {
       `SELECT vi.*, ${VI_CAMEL_COLS}, v.name as company, COALESCE(vi.rate, 0) as rate,
               COALESCE(payments.total_paid, 0) as total_paid, COALESCE(payments.total_paid, 0) as totalPaid,
               (COALESCE(vi.total, vi.amount) - COALESCE(payments.total_paid, 0)) as balance_due,
-              (COALESCE(vi.total, vi.amount) - COALESCE(payments.total_paid, 0)) as balanceDue
+              (COALESCE(vi.total, vi.amount) - COALESCE(payments.total_paid, 0)) as balanceDue,
+              u_approved.username as approvedByName
        FROM vendor_invoices vi LEFT JOIN vendors v ON vi.vendor_id = v.id
+       LEFT JOIN users u_approved ON vi.approved_by = u_approved.id
        LEFT JOIN ${PROCESSED_PAID_BY_VENDOR_INVOICE} payments
          ON payments.vendor_invoice_id = vi.id
        WHERE vi.id = ? AND vi.vendor_id = ?`,
@@ -293,7 +282,9 @@ export async function vendorRoutes(app: FastifyInstance) {
     if (invoiceRows.length === 0) return reply.status(404).send({ error: 'Invoice not found' });
 
     const [paymentRows] = await pool.query<RowDataPacket[]>(
-      `SELECT vp.*, u_processed.username as processed_by_name
+      `SELECT vp.*, vp.payment_date as paymentDate, vp.payment_method as paymentMethod,
+              vp.reference_number as referenceNumber, vp.processed_at as processedAt,
+              u_processed.username as processed_by_name, u_processed.username as processedByName
        FROM vendor_payments vp LEFT JOIN users u_processed ON vp.processed_by = u_processed.id
        WHERE vp.vendor_invoice_id = ? ORDER BY vp.payment_date DESC`,
       [id]
@@ -375,7 +366,7 @@ export async function vendorRoutes(app: FastifyInstance) {
     const { vendorId } = await getVendorIdForUser(pool, request.userId);
     const [result] = await pool.query<ResultSetHeader>(
       `UPDATE vendor_invoices SET status = 'submitted_to_admin', notes = ?,
-       rejection_reason = NULL, rejected_at = NULL, rejected_by = NULL, updated_at = CURRENT_TIMESTAMP
+       rejection_reason = NULL, rejected_by = NULL, updated_at = CURRENT_TIMESTAMP
        WHERE id = ? AND vendor_id = ? AND status IN ('rejected_by_admin', 'rejected_by_accountant')`,
       [notes, id, vendorId]
     );

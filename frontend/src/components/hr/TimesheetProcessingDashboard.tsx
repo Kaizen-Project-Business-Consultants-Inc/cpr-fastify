@@ -17,11 +17,19 @@ import {
 } from '@mui/material';
 import { timesheetService, Timesheet, TimesheetStats, TimesheetFilters } from '../../services/timesheetService';
 import TimesheetNotes from '../shared/TimesheetNotes';
-import { format } from 'date-fns';
+import { addDays, format } from 'date-fns';
+import { formatDisplayDate, parseLocalDate } from '../../utils/formatters';
 import StatCard from '../gtacpr/StatCard';
 import StatusChip from '../gtacpr/StatusChip';
 import DataTable, { DataTableRow } from '../gtacpr/DataTable';
 import { PrimaryButton, GhostButton } from '../gtacpr/Buttons';
+
+/** "start — start + 6 days". weekStartDate is date-only, so it is read as a local date (new Date() shows the day before). */
+function weekRange(weekStartDate: string, pattern: string): string {
+  const start = parseLocalDate(weekStartDate);
+  if (!start) return '—';
+  return `${format(start, pattern)} — ${format(addDays(start, 6), pattern)}`;
+}
 
 interface CourseDetail {
   date: string;
@@ -240,7 +248,7 @@ const TimesheetProcessingDashboard: React.FC = () => {
                     <Typography sx={{ fontSize: 12, color: (theme) => theme.palette.text.secondary }}>{ts.instructorEmail}</Typography>
                   </Box>
                   <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>
-                    {format(new Date(ts.weekStartDate), 'MMM dd, yyyy')} — {format(new Date(new Date(ts.weekStartDate).getTime() + 6 * 24 * 60 * 60 * 1000), 'MMM dd, yyyy')}
+                    {weekRange(ts.weekStartDate, 'MMM dd, yyyy')}
                   </Typography>
                   <Typography sx={{ fontSize: 13, fontWeight: 600, color: (theme) => theme.palette.text.primary, textAlign: 'right' }}>{ts.totalHours}</Typography>
                   <Typography sx={{ fontSize: 13, fontWeight: 600, color: (theme) => theme.palette.text.primary, textAlign: 'right' }}>{ts.coursesTaught}</Typography>
@@ -274,7 +282,7 @@ const TimesheetProcessingDashboard: React.FC = () => {
               <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 2, mb: 2 }}>
                 {[
                   ['Instructor', `${selectedTimesheet.instructorName} (${selectedTimesheet.instructorEmail})`],
-                  ['Week Period', `${format(new Date(selectedTimesheet.weekStartDate), 'EEEE, MMMM dd, yyyy')} — ${format(new Date(new Date(selectedTimesheet.weekStartDate).getTime() + 6 * 24 * 60 * 60 * 1000), 'EEEE, MMMM dd, yyyy')}`],
+                  ['Week Period', weekRange(selectedTimesheet.weekStartDate, 'EEEE, MMMM dd, yyyy')],
                   ['Total Hours', selectedTimesheet.totalHours],
                   ['Courses Taught', selectedTimesheet.coursesTaught],
                   ['Submitted', format(new Date(selectedTimesheet.createdAt), 'MMM dd, yyyy HH:mm')],
@@ -293,7 +301,7 @@ const TimesheetProcessingDashboard: React.FC = () => {
                   <DataTable columns={courseDetailColumns} shownCount={selectedTimesheet.courseDetails.length} totalCount={selectedTimesheet.courseDetails.length}>
                     {selectedTimesheet.courseDetails.map((course: CourseDetail, index: number) => (
                       <DataTableRow key={index} columns={courseDetailColumns}>
-                        <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>{format(new Date(course.date), 'MMM dd, yyyy')}</Typography>
+                        <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>{formatDisplayDate(course.date)}</Typography>
                         <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>{course.startTime && course.endTime ? `${course.startTime} - ${course.endTime}` : 'TBD'}</Typography>
                         <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>{course.organizationName || 'TBD'}</Typography>
                         <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>{course.location || 'TBD'}</Typography>

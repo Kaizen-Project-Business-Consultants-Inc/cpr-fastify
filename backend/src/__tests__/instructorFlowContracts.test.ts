@@ -127,6 +127,18 @@ describe('course roster', () => {
   });
 });
 
+describe('roster upload', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('stores the phone column from a CSV upload', async () => {
+    mockQuery.mockResolvedValueOnce([[]]).mockResolvedValue([{ affectedRows: 1 }]);
+    await new CourseStudentRepository().addStudents(3, [{ firstName: 'Ana', lastName: 'Diaz', phone: ' 416-555-0101 ' }]);
+    const insert = mockQuery.mock.calls.find(([sql]) => String(sql).startsWith('INSERT INTO course_students'))!;
+    expect(insert[0]).toContain('(course_request_id, first_name, last_name, email, phone, student_id)');
+    expect(insert[1]).toEqual([3, 'Ana', 'Diaz', null, '416-555-0101', null]);
+  });
+});
+
 describe('GET /timesheet course details', () => {
   let app: FastifyInstance;
 

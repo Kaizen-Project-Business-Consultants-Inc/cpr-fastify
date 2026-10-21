@@ -14,7 +14,7 @@ import PaidVendorInvoices from './accounting/PaidVendorInvoices';
 
 import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
 
-import ReadyForBillingTable, { type BillingCourse } from '../tables/ReadyForBillingTable';
+import ReadyForBillingTable, { type BillingCourse, type BillingQueueRow } from '../tables/ReadyForBillingTable';
 import AccountsReceivableTable, { type ReceivableInvoice } from '../tables/AccountsReceivableTable';
 import TransactionHistoryView from '../views/TransactionHistoryView';
 import PaymentVerificationView from '../views/PaymentVerificationView';
@@ -86,6 +86,25 @@ const fetchAllInvoices = async (): Promise<ReceivableInvoice[]> => {
   return rows;
 };
 
+// The queue rows use the SQL column names, and DECIMALs arrive as strings;
+// the table reads camelCase numbers, so map once here.
+const toNumber = (v: number | string | null | undefined): number | undefined =>
+  v === null || v === undefined || v === '' ? undefined : Number(v);
+
+const toBillingCourse = (row: BillingQueueRow): BillingCourse => ({
+  courseId: row.course_id,
+  dateCompleted: row.date_completed ?? undefined,
+  organizationName: row.organization_name,
+  contactEmail: row.contact_email ?? undefined,
+  courseTypeName: row.course_type_name,
+  location: row.location ?? undefined,
+  instructorName: row.instructor_name ?? undefined,
+  studentsAttended: toNumber(row.students_attended),
+  registeredStudents: toNumber(row.registered_students),
+  ratePerStudent: toNumber(row.rate_per_student),
+  totalAmount: toNumber(row.total_amount),
+});
+
 // Billing Ready View Component
 const ReadyForBillingView: React.FC = () => {
   const [billingQueue, setBillingQueue] = useState<BillingCourse[]>([]);
@@ -99,7 +118,7 @@ const ReadyForBillingView: React.FC = () => {
         setIsLoading(true);
         setError('');
         const response = await getBillingQueue();
-        setBillingQueue(response.data || []);
+        setBillingQueue(((response.data || []) as BillingQueueRow[]).map(toBillingCourse));
       } catch (error: unknown) {
         console.error('Error fetching billing queue:', error);
         setError('Failed to load billing queue. Please try again.');
@@ -114,12 +133,14 @@ const ReadyForBillingView: React.FC = () => {
   const handleCreateInvoice = async (courseId: string | number) => {
     try {
       const response = await createInvoice(courseId as number);
-      showSuccess(response.data.message || 'Invoice created successfully! The course has been removed from the billing queue and moved to the Organizational Receivables Queue.');
+      showSuccess(response.message || 'Invoice created successfully! The course has been removed from the billing queue and moved to the Organizational Receivables Queue.');
       const updatedQueue = await getBillingQueue();
-      setBillingQueue(updatedQueue.data || []);
+      setBillingQueue(((updatedQueue.data || []) as BillingQueueRow[]).map(toBillingCourse));
     } catch (error: unknown) {
       const errorMessage = getErrorMessage(error, 'Failed to create invoice. Please try again.');
       showError(`Invoice creation failed: ${errorMessage}`);
+      // Rethrow so the table keeps its preview open instead of showing success.
+      throw error;
     }
   };
 
@@ -152,8 +173,8 @@ const AccountsReceivableView: React.FC = () => {
     try {
       const data = await fetchAllInvoices();
       const arInvoices = data.filter((invoice: ReceivableInvoice) => {
-        const balanceDue = parseFloat(String(invoice.balancedue || 0));
-        const paymentStatus = invoice.paymentstatus?.toLowerCase();
+        const balanceDue = parseFloat(String(invoice.balance_due || 0));
+        const paymentStatus = invoice.payment_status?.toLowerCase();
         const approvalStatus = invoice.approval_status?.toLowerCase();
         return approvalStatus === 'approved' && balanceDue > 0 && paymentStatus !== 'paid';
       });
@@ -173,8 +194,8 @@ const AccountsReceivableView: React.FC = () => {
   const handleRecordPaymentClick = (invoice: ReceivableInvoice) => {
     // The dialog only reads these three fields; narrow to its own prop shape.
     setSelectedInvoiceForPayment({
-      invoiceid: Number(invoice.invoiceid),
-      invoicenumber: invoice.invoicenumber,
+      invoiceid: Number(invoice.id),
+      invoicenumber: invoice.invoice_number,
       amount: invoice.amount,
     });
     setShowRecordPaymentDialog(true);
@@ -268,8 +289,7 @@ const PendingApprovalsView: React.FC = () => {
       setInvoices(result.data || []);
       setTotalCount(result.pagination?.total ?? (result.data || []).length);
     } catch (err: unknown) {
-      const errObj = err as { message?: string };
-      setError(errObj.message || 'Failed to load pending approvals.');
+      setError(getErrorMessage(err, 'Failed to load pending approvals.'));
       setInvoices([]);
     } finally {
       setIsLoading(false);
@@ -287,8 +307,7 @@ const PendingApprovalsView: React.FC = () => {
       fetchPendingApprovals();
       handleInvoiceDetailDialogClose();
     } catch (err: unknown) {
-      const errObj = err as { response?: { data?: { error?: { message?: string } } }; message?: string };
-      showError(errObj.response?.data?.error?.message || errObj.message || 'Failed to approve invoice');
+      showError(getErrorMessage(err, 'Failed to approve invoice'));
     }
   };
 
@@ -299,8 +318,7 @@ const PendingApprovalsView: React.FC = () => {
       fetchPendingApprovals();
       handleInvoiceDetailDialogClose();
     } catch (err: unknown) {
-      const errObj = err as { response?: { data?: { error?: { message?: string } } }; message?: string };
-      showError(errObj.response?.data?.error?.message || errObj.message || 'Failed to reject invoice');
+      showError(getErrorMessage(err, 'Failed to reject invoice'));
     }
   };
 
@@ -412,8 +430,7 @@ const RejectedInvoicesView: React.FC = () => {
       setInvoices(result.data || []);
       setTotalCount(result.pagination?.total ?? (result.data || []).length);
     } catch (err: unknown) {
-      const errObj = err as { message?: string };
-      setError(errObj.message || 'Failed to load rejected invoices.');
+      setError(getErrorMessage(err, 'Failed to load rejected invoices.'));
       setInvoices([]);
     } finally {
       setIsLoading(false);
@@ -435,8 +452,7 @@ const RejectedInvoicesView: React.FC = () => {
       showSuccess(result.message || 'Invoice resubmitted for approval');
       fetchRejectedInvoices();
     } catch (err: unknown) {
-      const errObj = err as { response?: { data?: { error?: { message?: string } } }; message?: string };
-      showError(errObj.response?.data?.error?.message || errObj.message || 'Failed to resubmit invoice');
+      showError(getErrorMessage(err, 'Failed to resubmit invoice'));
     }
   };
 
@@ -574,7 +590,6 @@ const AccountingPortal: React.FC = () => {
     const roleRoutes: Record<string, string> = {
       instructor: '/instructor/dashboard',
       organization: '/organization/dashboard',
-      superadmin: '/superadmin/dashboard',
       sysadmin: '/sysadmin/dashboard',
       hr: '/hr',
       vendor: '/vendor/dashboard',

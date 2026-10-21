@@ -8,16 +8,11 @@ import {
   DialogTitle,
   DialogContent,
   DialogActions,
-  FormControl,
-  InputLabel,
-  Select,
-  MenuItem,
   Grid,
   Card,
   FormControlLabel,
   Switch,
   Button,
-  SelectChangeEvent,
 } from '@mui/material';
 import { Save as SaveIcon, Cancel as CancelIcon } from '@mui/icons-material';
 import { sysAdminApi } from '../../services/api';
@@ -28,20 +23,20 @@ import { useConfirm, LinkButton } from '../gtacpr';
 import { getErrorMessage } from '../../utils/errorMessage';
 import type { Theme } from '@mui/material/styles';
 
+// GET /sysadmin/courses: the class_types row plus isActive (true/false).
 interface Course {
   id: string;
   name: string;
-  description?: string;
-  durationMinutes?: number;
+  description?: string | null;
   duration_minutes?: number;
-  prerequisites?: string[];
-  certificationType?: string;
-  certification_validity_months?: number;
-  validityPeriodMonths?: number | string;
-  courseCategory?: string;
-  regulatoryCompliance?: string[];
+  certification_validity_months?: number | null;
   isActive?: boolean;
 }
+
+const emptyForm = {
+  name: '', description: '', durationHours: '', durationMinutes: '',
+  validityPeriodMonths: '', isActive: true,
+};
 
 const CourseManagement = ({ onShowSnackbar }: { onShowSnackbar?: (message: string, severity?: 'success' | 'error') => void }) => {
   const [courses, setCourses] = useState<Course[]>([]);
@@ -52,28 +47,7 @@ const CourseManagement = ({ onShowSnackbar }: { onShowSnackbar?: (message: strin
   // Dialog state
   const [showDialog, setShowDialog] = useState(false);
   const [editingCourse, setEditingCourse] = useState<Course | null>(null);
-  const [formData, setFormData] = useState({
-    name: '',
-    description: '',
-    durationHours: '',
-    durationMinutes: '',
-    prerequisites: [] as string[],
-    certificationType: '',
-    validityPeriodMonths: '',
-    courseCategory: '',
-    regulatoryCompliance: [] as string[],
-    isActive: true,
-  });
-
-  const courseCategories = [
-    'First Aid', 'CPR', 'BLS', 'Advanced Life Support',
-    'Emergency Response', 'Safety Training', 'Other',
-  ];
-
-  const certificationTypes = [
-    'Initial Certification', 'Renewal', 'Advanced Training',
-    'Refresher Course', 'Specialty Course',
-  ];
+  const [formData, setFormData] = useState(emptyForm);
 
   const loadCourses = useCallback(async () => {
     setLoading(true);
@@ -95,29 +69,19 @@ const CourseManagement = ({ onShowSnackbar }: { onShowSnackbar?: (message: strin
 
   const handleAddNew = () => {
     setEditingCourse(null);
-    setFormData({
-      name: '', description: '', durationHours: '', durationMinutes: '',
-      prerequisites: [], certificationType: '', validityPeriodMonths: '',
-      courseCategory: '', regulatoryCompliance: [], isActive: true,
-    });
+    setFormData(emptyForm);
     setShowDialog(true);
   };
 
   const handleEdit = (course: Course) => {
     setEditingCourse(course);
-    const dMin = course.durationMinutes || course.duration_minutes || 0;
+    const dMin = course.duration_minutes || 0;
     setFormData({
       name: course.name || '',
       description: course.description || '',
       durationHours: dMin ? Math.floor(dMin / 60).toString() : '',
       durationMinutes: dMin ? (dMin % 60).toString() : '',
-      prerequisites: course.prerequisites || [],
-      certificationType: course.certificationType || '',
-      validityPeriodMonths: course.certification_validity_months
-        ? course.certification_validity_months.toString()
-        : String(course.validityPeriodMonths ?? ''),
-      courseCategory: course.courseCategory || '',
-      regulatoryCompliance: course.regulatoryCompliance || [],
+      validityPeriodMonths: course.certification_validity_months ? course.certification_validity_months.toString() : '',
       isActive: course.isActive !== false,
     });
     setShowDialog(true);
@@ -148,13 +112,13 @@ const CourseManagement = ({ onShowSnackbar }: { onShowSnackbar?: (message: strin
 
     try {
       setSaving(true);
+      // The server takes class_types' own column names.
       const submitData = {
-        ...formData,
+        name: formData.name.trim(),
+        description: formData.description,
         duration_minutes: totalMinutes,
-        durationHours: hours,
-        durationMinutes: mins,
-        validityPeriodMonths: formData.validityPeriodMonths ? parseInt(formData.validityPeriodMonths) : undefined,
         certification_validity_months: formData.validityPeriodMonths ? parseInt(formData.validityPeriodMonths) : null,
+        is_active: formData.isActive,
       };
       if (editingCourse) {
         await sysAdminApi.updateCourse(Number(editingCourse.id), submitData);
@@ -173,9 +137,9 @@ const CourseManagement = ({ onShowSnackbar }: { onShowSnackbar?: (message: strin
     }
   };
 
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement> | SelectChangeEvent) => {
-    const { name, value, checked, type } = e.target as HTMLInputElement;
-    setFormData(prev => ({ ...prev, [name]: type === 'checkbox' ? checked : value }));
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+    const { name, value } = e.target;
+    setFormData(prev => ({ ...prev, [name]: value }));
   };
 
   const formatDuration = (dMin: number) => {
@@ -215,8 +179,8 @@ const CourseManagement = ({ onShowSnackbar }: { onShowSnackbar?: (message: strin
 
         <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'repeat(2, 1fr)', md: 'repeat(4, 1fr)' }, gap: '16px' }}>
           {courses.map(course => {
-            const dMin = course.durationMinutes || course.duration_minutes || 0;
-            const validityMonths = course.certification_validity_months || course.validityPeriodMonths;
+            const dMin = course.duration_minutes || 0;
+            const validityMonths = course.certification_validity_months;
             return (
               <Card
                 key={course.id}
@@ -258,19 +222,6 @@ const CourseManagement = ({ onShowSnackbar }: { onShowSnackbar?: (message: strin
                       <Typography sx={{ fontSize: 12, fontWeight: 600, color: (theme) => theme.palette.text.primary }}>{validityMonths} months</Typography>
                     </Box>
                   )}
-                  {course.courseCategory && (
-                    <Box sx={{ display: 'flex', justifyContent: 'space-between', fontSize: 12 }}>
-                      <Typography sx={{ fontSize: 12, color: (theme) => theme.palette.text.secondary }}>Category</Typography>
-                      <Typography sx={{ fontSize: 12, fontWeight: 600, color: (theme) => theme.palette.text.primary }}>{course.courseCategory}</Typography>
-                    </Box>
-                  )}
-                  {course.certificationType && (
-                    <Box sx={{ display: 'flex', justifyContent: 'space-between', fontSize: 12 }}>
-                      <Typography sx={{ fontSize: 12, color: (theme) => theme.palette.text.secondary }}>Cert Type</Typography>
-                      <Typography sx={{ fontSize: 12, fontWeight: 600, color: (theme) => theme.palette.text.primary }}>{course.certificationType}</Typography>
-                    </Box>
-                  )}
-
                   {/* Edit button */}
                   <LinkButton
                     onClick={() => handleEdit(course)}
@@ -303,16 +254,8 @@ const CourseManagement = ({ onShowSnackbar }: { onShowSnackbar?: (message: strin
         <DialogContent>
           <Box component="form" onSubmit={handleSubmit} sx={{ mt: 2 }}>
             <Grid container spacing={2}>
-              <Grid item xs={12} sm={6}>
+              <Grid item xs={12}>
                 <TextField fullWidth required label="Course Name" name="name" value={formData.name} onChange={handleChange} />
-              </Grid>
-              <Grid item xs={12} sm={6}>
-                <FormControl fullWidth>
-                  <InputLabel>Course Category</InputLabel>
-                  <Select name="courseCategory" value={formData.courseCategory} label="Course Category" onChange={handleChange}>
-                    {courseCategories.map(c => <MenuItem key={c} value={c}>{c}</MenuItem>)}
-                  </Select>
-                </FormControl>
               </Grid>
               <Grid item xs={12}>
                 <TextField fullWidth multiline rows={3} label="Description" name="description" value={formData.description} onChange={handleChange} />
@@ -322,14 +265,6 @@ const CourseManagement = ({ onShowSnackbar }: { onShowSnackbar?: (message: strin
               </Grid>
               <Grid item xs={6} sm={3}>
                 <TextField fullWidth type="number" label="Duration (Minutes)" name="durationMinutes" value={formData.durationMinutes} onChange={handleChange} inputProps={{ min: 0, max: 59 }} />
-              </Grid>
-              <Grid item xs={12} sm={6}>
-                <FormControl fullWidth>
-                  <InputLabel>Certification Type</InputLabel>
-                  <Select name="certificationType" value={formData.certificationType} label="Certification Type" onChange={handleChange}>
-                    {certificationTypes.map(t => <MenuItem key={t} value={t}>{t}</MenuItem>)}
-                  </Select>
-                </FormControl>
               </Grid>
               <Grid item xs={12} sm={6}>
                 <TextField fullWidth type="number" label="Validity Period (Months)" name="validityPeriodMonths" value={formData.validityPeriodMonths} onChange={handleChange} inputProps={{ min: 1 }} />
