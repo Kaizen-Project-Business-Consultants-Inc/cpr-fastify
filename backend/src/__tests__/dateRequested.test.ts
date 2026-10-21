@@ -2,7 +2,10 @@ import { describe, it, expect, vi } from 'vitest';
 
 // Course requests showed no "Date Submitted": createRequest never set
 // date_requested, so MariaDB stored 0000-00-00. Migration v28 backfills it.
-vi.mock('../config/database.js', () => ({ getPool: () => ({}) }));
+const { conn } = vi.hoisted(() => ({
+  conn: { beginTransaction: vi.fn(), commit: vi.fn(), rollback: vi.fn(), release: vi.fn(), query: vi.fn() },
+}));
+vi.mock('../config/database.js', () => ({ getPool: () => ({ getConnection: async () => conn }) }));
 vi.mock('../config/logger.js', () => ({ logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 vi.mock('../services/EmailService.js', () => ({ emailService: {} }));
 
@@ -57,5 +60,22 @@ describe('migration 28: backfill date_requested', () => {
       ['UPDATE course_requests SET date_requested = ? WHERE id = ?', ['2026-06-14', 3]],
       ['UPDATE course_requests SET date_requested = ? WHERE id = ?', ['2026-09-18', 4]],
     ]);
+  });
+});
+
+describe('CourseService.reschedule', () => {
+  it('moves the scheduled date along with the confirmed date', async () => {
+    conn.query.mockReset();
+    conn.query
+      .mockResolvedValueOnce([[{ id: 9, instructor_id: null, confirmed_date: null }]])
+      .mockResolvedValue([{}]);
+    const courseRepo = { findById: vi.fn().mockResolvedValue({ id: 9 }) } as unknown as CourseRequestRepository;
+    const service = new CourseService(courseRepo, {} as CourseStudentRepository, {} as UserRepository);
+
+    await service.reschedule({ courseId: 9, scheduledDate: '2026-11-20' });
+
+    const [sql, params] = conn.query.mock.calls[1];
+    expect(sql).toContain('confirmed_date = ?, scheduled_date = ?');
+    expect(params.slice(0, 2)).toEqual(['2026-11-20', '2026-11-20']);
   });
 });

@@ -56,7 +56,31 @@ describe('InstructorManagement', () => {
     renderWithQuery();
     expect(screen.getByText('Pending Course Requests')).toBeInTheDocument();
     expect(screen.getByText(/Instructor Availability/)).toBeInTheDocument();
-    await waitFor(() => expect(mockGet).toHaveBeenCalledWith('/instructors'));
+    await waitFor(() => expect(mockGet).toHaveBeenCalledWith('/instructors/overview', undefined));
+  });
+
+  // Found in UAT 2026-10-20: the table read dates GET /instructors never sent,
+  // so it was always empty. Uses the real /instructors/overview row shape.
+  it('lists each available day and keeps instructors with no dates editable', async () => {
+    const pat = { id: 4, username: 'instructor', email: 'i@x.com', firstName: 'Pat', lastName: 'Lee', instructorName: 'Pat Lee' };
+    mockGet.mockImplementation(async (url: string) =>
+      url === '/instructors/overview'
+        ? { data: { success: true, data: [
+            { ...pat, availabilityDate: '2026-10-27', assignmentStatus: 'Available' },
+            { ...pat, availabilityDate: '2026-10-28', assignmentStatus: 'Confirmed', assignedOrganization: 'Test Organization' },
+            { id: 7, username: 'newbie', email: 'n@x.com', firstName: null, lastName: null, instructorName: 'newbie', availabilityDate: null, assignmentStatus: 'No dates' },
+          ] } }
+        : { data: { success: true, data: [] } });
+
+    renderWithQuery();
+
+    expect(await screen.findByText('Test Organization')).toBeInTheDocument();
+    expect(screen.getAllByText('Pat Lee')).toHaveLength(2);
+    expect(screen.getByText('newbie')).toBeInTheDocument();
+    expect(screen.getByText('No availability set')).toBeInTheDocument();
+    // Remove Date only on the available day, not on the confirmed course.
+    expect(screen.getAllByRole('button', { name: 'Remove Date' })).toHaveLength(1);
+    expect(screen.getAllByRole('button', { name: 'Edit' }).length).toBeGreaterThanOrEqual(3);
   });
 
   it('asks for pending and completed courses 25 at a time and shows the full count', async () => {

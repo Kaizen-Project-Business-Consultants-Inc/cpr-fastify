@@ -23,7 +23,7 @@ const courseRequestSchema = z.object({
   courseTypeId: z.number().int().positive(),
   scheduledDate: z.string().min(1),
   location: z.string().min(1),
-  locationId: z.number().int().positive().optional(),
+  locationId: z.number().int().positive().nullish(),
   registeredStudents: z.number().int().min(0).default(0),
   notes: z.string().optional(),
 });

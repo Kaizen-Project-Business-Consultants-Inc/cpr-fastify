@@ -32,6 +32,7 @@ import UserAvatar from '../../gtacpr/UserAvatar';
 import LinkButton from '../../gtacpr/LinkButton';
 import { useConfirm } from '../../gtacpr/ConfirmDialog';
 import { useSnackbar } from '../../../contexts/SnackbarContext';
+import { getErrorMessage } from '../../../utils/errorMessage';
 
 
 /** Course Admin's paged lists (owner's choice, 2026-10-17). */
@@ -291,9 +292,10 @@ const InstructorManagement: React.FC = () => {
   const [completedPage, setCompletedPage] = useState(1);
 
   const { data: instructorsData = [], isLoading: instructorsLoading } = useQuery({
-    queryKey: ['instructors'],
+    queryKey: ['instructors', showCompleted],
     queryFn: async () => {
-      const response = await api.get('/instructors');
+      // Finished courses older than 90 days come only when asked for.
+      const response = await api.get('/instructors/overview', showCompleted ? { params: { includeCompleted: 1 } } : undefined);
       return response.data.data;
     },
     refetchInterval: COURSE_REFRESH_MS,
@@ -385,13 +387,12 @@ const InstructorManagement: React.FC = () => {
   const handleOpen = (instructor?: Instructor) => {
     if (instructor) {
       setEditingInstructor(instructor);
-      const nameParts = (instructor.instructorName || '').trim().split(/\s+/);
       setFormData({
         username: instructor.username,
         email: instructor.email,
         password: '',
-        firstName: instructor.firstName ?? nameParts[0] ?? '',
-        lastName: instructor.lastName ?? nameParts.slice(1).join(' '),
+        firstName: instructor.firstName ?? '',
+        lastName: instructor.lastName ?? '',
         phone: instructor.phone ?? '',
       });
     } else {
@@ -571,9 +572,11 @@ const InstructorManagement: React.FC = () => {
   const handleEditScheduleOpen = async (course: Course) => {
     setCourseToEdit(course);
     setEditScheduleData({
-      scheduledDate: course.confirmedDate || '',
-      startTime: course.confirmedStartTime || '09:00',
-      endTime: course.confirmedEndTime || '12:00',
+      // The server sends an ISO date-time and HH:MM:SS; the inputs and the
+      // reschedule schema want YYYY-MM-DD and HH:MM.
+      scheduledDate: (course.confirmedDate || '').slice(0, 10),
+      startTime: (course.confirmedStartTime || '09:00').slice(0, 5),
+      endTime: (course.confirmedEndTime || '12:00').slice(0, 5),
       instructorId: course.instructorId ? String(course.instructorId) : '',
     });
 
@@ -706,12 +709,7 @@ const InstructorManagement: React.FC = () => {
       showSuccess('Availability removed');
       queryClient.invalidateQueries({ queryKey: ['instructors'] });
     } catch (err: unknown) {
-      const axiosErr = err as { response?: { data?: { error?: { message?: string } } } };
-      if (axiosErr.response?.data?.error?.message) {
-        setError(axiosErr.response.data.error.message);
-      } else {
-        setError('Failed to remove availability');
-      }
+      setError(getErrorMessage(err, 'Failed to remove availability'));
     }
   };
 
@@ -825,7 +823,7 @@ The course status has been updated to "Confirmed" and moved to the confirmed cou
         scheduledDate: editScheduleData.scheduledDate,
         startTime: editScheduleData.startTime,
         endTime: editScheduleData.endTime,
-        instructorId: editScheduleData.instructorId,
+        instructorId: editScheduleData.instructorId ? Number(editScheduleData.instructorId) : undefined,
       });
       setSuccess('Course schedule updated successfully!');
 
@@ -835,8 +833,8 @@ The course status has been updated to "Confirmed" and moved to the confirmed cou
       queryClient.invalidateQueries({ queryKey: ['instructors'] });
 
       handleEditScheduleClose();
-    } catch {
-      setError('Failed to update course schedule');
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, 'Failed to update course schedule'));
     } finally {
       setSavingSchedule(false);
     }
@@ -869,7 +867,7 @@ The course status has been updated to "Confirmed" and moved to the confirmed cou
       const validationData = validationResponse.data.data;
 
       if (!validationData.isValid) {
-        const errorMessage = validationData.validationErrors.join('\n• ');
+        const errorMessage = (validationData.errors as string[]).join('\n• ');
         const fullErrorMessage = `Cannot send to billing:\n• ${errorMessage}`;
         setError(fullErrorMessage);
         return;
@@ -879,27 +877,13 @@ The course status has been updated to "Confirmed" and moved to the confirmed cou
       showSuccess('Course sent to billing');
       queryClient.invalidateQueries({ queryKey: ['completedCourses'] });
     } catch (err: unknown) {
-      console.error('❌ [BILLING] Error:', err);
-      const axiosErr = err as { response?: { data?: { error?: { message?: string } } } };
-      console.error('❌ [BILLING] Error response:', axiosErr.response?.data);
-
-      if (axiosErr.response?.data?.error?.message) {
-        const errorMessage = axiosErr.response.data.error.message;
-        if (errorMessage.includes('Cannot send course to billing:')) {
-          setError(errorMessage);
-        } else {
-          setError(`Failed to send course to billing: ${errorMessage}`);
-        }
-      } else {
-        setError('Failed to send course to billing. Please try again.');
-      }
+      setError(getErrorMessage(err, 'Failed to send course to billing. Please try again.'));
     } finally {
       setBillingCourseId(null);
     }
   };
 
   const filteredInstructors = instructors.filter(instructor => {
-    if (!instructor.availabilityDate || instructor.availabilityDate === 'No availability set') return false;
     if (!showCompleted && instructor.assignmentStatus === 'Completed') return false;
     return true;
   });
@@ -1135,9 +1119,7 @@ The course status has been updated to "Confirmed" and moved to the confirmed cou
                 <LinkButton onClick={() => handleOpen(instructor)}>Edit</LinkButton>
                 <LinkButton onClick={() => handleAvailabilityOpen(instructor)}>Availability</LinkButton>
                 <LinkButton onClick={() => handleScheduleOpen(instructor)}>Schedule</LinkButton>
-                {instructor.availabilityDate &&
-                  instructor.availabilityDate !== 'No availability set' &&
-                  instructor.assignmentStatus !== 'Completed' && (
+                {instructor.availabilityDate && instructor.assignmentStatus === 'Available' && (
                     <LinkButton onClick={() => handleDeleteAvailability(instructor.id, instructor.availabilityDate!)}>Remove Date</LinkButton>
                   )}
                 <LinkButton tone="danger" onClick={() => handleDeactivate(instructor)}>Deactivate</LinkButton>

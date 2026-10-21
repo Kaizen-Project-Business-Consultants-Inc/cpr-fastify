@@ -94,7 +94,7 @@ export async function timesheetRoutes(app: FastifyInstance) {
     return {
       success: true,
       data: {
-        timesheets: rows,
+        timesheets: rows.map((row) => ({ ...row, courseDetails: courseDetailsOf(row.courseDetails) })),
         pagination: { page: parseInt(page), limit: safeLimit, total, pages: Math.ceil(total / safeLimit) },
       },
     };
@@ -346,4 +346,25 @@ export async function timesheetRoutes(app: FastifyInstance) {
 
     return { success: true, message: `Reminders sent to ${instructorIds.length} instructor(s).`, data: { sentCount: instructorIds.length, weekStartDate: previousMondayStr } };
   });
+}
+
+/**
+ * course_details is a JSON column; MariaDB stores JSON as LONGTEXT, so mysql2
+ * returns a string and the timesheet detail dialogs crashed on .map. The
+ * stored keys are snake_case (from the submit query); the dialogs read camelCase.
+ */
+function courseDetailsOf(value: unknown): Record<string, unknown>[] {
+  let list: unknown = value;
+  if (typeof value === 'string') {
+    try { list = JSON.parse(value); } catch { return []; }
+  }
+  if (!Array.isArray(list)) return [];
+  return list.map((c: Record<string, unknown>) => ({
+    ...c,
+    startTime: c.startTime ?? c.start_time,
+    endTime: c.endTime ?? c.end_time,
+    courseType: c.courseType ?? c.course_type,
+    organizationName: c.organizationName ?? c.organization_name,
+    studentCount: c.studentCount ?? c.student_count,
+  }));
 }

@@ -26,7 +26,7 @@ export interface CreateCourseRequestInput {
   courseTypeId: number;
   scheduledDate: string;
   location: string;
-  locationId?: number;
+  locationId?: number | null;
   registeredStudents: number;
   notes?: string;
   source?: 'portal' | 'email';
@@ -385,8 +385,10 @@ export class CourseService {
       const course = courseRows[0];
 
       // Build dynamic update
-      const sets: string[] = ['confirmed_date = ?', 'updated_at = CURRENT_TIMESTAMP'];
-      const params: unknown[] = [input.scheduledDate];
+      // Move scheduled_date too: Course Scheduling and the organization's view
+      // show it, so a rescheduled course kept showing its old date.
+      const sets: string[] = ['confirmed_date = ?', 'scheduled_date = ?', 'updated_at = CURRENT_TIMESTAMP'];
+      const params: unknown[] = [input.scheduledDate, input.scheduledDate];
 
       if (input.startTime) { sets.push('confirmed_start_time = ?'); params.push(`${input.startTime}:00`); }
       if (input.endTime) { sets.push('confirmed_end_time = ?'); params.push(`${input.endTime}:00`); }

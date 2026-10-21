@@ -6,6 +6,7 @@ import { env } from '../config/env.js';
 import { requireRole } from '../plugins/auth.js';
 import { logAudit } from '../utils/auditLog.js';
 import { monthRangeOrThrow } from '../utils/monthRange.js';
+import { torontoToday } from '../utils/torontoDate.js';
 import type { RowDataPacket, ResultSetHeader } from 'mysql2/promise';
 import { isErased, notReservedEmail, notReservedUsername } from '../utils/userAccount.js';
 
@@ -287,6 +288,76 @@ export async function instructorAdminRoutes(app: FastifyInstance) {
         };
       }),
     };
+  });
+
+  // GET /instructors/overview — Instructor Management's "Availability & Assignments"
+  // table: one row per upcoming available day, one per assigned course (finished
+  // ones from the last 90 days, or all with ?includeCompleted=1), and a "No dates"
+  // row for an instructor with nothing upcoming, so Edit/Deactivate stay reachable.
+  app.get('/instructors/overview', { preHandler: manageRole }, async (request) => {
+    const { includeCompleted } = request.query as { includeCompleted?: string };
+    const today = torontoToday();
+    const [instructors] = await pool.query<RowDataPacket[]>(
+      `SELECT id, username, email, first_name, last_name, phone
+       FROM users WHERE role = 'instructor' AND status = 'active'`
+    );
+    const [available] = await pool.query<RowDataPacket[]>(
+      `SELECT instructor_id, DATE_FORMAT(date, '%Y-%m-%d') AS day
+       FROM instructor_availability WHERE date >= ?`,
+      [today]
+    );
+    const recentOnly = includeCompleted !== '1';
+    const [courses] = await pool.query<RowDataPacket[]>(
+      `SELECT cr.instructor_id, DATE_FORMAT(COALESCE(cr.confirmed_date, cr.scheduled_date), '%Y-%m-%d') AS day,
+              cr.status, cr.location, cr.notes, o.name AS organization_name, ct.name AS course_type_name
+       FROM course_requests cr
+       LEFT JOIN organizations o ON o.id = cr.organization_id
+       LEFT JOIN class_types ct ON ct.id = cr.course_type_id
+       WHERE cr.instructor_id IS NOT NULL AND cr.deleted_at IS NULL
+         AND cr.status IN ('confirmed', 'completed', 'invoiced')
+         ${recentOnly ? "AND (cr.status = 'confirmed' OR COALESCE(cr.confirmed_date, cr.scheduled_date) >= ? - INTERVAL 90 DAY)" : ''}`,
+      recentOnly ? [today] : []
+    );
+
+    type Row = Record<string, unknown> & { id: number; availabilityDate: string | null; instructorName: string; assignmentStatus: string };
+    const byId = new Map(instructors.map((u) => [u.id as number, {
+      id: u.id as number,
+      username: u.username,
+      email: u.email,
+      firstName: u.first_name,
+      lastName: u.last_name,
+      phone: u.phone,
+      instructorName: [u.first_name, u.last_name].filter(Boolean).join(' ') || u.username,
+    }]));
+    const rows: Row[] = [];
+    const courseDays = new Set<string>();
+    for (const c of courses) {
+      const u = byId.get(c.instructor_id);
+      if (!u) continue;
+      courseDays.add(`${c.instructor_id}|${c.day}`);
+      rows.push({
+        ...u,
+        availabilityDate: c.day,
+        assignmentStatus: c.status === 'confirmed' ? 'Confirmed' : 'Completed',
+        assignedOrganization: c.organization_name,
+        assignedLocation: c.location,
+        assignedCourseType: c.course_type_name,
+        notes: c.notes,
+      });
+    }
+    for (const a of available) {
+      const u = byId.get(a.instructor_id);
+      // A day that already has a course shows once, as that course.
+      if (u && !courseDays.has(`${a.instructor_id}|${a.day}`)) rows.push({ ...u, availabilityDate: a.day, assignmentStatus: 'Available' });
+    }
+    // Completed rows are hidden by default, so they don't count here.
+    const upcoming = new Set(rows.filter((r) => r.assignmentStatus !== 'Completed').map((r) => r.id));
+    for (const u of byId.values()) {
+      if (!upcoming.has(u.id)) rows.push({ ...u, availabilityDate: null, assignmentStatus: 'No dates' });
+    }
+    rows.sort((a, b) => a.instructorName.localeCompare(b.instructorName)
+      || (a.availabilityDate ?? '9999').localeCompare(b.availabilityDate ?? '9999'));
+    return { success: true, data: rows };
   });
 
   // GET /instructors/available/:date — instructors marked available with no course that day

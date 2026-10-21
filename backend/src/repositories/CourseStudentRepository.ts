@@ -12,6 +12,11 @@ export interface CourseStudent {
   attendance_marked: Date | null;
   created_at: Date;
   deleted_at: Date | null;
+  // camelCase copies from findByCourse, for the roster dialogs.
+  firstName?: string;
+  lastName?: string;
+  attendanceMarked?: Date | null;
+  createdAt?: Date;
 }
 
 export class CourseStudentRepository extends BaseRepository<CourseStudent> {
@@ -23,8 +28,13 @@ export class CourseStudentRepository extends BaseRepository<CourseStudent> {
 
   async findByCourse(courseRequestId: number): Promise<CourseStudent[]> {
     return this.query<CourseStudent>(
+      // camelCase copies for the roster dialogs (admin and organization),
+      // which read firstName/lastName/attendanceMarked/createdAt; the
+      // snake_case names stay for Bills Payable's attendance panel.
       `SELECT id, course_request_id, student_id, first_name, last_name, email,
-              attended, attendance_marked, created_at
+              attended, attendance_marked, created_at,
+              first_name AS firstName, last_name AS lastName,
+              attendance_marked AS attendanceMarked, created_at AS createdAt
        FROM course_students
        WHERE course_request_id = ? AND deleted_at IS NULL
        ORDER BY last_name, first_name`,

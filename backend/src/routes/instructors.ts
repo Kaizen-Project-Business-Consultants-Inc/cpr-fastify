@@ -23,6 +23,8 @@ const CLASS_QUERY_BASE = `
   SELECT
     cr.id, cr.id as course_id, cr.instructor_id,
     cr.confirmed_date as start_time, cr.confirmed_date as end_time,
+    cr.id as courseId, ct.name as name,
+    cr.confirmed_start_time as startTime, cr.confirmed_end_time as endTime,
     cr.status, cr.location, cr.registered_students as max_students,
     CASE WHEN cr.status = 'completed' THEN true ELSE false END as completed,
     cr.created_at, cr.updated_at,
