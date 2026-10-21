@@ -2,6 +2,7 @@ import React, { useEffect } from 'react';
 import { Box, Typography, CircularProgress } from '@mui/material';
 import api from '../../../services/api';
 import { formatDateWithoutTimezone, toLocalDateString } from '../../../utils/dateUtils';
+import { formatStudentCount } from '../../../utils/formatters';
 import DataTable, { DataTableRow } from '../../gtacpr/DataTable';
 import useServerPagination from '../../../hooks/useServerPagination';
 
@@ -89,7 +90,7 @@ const CancelledCourses: React.FC = () => {
               <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>{cancelledOn(course.cancelledAt)}</Typography>
               <Typography sx={{ fontSize: 12.5, color: (theme) => theme.palette.text.secondary }}>{course.cancellationReason}</Typography>
               <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>{course.location}</Typography>
-              <Typography sx={{ fontSize: 13, fontWeight: 600, color: (theme) => theme.palette.text.primary, textAlign: 'right' }}>{course.registeredStudents}</Typography>
+              <Typography sx={{ fontSize: 13, fontWeight: 600, color: (theme) => theme.palette.text.primary, textAlign: 'right' }}>{formatStudentCount(course.registeredStudents)}</Typography>
             </DataTableRow>
           ))}
         </DataTable>

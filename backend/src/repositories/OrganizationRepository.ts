@@ -144,7 +144,8 @@ export class OrganizationRepository extends BaseRepository<Organization> {
               cr.registered_students as registeredStudents,
               cr.archived_at as archivedAt,
               ct.name as course_type_name, ct.name as courseTypeName,
-              u.username as instructor,
+              -- The instructor's name, as every other screen shows it (not their login).
+              COALESCE(NULLIF(TRIM(CONCAT(COALESCE(u.first_name,''),' ',COALESCE(u.last_name,''))), ''), u.username) as instructor,
               (SELECT COUNT(*) FROM course_students cs WHERE cs.course_request_id = cr.id AND cs.attended = true AND cs.deleted_at IS NULL) AS students_attended,
               (SELECT COUNT(*) FROM course_students cs WHERE cs.course_request_id = cr.id AND cs.attended = true AND cs.deleted_at IS NULL) AS studentsAttended
        FROM course_requests cr

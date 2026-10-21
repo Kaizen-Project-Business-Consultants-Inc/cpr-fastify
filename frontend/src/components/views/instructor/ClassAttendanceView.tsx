@@ -106,7 +106,14 @@ const ClassAttendanceView: React.FC = () => {
     try {
       setStudentsLoading(true);
       const response = await instructorApi.getClassStudents(classId);
-      setStudents(response.data?.data || response.data || []);
+      const rows: Student[] = response.data?.data || response.data || [];
+      // MariaDB sends the TINYINT flags as 0/1; as numbers they leaked into
+      // aria-pressed ("1"/"0"), which is not a valid pressed state.
+      setStudents(
+        Array.isArray(rows)
+          ? rows.map((s) => ({ ...s, attendance: Boolean(s.attendance), attendanceMarked: Boolean(s.attendanceMarked) }))
+          : []
+      );
       setError('');
     } catch (error: unknown) {
       handleError(error, { component: 'ClassAttendanceView', action: 'load students' });

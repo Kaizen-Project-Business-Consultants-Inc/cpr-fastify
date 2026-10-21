@@ -5,7 +5,7 @@ _Generated from the route table by `npm run docs:api` (backend/scripts/generate-
 Base URL: `/api/v1` (except the two root-level health/metrics endpoints).
 Auth: send the access token as `Authorization: Bearer <token>`. Role guards are enforced per route (`requireRole`); see the route file for the exact roles.
 
-**208 endpoints across 24 groups.**
+**209 endpoints across 24 groups.**
 
 ## Accounting
 
@@ -175,6 +175,7 @@ Instructor portal — classes, availability, attendance, profile
 | GET | `/instructor/availability` | Bearer |  |
 | POST | `/instructor/availability` | Bearer |  |
 | DELETE | `/instructor/availability/{date}` | Bearer |  |
+| POST | `/instructor/availability/batch` | Bearer |  |
 | POST | `/instructor/classes/{classId}/complete` | Bearer |  |
 | GET | `/instructor/classes/{classId}/students` | Bearer |  |
 | POST | `/instructor/classes/{classId}/students` | Bearer |  |

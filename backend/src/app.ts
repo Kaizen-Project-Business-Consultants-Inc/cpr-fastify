@@ -58,8 +58,10 @@ export async function buildApp() {
   await app.register(multipart, {
     limits: { fileSize: 10 * 1024 * 1024 }, // 10 MB
   });
+  // 300/min per IP: staff in one office share an IP, and a quick pass through
+  // the portals makes about 110 requests a minute. Login keeps its own tighter limit.
   await app.register(rateLimit, {
-    max: 100,
+    max: 300,
     timeWindow: '1 minute',
   });
 

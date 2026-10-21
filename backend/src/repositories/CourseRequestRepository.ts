@@ -81,12 +81,12 @@ export class CourseRequestRepository extends BaseRepository<CourseRequest> {
               ct.name as courseTypeName,
               o.name as organization_name,
               o.name as organizationName,
-              u.username as instructor_name,
-              u.username as instructorName,
+              COALESCE(NULLIF(TRIM(CONCAT(COALESCE(u.first_name,''),' ',COALESCE(u.last_name,''))), ''), u.username) as instructor_name,
+              COALESCE(NULLIF(TRIM(CONCAT(COALESCE(u.first_name,''),' ',COALESCE(u.last_name,''))), ''), u.username) as instructorName,
               (SELECT COUNT(*) FROM course_students cs
-               WHERE cs.course_request_id = cr.id AND cs.attended = true) AS students_attended,
+               WHERE cs.course_request_id = cr.id AND cs.attended = true AND cs.deleted_at IS NULL) AS students_attended,
               (SELECT COUNT(*) FROM course_students cs
-               WHERE cs.course_request_id = cr.id AND cs.attended = true) AS studentsAttended`;
+               WHERE cs.course_request_id = cr.id AND cs.attended = true AND cs.deleted_at IS NULL) AS studentsAttended`;
 
   /**
    * Run a list query either unbounded (no `pagination` — today's behaviour) or
@@ -177,7 +177,7 @@ export class CourseRequestRepository extends BaseRepository<CourseRequest> {
               o.contact_email,
               ct.name as course_type_name,
               (SELECT COUNT(*) FROM course_students cs
-               WHERE cs.course_request_id = cr.id AND cs.attended = true) as students_attended,
+               WHERE cs.course_request_id = cr.id AND cs.attended = true AND cs.deleted_at IS NULL) as students_attended,
               cp.price_per_student,
               cp.is_active as pricing_active
        FROM course_requests cr

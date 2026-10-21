@@ -82,6 +82,37 @@ describe('EmailRequestsReview', () => {
     expect(await screen.findByText('Course request #40 created.')).toBeInTheDocument();
   });
 
+  it("tells staff what to do when the course isn't recognized, and books a blank student count as TBC (0)", async () => {
+    const notOffered = {
+      ...pastDateEmail, id: 7, subject: 'Underwater CPR',
+      reject_reason: "\"Underwater CPR\" isn't a clear match for any of our courses",
+      extracted: { courseTypeText: 'Underwater CPR', scheduledDate: '2099-12-15', location: '1 Lake Rd', registeredStudents: null, matchedCourseType: null },
+    };
+    mockGet.mockImplementation(async (url: string) => {
+      if (url === '/inbound-email/needs-review') return { data: { data: [notOffered] } };
+      if (url === '/course-types') return { data: { data: [{ id: 1, name: 'CPR Basic', is_active: 1 }] } };
+      if (url === '/inbound-email/organizations') return { data: { data: [{ id: 1, name: 'Test Organization' }] } };
+      return { data: { data: [] } };
+    });
+    mockPost.mockResolvedValue({ data: { message: 'Course request #41 created.' } });
+    render(<EmailRequestsReview />);
+
+    expect(await screen.findByText("Pick the matching course, or Dismiss if we don't offer it.")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Create request from email 7' }));
+    const dialog = await screen.findByRole('dialog');
+    expect(await within(dialog).findByText("Pick the matching course, or Dismiss if we don't offer it.")).toBeInTheDocument();
+    expect(within(dialog).getByLabelText('Number of students')).toHaveValue(null);
+    expect(within(dialog).getByText('Leave blank if not known yet. It shows as TBC.')).toBeInTheDocument();
+
+    fireEvent.mouseDown(within(dialog).getByLabelText('Course'));
+    fireEvent.click(await screen.findByRole('option', { name: 'CPR Basic' }));
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Create request' }));
+
+    await waitFor(() => expect(mockPost).toHaveBeenCalledWith('/inbound-email/7/create-request', {
+      organizationId: 1, courseTypeId: 1, scheduledDate: '2099-12-15', location: '1 Lake Rd', registeredStudents: 0,
+    }));
+  });
+
   it('asks for the organization when the sender is unknown', async () => {
     render(<EmailRequestsReview />);
     fireEvent.click(await screen.findByRole('button', { name: 'Create request from email 6' }));

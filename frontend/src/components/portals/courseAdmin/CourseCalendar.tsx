@@ -16,7 +16,7 @@ import api from '../../../services/api';
 import StatusChip from '../../gtacpr/StatusChip';
 import { GhostButton } from '../../gtacpr/Buttons';
 import LinkButton from '../../gtacpr/LinkButton';
-import { toLocalDateString, formatISODate, formatDisplayDate } from '../../../utils/formatters';
+import { toLocalDateString, formatISODate, formatDisplayDate, formatStudentCount } from '../../../utils/formatters';
 
 interface Course {
   id: number;
@@ -214,7 +214,7 @@ const CourseCalendar: React.FC = () => {
                     </Typography>
                     {course.status?.toLowerCase() === 'confirmed' && (
                       <Typography sx={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', fontSize: 9, lineHeight: 1.1, color: (theme) => theme.palette.text.secondary }}>
-                        {course.instructorName?.split(' ')[0] || 'No Instr'} • {course.registeredStudents || 0}
+                        {course.instructorName?.split(' ')[0] || 'No Instr'} • {formatStudentCount(course.registeredStudents)}
                       </Typography>
                     )}
                   </Box>
@@ -245,7 +245,7 @@ const CourseCalendar: React.FC = () => {
                     ['Date', selectedCourse.confirmedDate || selectedCourse.scheduledDate ? formatDisplayDate(selectedCourse.confirmedDate || selectedCourse.scheduledDate) : 'Not scheduled'],
                     ['Time', selectedCourse.confirmedStartTime ? `${formatTime(selectedCourse.confirmedStartTime)} - ${formatTime(selectedCourse.confirmedEndTime)}` : 'Not set'],
                     ...(selectedCourse.status === 'confirmed' ? [['Instructor', selectedCourse.instructorName || 'Not assigned']] : []),
-                    ['Students', `${selectedCourse.registeredStudents || 0} registered`],
+                    ['Students', `${formatStudentCount(selectedCourse.registeredStudents)} registered`],
                     ...(selectedCourse.location ? [['Location', selectedCourse.location]] : []),
                   ].map(([label, value]) => (
                     <Grid item xs={6} key={String(label)}>

@@ -273,7 +273,7 @@ export class CourseService {
             courseName: details.courseName,
             date: details.date,
             location: details.location,
-            instructorName: instructor.username ?? instructor.full_name ?? 'TBD',
+            instructorName: [instructor.first_name, instructor.last_name].filter(Boolean).join(' ') || instructor.full_name || instructor.username || 'TBD',
             startTime: input.startTime,
             endTime: input.endTime,
           }).catch(err => logger.error({ err, courseId: input.courseId }, 'Failed to send course confirmed email'));

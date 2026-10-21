@@ -230,3 +230,9 @@ export const getStatusChipColor = (status: string | null | undefined) => {
       return 'default';
   }
 };
+
+/** A course's registered students; 0 means "not known yet" (shown as TBC). */
+export const formatStudentCount = (value: unknown): string => {
+  const n = Number(value);
+  return Number.isFinite(n) && n > 0 ? String(n) : 'TBC';
+};

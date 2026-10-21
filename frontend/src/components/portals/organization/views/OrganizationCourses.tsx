@@ -17,6 +17,7 @@ import {
 } from '@mui/material';
 import { api } from '../../../../services/api';
 import { formatDisplayDate } from '../../../../utils/dateUtils';
+import { formatStudentCount } from '../../../../utils/formatters';
 import useServerPagination from '../../../../hooks/useServerPagination';
 import useDebounce from '../../../../hooks/useDebounce';
 import DataTable, { DataTableRow } from '../../../gtacpr/DataTable';
@@ -329,7 +330,7 @@ const OrganizationCourses: React.FC<OrganizationCoursesProps> = ({
               </Typography>
               <Typography sx={{ fontSize: 13.5, fontWeight: 600, color: (theme) => theme.palette.text.primary }}>{course.courseTypeName}</Typography>
               <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>{course.location}</Typography>
-              <Typography sx={{ fontSize: 13, fontWeight: 600, color: (theme) => theme.palette.text.primary, textAlign: 'right' }}>{course.registeredStudents || 0}</Typography>
+              <Typography sx={{ fontSize: 13, fontWeight: 600, color: (theme) => theme.palette.text.primary, textAlign: 'right' }}>{formatStudentCount(course.registeredStudents)}</Typography>
               <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary, textAlign: 'right' }}>{course.studentsAttended || 0}</Typography>
               <StatusChip kind={getStatusKind(course.status)} label={course.status.charAt(0).toUpperCase() + course.status.slice(1).replace('_', ' ')} />
               <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>{course.instructor || 'TBD'}</Typography>

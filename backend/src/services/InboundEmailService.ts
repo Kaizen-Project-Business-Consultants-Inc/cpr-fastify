@@ -138,10 +138,11 @@ export function parseTemplate(body: string): ExtractedFields | null {
   const location = get('location');
   const studentsText = get('students');
 
-  if (!courseTypeText || !dateText || !location || !studentsText) return null;
+  // Students is optional: colleges often don't know the count yet (TBC).
+  if (!courseTypeText || !dateText || !location) return null;
 
   const scheduledDate = normalizeDateText(dateText);
-  const registeredStudents = /^\d+$/.test(studentsText.trim()) ? parseInt(studentsText, 10) : null;
+  const registeredStudents = studentsText && /^\d+$/.test(studentsText.trim()) ? parseInt(studentsText, 10) : null;
 
   return { courseTypeText, scheduledDate, location, registeredStudents };
 }
@@ -309,7 +310,8 @@ export function findReviewReasons(
   }
 
   if (!fields.location) reasons.push('Location missing');
-  if (!fields.registeredStudents || fields.registeredStudents < 1) reasons.push('Number of students missing');
+  // No student count is fine: colleges often don't know it yet (owner
+  // 2026-10-19). The request is booked with 0, shown as "TBC".
 
   if (tier === 'llm' && reasons.length === 0) {
     if (!llmConfidence) {
@@ -318,7 +320,7 @@ export function findReviewReasons(
       const unsure = [
         llmConfidence.scheduledDate < AUTO_CREATE_FIELD_MIN_LLM && 'date',
         llmConfidence.location < AUTO_CREATE_FIELD_MIN_LLM && 'location',
-        llmConfidence.registeredStudents < AUTO_CREATE_FIELD_MIN_LLM && 'number of students',
+        fields.registeredStudents != null && llmConfidence.registeredStudents < AUTO_CREATE_FIELD_MIN_LLM && 'number of students',
       ].filter(Boolean);
       if (unsure.length) reasons.push(`The AI wasn't sure of the ${unsure.join(', ')}`);
     }
@@ -399,8 +401,11 @@ export class InboundEmailService {
         courseTypeId: courseTypeMatch!.id,
         scheduledDate: fields.scheduledDate!,
         location: fields.location!,
-        registeredStudents: fields.registeredStudents!,
-        notes: subject ? `Received by email — subject: "${subject}"` : 'Received by email',
+        registeredStudents: fields.registeredStudents ?? 0,
+        notes: [
+          subject ? `Received by email — subject: "${subject}"` : 'Received by email',
+          fields.registeredStudents == null ? 'Number of students to be confirmed.' : null,
+        ].filter(Boolean).join(' '),
         source: 'email',
       });
       await this.repo.create({

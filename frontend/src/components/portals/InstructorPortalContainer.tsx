@@ -7,7 +7,6 @@ import {
   useCompletedClasses,
   useInstructorAvailability,
   useTodayClasses,
-  useAddAvailability,
   useRemoveAvailability,
   useRefreshInstructorData
 } from '../../services/instructorService';
@@ -36,7 +35,6 @@ const InstructorPortalContainer: React.FC = () => {
   const { data: todayClasses = [], isLoading: todayLoading } = useTodayClasses();
 
   // Mutations
-  const addAvailabilityMutation = useAddAvailability();
   const removeAvailabilityMutation = useRemoveAvailability();
   const refreshData = useRefreshInstructorData();
 
@@ -55,16 +53,6 @@ const InstructorPortalContainer: React.FC = () => {
   }, [logout, navigate]);
 
   // Handle availability actions
-  const handleAddAvailability = useCallback(async (date: string) => {
-    try {
-      // Views (AvailabilityView / MyClassesView) show their own success + error feedback.
-      await addAvailabilityMutation.mutateAsync(date);
-    } catch (error: unknown) {
-      logger.error('Add availability error:', error);
-      throw error;
-    }
-  }, [addAvailabilityMutation]);
-
   const handleRemoveAvailability = useCallback(async (date: string) => {
     try {
       await removeAvailabilityMutation.mutateAsync(date);
@@ -106,7 +94,6 @@ const InstructorPortalContainer: React.FC = () => {
           todayClasses={todayClasses}
           loading={loading}
           onLogout={handleLogout}
-          onAddAvailability={handleAddAvailability}
           onRemoveAvailability={handleRemoveAvailability}
           onRefreshData={handleRefreshData}
         />

@@ -2,10 +2,11 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 
 const mockGet = vi.fn();
+const mockPost = vi.fn();
 
 vi.mock('../../../../services/api', () => ({
-  api: { get: (...args: unknown[]) => mockGet(...args), post: vi.fn() },
-  default: { get: (...args: unknown[]) => mockGet(...args), post: vi.fn() },
+  api: { get: (...args: unknown[]) => mockGet(...args), post: (...args: unknown[]) => mockPost(...args) },
+  default: { get: (...args: unknown[]) => mockGet(...args), post: (...args: unknown[]) => mockPost(...args) },
 }));
 
 import OrganizationBilling from '../views/OrganizationBilling';
@@ -117,5 +118,30 @@ describe('OrganizationBilling', () => {
 
     await waitFor(() => expect(screen.queryByText('INV-2026-002')).not.toBeInTheDocument());
     expect(screen.getByText('INV-2026-001')).toBeInTheDocument();
+  });
+
+  it('shows a confirmation after a payment is submitted', async () => {
+    serve([invoice()]);
+    mockPost.mockResolvedValue({ data: { success: true, data: { is_full_payment: true, remaining_balance: 0 } } });
+    renderScreen();
+
+    expect(await screen.findByText('INV-2026-001')).toBeInTheDocument();
+    const dialog = await openInvoice('INV-2026-001');
+    fireEvent.click(await within(dialog).findByRole('button', { name: 'Submit Payment' }));
+
+    const payDialog = await screen.findByRole('dialog', { name: /Submit Payment/i });
+    fireEvent.mouseDown(within(payDialog).getByRole('combobox'));
+    fireEvent.click(await screen.findByRole('option', { name: 'Bank Transfer' }));
+    fireEvent.click(within(payDialog).getByRole('button', { name: 'Submit Payment' }));
+
+    const confirm = await screen.findByRole('dialog', { name: 'Submit payment?' });
+    fireEvent.click(within(confirm).getByRole('button', { name: 'Submit Payment' }));
+
+    await waitFor(() => expect(mockPost).toHaveBeenCalledWith(
+      '/organization/invoices/1/payment-submission',
+      expect.objectContaining({ amount: 113, payment_method: 'bank_transfer' })
+    ));
+    // Closing the payment form used to clear this message before it ever showed.
+    expect(await screen.findByText('Full payment submitted successfully! Awaiting verification.')).toBeInTheDocument();
   });
 });

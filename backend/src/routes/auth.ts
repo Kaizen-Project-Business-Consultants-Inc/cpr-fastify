@@ -281,7 +281,8 @@ export async function authRoutes(app: FastifyInstance) {
   });
 
   // POST /api/v1/auth/change-password (authenticated)
-  app.post('/change-password', { preHandler: [requireAuth] }, async (request, reply) => {
+  // Its own limit: the global one (300/min) would allow many current-password guesses.
+  app.post('/change-password', { ...authRateLimit, preHandler: [requireAuth] }, async (request, reply) => {
     const userId = request.userId!;
     if (!userId) return reply.status(401).send({ error: 'Not authenticated' });
 

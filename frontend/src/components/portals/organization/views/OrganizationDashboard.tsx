@@ -13,6 +13,7 @@ import {
   ResponsiveContainer,
 } from 'recharts';
 import { formatDisplayDate } from '../../../../utils/dateUtils';
+import { formatStudentCount } from '../../../../utils/formatters';
 import { useNavigate } from 'react-router-dom';
 import StatCard from '../../../gtacpr/StatCard';
 import DataTable, { DataTableRow } from '../../../gtacpr/DataTable';
@@ -254,7 +255,7 @@ const OrganizationDashboard: React.FC<OrganizationDashboardProps> = ({
                   <Typography sx={{ fontSize: 13.5, fontWeight: 600, color: (theme) => theme.palette.text.primary }}>{course.courseTypeName}</Typography>
                   <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>{formatDisplayDate(course.requestSubmittedDate)}</Typography>
                   <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>{course.location}</Typography>
-                  <Typography sx={{ fontSize: 13, fontWeight: 600, color: (theme) => theme.palette.text.primary, textAlign: 'right' }}>{course.registeredStudents}</Typography>
+                  <Typography sx={{ fontSize: 13, fontWeight: 600, color: (theme) => theme.palette.text.primary, textAlign: 'right' }}>{formatStudentCount(course.registeredStudents)}</Typography>
                   <StatusChip kind={getStatusKind(course.status)} label={course.status} />
                 </DataTableRow>
               ))}

@@ -106,21 +106,6 @@ export const useClassStudents = (courseId: number) => {
 };
 
 // Mutations
-export const useAddAvailability = () => {
-  const queryClient = useQueryClient();
-  
-  return useMutation({
-    mutationFn: async (date: string) => {
-      const response = await instructorApi.addAvailability(date);
-      return extractData(response);
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: INSTRUCTOR_QUERY_KEYS.availability });
-    },
-    onError: (error) => handleError(error, { component: 'instructorService', action: 'add availability' }),
-  });
-};
-
 export const useRemoveAvailability = () => {
   const queryClient = useQueryClient();
   
@@ -133,6 +118,21 @@ export const useRemoveAvailability = () => {
       queryClient.invalidateQueries({ queryKey: INSTRUCTOR_QUERY_KEYS.availability });
     },
     onError: (error) => handleError(error, { component: 'instructorService', action: 'remove availability' }),
+  });
+};
+
+export const useSaveAvailabilityBatch = () => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (changes: { add: string[]; remove: string[] }) => {
+      const response = await instructorApi.saveAvailabilityBatch(changes);
+      return response.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: INSTRUCTOR_QUERY_KEYS.availability });
+    },
+    onError: (error) => handleError(error, { component: 'instructorService', action: 'save availability' }),
   });
 };
 

@@ -93,6 +93,10 @@ the fixed format is faster and never needs a human to double-check it):
 ```
 Course: <course name, e.g. CPR-C>
 Date: <YYYY-MM-DD>
-Students: <number>
+Students: <number>   (optional; leave the line out if not known yet)
 Location: <address>
 ```
+
+If the number of students isn't known yet, the request is still booked. It
+shows **TBC** for students, and its notes say the number is to be confirmed.
+Adding students to the roster later fills in the real count.

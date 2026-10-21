@@ -36,7 +36,8 @@ const createFromEmailSchema = z.object({
     .refine((v) => normalizeDateText(v) === v, 'Date must be a real date (YYYY-MM-DD)')
     .refine((v) => v >= torontoToday(), 'Pick a date from today on'),
   location: z.string().trim().min(1).max(500),
-  registeredStudents: z.number().int().min(1).max(1000),
+  // 0 = not known yet (shown as TBC).
+  registeredStudents: z.number().int().min(0).max(1000),
   notes: z.string().trim().max(1000).optional(),
 });
 
@@ -149,7 +150,10 @@ export async function inboundEmailRoutes(app: FastifyInstance) {
         scheduledDate: input.scheduledDate,
         location: input.location,
         registeredStudents: input.registeredStudents,
-        notes: input.notes || (email.subject ? `Received by email — subject: "${email.subject}"` : 'Received by email'),
+        notes: input.notes || [
+          email.subject ? `Received by email — subject: "${email.subject}"` : 'Received by email',
+          input.registeredStudents === 0 ? 'Number of students to be confirmed.' : null,
+        ].filter(Boolean).join(' '),
         source: 'email',
       });
     } catch (err) {

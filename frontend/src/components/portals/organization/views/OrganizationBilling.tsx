@@ -513,9 +513,11 @@ const OrganizationBilling: React.FC<OrganizationBillingProps> = ({
           ? 'Full payment submitted successfully! Awaiting verification.'
           : `Partial payment of ${formatCurrency(paymentForm.amount)} submitted. Remaining balance: ${formatCurrency(responseData?.remaining_balance)}`;
 
+        // Close first: closing clears the success state, which used to wipe
+        // this message before it was ever shown.
+        handlePaymentDialogClose();
         setPaymentSuccessMessage(message);
         setPaymentSuccess(true);
-        handlePaymentDialogClose();
 
         // Refresh invoice list to update status and balance
         refreshInvoices();

@@ -76,9 +76,15 @@ describe('parseTemplate', () => {
     expect(parseTemplate(body)).not.toBeNull();
   });
 
-  it('returns null if any required label is missing', () => {
-    const body = `Course: CPR-C\nDate: 2026-10-05\nLocation: Office`;
-    expect(parseTemplate(body)).toBeNull();
+  it('returns null if the course, date or location label is missing', () => {
+    expect(parseTemplate(`Course: CPR-C\nDate: 2026-10-05\nStudents: 10`)).toBeNull();
+    expect(parseTemplate(`Course: CPR-C\nLocation: Office\nStudents: 10`)).toBeNull();
+  });
+
+  it('accepts an email without a Students line (count to be confirmed)', () => {
+    expect(parseTemplate(`Course: CPR-C\nDate: 2026-10-05\nLocation: Office`)).toEqual({
+      courseTypeText: 'CPR-C', scheduledDate: '2026-10-05', location: 'Office', registeredStudents: null,
+    });
   });
 
   it('leaves scheduledDate/registeredStudents null rather than guessing when malformed', () => {
@@ -107,8 +113,14 @@ describe('findReviewReasons', () => {
     expect(reasons).toEqual([
       '"CPR Basic" isn\'t a clear match for any of our courses',
       'Date (2026-09-01) is today or in the past',
-      'Number of students missing',
     ]);
+  });
+
+  it('books a request with no student count (TBC), unless the AI gave one it was unsure of', () => {
+    expect(findReviewReasons('template', { ...ok, registeredStudents: null }, { id: 1, name: 'CPR Basic', confidence: 1 }, undefined, today)).toEqual([]);
+    expect(findReviewReasons('llm', { ...ok, registeredStudents: null }, { id: 1, name: 'CPR Basic', confidence: 1 }, { ...sure, registeredStudents: 0 }, today)).toEqual([]);
+    expect(findReviewReasons('llm', ok, { id: 1, name: 'CPR Basic', confidence: 1 }, { ...sure, registeredStudents: 0.5 }, today))
+      .toEqual(["The AI wasn't sure of the number of students"]);
   });
 
   it('reports a missing course and date', () => {

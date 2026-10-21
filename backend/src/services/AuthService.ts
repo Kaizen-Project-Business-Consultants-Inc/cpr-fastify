@@ -1,6 +1,6 @@
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { env } from '../config/env.js';
 import { getPool } from '../config/database.js';
 import { UserRepository, User } from '../repositories/UserRepository.js';
@@ -214,8 +214,11 @@ export class AuthService {
       expiresIn: env.ACCESS_TOKEN_EXPIRY as jwt.SignOptions['expiresIn'],
     });
 
+    // jwtid makes every refresh token unique: two logins by the same user in
+    // the same second produced the same token and hit uq_refresh_token_hash (500).
     const refreshToken = jwt.sign(payload, env.JWT_REFRESH_SECRET, {
       expiresIn: env.REFRESH_TOKEN_EXPIRY as jwt.SignOptions['expiresIn'],
+      jwtid: randomUUID(),
     });
 
     return { accessToken, refreshToken };

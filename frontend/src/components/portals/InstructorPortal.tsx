@@ -71,7 +71,6 @@ interface InstructorPortalProps {
   todayClasses?: ScheduledClass[];
   loading: boolean;
   onLogout: () => void;
-  onAddAvailability: (date: string) => Promise<void>;
   onRemoveAvailability: (date: string) => Promise<void>;
   onRefreshData: () => void;
 }
@@ -84,7 +83,6 @@ const InstructorPortal: React.FC<InstructorPortalProps> = ({
   todayClasses: _todayClasses = [],
   loading,
   onLogout: _onLogout,
-  onAddAvailability,
   onRemoveAvailability,
   onRefreshData,
 }) => {
@@ -215,8 +213,6 @@ const InstructorPortal: React.FC<InstructorPortalProps> = ({
                     <AvailabilityView
                       availableDates={availableDates}
                       scheduledClasses={scheduledClasses}
-                      onAddAvailability={onAddAvailability}
-                      onRemoveAvailability={onRemoveAvailability}
                     />
                   </ErrorBoundary>
                 }

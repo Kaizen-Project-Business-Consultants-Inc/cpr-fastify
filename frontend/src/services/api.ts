@@ -298,9 +298,18 @@ export const instructorApi = {
     api.post(`/instructor/classes/${courseId}/students`, studentData),
 
   // Availability management
-  addAvailability: (date: string) => api.post('/instructor/availability', { date }),
   removeAvailability: (date: string) => api.delete(`/instructor/availability/${date}`),
+  /** Several days in one save. Dates the server can't change come back in `skipped`. */
+  saveAvailabilityBatch: (changes: { add: string[]; remove: string[] }) =>
+    api.post<AvailabilityBatchResult>('/instructor/availability/batch', changes),
 };
+
+export interface AvailabilityBatchResult {
+  success: boolean;
+  added: string[];
+  removed: string[];
+  skipped: { date: string; reason: string }[];
+}
 
 // Export the api instance for use in other services
 export { api };

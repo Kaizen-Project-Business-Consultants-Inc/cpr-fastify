@@ -2,7 +2,7 @@ import { Pool, RowDataPacket, ResultSetHeader } from 'mysql2/promise';
 import { getPool } from './database.js';
 import { logger } from './logger.js';
 import { torontoToday } from '../utils/torontoDate.js';
-import { addColumnIfMissing, addIndexIfMissing, addForeignKeyIfMissing, dropIndexIfExists, tableExists, columnExists } from './schemaHelpers.js';
+import { addColumnIfMissing, addIndexIfMissing, addForeignKeyIfMissing, dropIndexIfExists, tableExists, columnExists, constraintExists } from './schemaHelpers.js';
 
 interface Migration {
   version: number;
@@ -480,6 +480,41 @@ export const migrations: Migration[] = [
         const created = new Date(row.created_at);
         if (isNaN(created.getTime())) continue; // a zero created_at; leave it
         await pool.query('UPDATE course_requests SET date_requested = ? WHERE id = ?', [torontoToday(created), row.id]);
+      }
+    },
+  },
+  {
+    version: 29,
+    name: 'payment_and_invoice_status_checks_match_code',
+    // The live databases carry hand-added CHECK constraints (not from any
+    // migration) whose status lists predate the payment flow: chk_pay_status
+    // lacks 'pending_verification' and chk_inv_status lacks 'payment_submitted'
+    // / 'partial_payment'. So every organization "Submit Payment" failed with
+    // a 500 (CONSTRAINT `chk_pay_status` failed). Widen both to every status
+    // the code writes; old values stay allowed. Skipped where they don't exist.
+    up: async (pool: Pool) => {
+      if (await constraintExists(pool, 'payments', 'chk_pay_status')) {
+        await pool.query(
+          `ALTER TABLE payments DROP CONSTRAINT chk_pay_status,
+             ADD CONSTRAINT chk_pay_status CHECK (status IS NULL OR status IN
+               ('pending', 'pending_verification', 'verified', 'rejected', 'reversed'))`
+        );
+      }
+      if (await constraintExists(pool, 'invoices', 'chk_inv_status')) {
+        await pool.query(
+          `ALTER TABLE invoices DROP CONSTRAINT chk_inv_status,
+             ADD CONSTRAINT chk_inv_status CHECK (status IN
+               ('pending', 'payment_submitted', 'partial_payment', 'paid', 'overdue', 'cancelled'))`
+        );
+      }
+      // Same story for users: "Erase personal data" sets status 'deleted',
+      // which chk_users_status didn't allow, so every erase failed.
+      if (await constraintExists(pool, 'users', 'chk_users_status')) {
+        await pool.query(
+          `ALTER TABLE users DROP CONSTRAINT chk_users_status,
+             ADD CONSTRAINT chk_users_status CHECK (status IS NULL OR status IN
+               ('active', 'inactive', 'suspended', 'deleted'))`
+        );
       }
     },
   },

@@ -110,6 +110,16 @@ describe('InstructorManagement', () => {
     await waitFor(() => expect(mockGet).toHaveBeenCalledWith('/courses/pending', { params: { page: 2, limit: 25 } }));
   });
 
+  it('says a list could not be loaded instead of showing it as empty', async () => {
+    mockGet.mockImplementation(async (url: string) => {
+      if (url === '/courses/pending') throw Object.assign(new Error('Too Many Requests'), { response: { status: 429 } });
+      return { data: { success: true, data: [] } };
+    });
+    renderWithQuery();
+    expect(await screen.findByText(/load this list/)).toBeInTheDocument();
+    expect(screen.queryByText('No pending course requests')).not.toBeInTheDocument();
+  });
+
   it('shows the "Add Instructor" button', async () => {
     renderWithQuery();
     expect(screen.getByRole('button', { name: 'Add Instructor' })).toBeInTheDocument();

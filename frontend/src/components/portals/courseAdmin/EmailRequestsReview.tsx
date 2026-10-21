@@ -114,6 +114,12 @@ function todayLocal(): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
+/** Owner 2026-10-19: when the course wasn't recognized, say what to do about it. */
+const COURSE_HINT = 'Pick the matching course, or Dismiss if we don\'t offer it.';
+function courseNotMatched(row: InboundEmailRow): boolean {
+  return /isn't a clear match|Course type missing/.test(row.reject_reason ?? '');
+}
+
 function reasonText(row: InboundEmailRow): string {
   if (row.status === 'unmatched_sender') return 'Sender email isn\'t linked to an organization account';
   return row.reject_reason || 'Some details couldn\'t be read with confidence';
@@ -236,10 +242,11 @@ const EmailRequestsReview: React.FC = () => {
     setForm(null);
   };
 
-  const students = form ? Number(form.registeredStudents) : 0;
+  // Blank = not known yet: booked as 0 and shown as TBC.
+  const students = form && form.registeredStudents.trim() !== '' ? Number(form.registeredStudents) : 0;
   const datePassed = !!form?.scheduledDate && form.scheduledDate < todayLocal();
   const formReady = !!form && form.organizationId !== '' && form.courseTypeId !== '' && !!form.scheduledDate
-    && !datePassed && !!form.location.trim() && Number.isInteger(students) && students >= 1;
+    && !datePassed && !!form.location.trim() && Number.isInteger(students) && students >= 0;
 
   const handleCreate = async () => {
     if (!creating || !form || !formReady) return;
@@ -371,7 +378,12 @@ const EmailRequestsReview: React.FC = () => {
                   variant="outlined"
                 />
                 <Typography sx={{ fontSize: 12.5, color: (theme) => theme.palette.text.secondary }}>{guess || '-'}</Typography>
-                <Typography sx={{ fontSize: 12.5, color: (theme) => theme.palette.text.secondary }}>{reasonText(row)}</Typography>
+                <Box>
+                  <Typography sx={{ fontSize: 12.5, color: (theme) => theme.palette.text.secondary }}>{reasonText(row)}</Typography>
+                  {courseNotMatched(row) && (
+                    <Typography sx={{ fontSize: 12, fontWeight: 600, color: (theme) => theme.palette.text.primary }}>{COURSE_HINT}</Typography>
+                  )}
+                </Box>
                 <Box sx={{ display: 'flex', gap: 1.5, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
                   <LinkButton tone="neutral" onClick={() => setViewing(row)} aria-label={`Read email ${row.id}`}>Read email</LinkButton>
                   <LinkButton onClick={() => openCreate(row)} aria-label={`Create request from email ${row.id}`}>Create request</LinkButton>
@@ -426,6 +438,7 @@ const EmailRequestsReview: React.FC = () => {
                 label="Course"
                 value={form.courseTypeId}
                 onChange={(e) => setField('courseTypeId', Number(e.target.value))}
+                helperText={creating && courseNotMatched(creating) ? COURSE_HINT : undefined}
                 disabled={saving}
               >
                 {(courseTypes ?? []).map((c) => <MenuItem key={c.id} value={c.id}>{c.name}</MenuItem>)}
@@ -456,7 +469,8 @@ const EmailRequestsReview: React.FC = () => {
                 label="Number of students"
                 value={form.registeredStudents}
                 onChange={(e) => setField('registeredStudents', e.target.value)}
-                inputProps={{ min: 1, max: 1000 }}
+                inputProps={{ min: 0, max: 1000 }}
+                helperText="Leave blank if not known yet. It shows as TBC."
                 disabled={saving}
               />
             </Box>

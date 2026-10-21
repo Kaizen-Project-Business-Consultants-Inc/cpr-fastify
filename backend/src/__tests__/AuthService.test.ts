@@ -65,6 +65,17 @@ describe('AuthService', () => {
       expect(result.tokens.refreshToken).toBeTruthy();
     });
 
+    it('gives each login a different refresh token, even in the same second', async () => {
+      for (let i = 0; i < 2; i++) {
+        mockQuery.mockResolvedValueOnce([[{ cnt: 0 }]]);
+        mockQuery.mockResolvedValueOnce([{}]);
+      }
+      vi.mocked(userRepo.findByUsername).mockResolvedValue(mockUser as any);
+      const first = await authService.login('testuser', 'correctpassword');
+      const second = await authService.login('testuser', 'correctpassword');
+      expect(first.tokens.refreshToken).not.toBe(second.tokens.refreshToken);
+    });
+
     it('throws AuthError on wrong password', async () => {
       mockQuery.mockResolvedValueOnce([[{ cnt: 0 }]]);
       vi.mocked(userRepo.findByUsername).mockResolvedValue(mockUser as any);

@@ -6,6 +6,7 @@ import { logger } from '../config/logger.js';
 import { StudentRepository } from '../repositories/StudentRepository.js';
 import { emailService } from '../services/EmailService.js';
 import { maybePaginate, paginatedResponse } from '../utils/pagination.js';
+import { torontoToday } from '../utils/torontoDate.js';
 import type { RowDataPacket, ResultSetHeader } from 'mysql2/promise';
 
 const addStudentSchema = z.object({
@@ -17,6 +18,48 @@ const addStudentSchema = z.object({
 });
 
 const instructorRole = ['instructor', 'admin', 'sysadmin'];
+
+// ===== Availability rules =====
+// One place for the per-date rules, shared by the single-date endpoints and
+// the batch endpoint, so they can't drift apart.
+const CANCEL_LOCKOUT_DAYS = 5;
+const CANCEL_LOCKOUT_MESSAGE =
+  'Availability cannot be cancelled 5 days or less before the date. Contact your administrator if you need to cancel.';
+const PAST_DATE_MESSAGE = 'Availability cannot be added for a past date';
+
+/** Whole days from `today` to `date`, both YYYY-MM-DD (negative = past). */
+function daysFrom(today: string, date: string): number {
+  return Math.round((Date.parse(`${date}T00:00:00Z`) - Date.parse(`${today}T00:00:00Z`)) / 86_400_000);
+}
+
+/** Why `date` can't be added, or null if it can. `today` is the Toronto day. */
+function addRefusal(date: string, today: string): string | null {
+  if (daysFrom(today, date) < 0) return PAST_DATE_MESSAGE;
+  // Planned rule (not approved yet): block adding 5 days or less away —
+  // if (daysFrom(today, date) <= CANCEL_LOCKOUT_DAYS) return '...';
+  return null;
+}
+
+/** Why `date` can't be removed, or null if it can. Past dates may be removed
+ *  (clearing a stale record isn't "close" to anything). */
+function removeRefusal(date: string, today: string): string | null {
+  const diff = daysFrom(today, date);
+  if (diff >= 0 && diff <= CANCEL_LOCKOUT_DAYS) return CANCEL_LOCKOUT_MESSAGE;
+  return null;
+}
+
+/** A real calendar date in YYYY-MM-DD form (rejects 2026-02-30). */
+const isoDay = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Use YYYY-MM-DD').refine(
+  (d) => { const t = Date.parse(`${d}T00:00:00Z`); return !isNaN(t) && new Date(t).toISOString().startsWith(d); },
+  'Not a real date',
+);
+const MAX_BATCH_DATES = 100;
+const availabilityBatchSchema = z.object({
+  add: z.array(isoDay).default([]),
+  remove: z.array(isoDay).default([]),
+}).refine((b) => b.add.length + b.remove.length > 0, 'Choose at least one date')
+  .refine((b) => b.add.length + b.remove.length <= MAX_BATCH_DATES, `At most ${MAX_BATCH_DATES} dates at a time`)
+  .refine((b) => !b.add.some((d) => b.remove.includes(d)), 'A date cannot be both added and removed');
 
 // Shared query for the class-list endpoints
 const CLASS_QUERY_BASE = `
@@ -74,8 +117,13 @@ export async function instructorRoutes(app: FastifyInstance) {
   });
 
   app.post('/availability', { preHandler: role }, async (request, reply) => {
-    const { date } = z.object({ date: z.string() }).parse(request.body);
-    if (isNaN(new Date(date).getTime())) return reply.status(400).send({ error: 'Invalid date format' });
+    // Only plain YYYY-MM-DD: MariaDB also matches forms like '2026-10-23T00:00'
+    // or '20261023' against a DATE, which would slip past the rules below.
+    const parsed = isoDay.safeParse((request.body as { date?: unknown } | null)?.date);
+    if (!parsed.success) return reply.status(400).send({ error: 'Use a date in YYYY-MM-DD form' });
+    const date = parsed.data;
+    const refusal = addRefusal(date, torontoToday());
+    if (refusal) return reply.status(400).send({ error: refusal });
 
     const [existing] = await pool.query<RowDataPacket[]>(
       'SELECT id FROM instructor_availability WHERE instructor_id = ? AND date = ?',
@@ -95,24 +143,14 @@ export async function instructorRoutes(app: FastifyInstance) {
   });
 
   app.delete('/availability/:date', { preHandler: role }, async (request, reply) => {
-    const { date } = request.params as { date: string };
+    const parsed = isoDay.safeParse((request.params as { date: string }).date);
+    if (!parsed.success) return reply.status(400).send({ error: 'Use a date in YYYY-MM-DD form' });
+    const date = parsed.data;
 
     // An instructor cannot cancel their own availability 5 days or less
-    // before an UPCOMING date — restored per business rule; previously this
-    // was only suggested by a frontend UI lock (and at 11 days, not 5) with
-    // no server-side enforcement at all, so the real rule never actually
-    // held. Only applies to today..+5 days: a negative diffDays means the
-    // date has already passed, and blocking removal of a stale past record
-    // with "cannot cancel this close to the date" is simply wrong — a date
-    // three months gone is not "close" to anything.
-    const today = new Date(); today.setHours(0, 0, 0, 0);
-    const target = new Date(date); target.setHours(0, 0, 0, 0);
-    const diffDays = Math.round((target.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
-    if (!isNaN(diffDays) && diffDays >= 0 && diffDays <= 5) {
-      return reply.status(400).send({
-        error: 'Availability cannot be cancelled 5 days or less before the date. Contact your administrator if you need to cancel.',
-      });
-    }
+    // before an UPCOMING date (Toronto day). A past date may be removed.
+    const refusal = removeRefusal(date, torontoToday());
+    if (refusal) return reply.status(400).send({ error: refusal });
 
     const [result] = await pool.query<ResultSetHeader>(
       'DELETE FROM instructor_availability WHERE instructor_id = ? AND date = ?',
@@ -120,6 +158,58 @@ export async function instructorRoutes(app: FastifyInstance) {
     );
     if (result.affectedRows === 0) return reply.status(404).send({ error: 'Availability not found' });
     return { success: true, message: 'Availability removed successfully' };
+  });
+
+  // Several days in one save, from the My Availability calendar. Each date
+  // gets the same rules as the single-date endpoints; a date that can't be
+  // changed is skipped with a reason, the rest are written in one transaction.
+  app.post('/availability/batch', { preHandler: role }, async (request, reply) => {
+    const parsed = availabilityBatchSchema.safeParse(request.body);
+    if (!parsed.success) {
+      return reply.status(400).send({ error: parsed.error.issues[0]?.message ?? 'Invalid request' });
+    }
+    const add = [...new Set(parsed.data.add)].sort();
+    const remove = [...new Set(parsed.data.remove)].sort();
+    const today = torontoToday();
+    const skipped: { date: string; reason: string }[] = [];
+    const toAdd: string[] = [];
+    const toRemove: string[] = [];
+
+    const conn = await pool.getConnection();
+    try {
+      await conn.beginTransaction();
+      const [rows] = await conn.query<RowDataPacket[]>(
+        `SELECT DATE_FORMAT(date, '%Y-%m-%d') AS day FROM instructor_availability
+         WHERE instructor_id = ? AND date IN (?) FOR UPDATE`,
+        [request.userId, [...add, ...remove]]
+      );
+      const existing = new Set(rows.map((r) => r.day as string));
+
+      for (const date of add) {
+        const reason = existing.has(date) ? 'Already available' : addRefusal(date, today);
+        if (reason) skipped.push({ date, reason }); else toAdd.push(date);
+      }
+      for (const date of remove) {
+        const reason = !existing.has(date) ? 'Not marked as available' : removeRefusal(date, today);
+        if (reason) skipped.push({ date, reason }); else toRemove.push(date);
+      }
+
+      if (toAdd.length > 0) {
+        await conn.query(
+          'INSERT INTO instructor_availability (instructor_id, date, status) VALUES ?',
+          [toAdd.map((d) => [request.userId, d, 'available'])]
+        );
+      }
+      if (toRemove.length > 0) {
+        await conn.query(
+          'DELETE FROM instructor_availability WHERE instructor_id = ? AND date IN (?)',
+          [request.userId, toRemove]
+        );
+      }
+      await conn.commit();
+    } catch (err) { await conn.rollback(); throw err; } finally { conn.release(); }
+
+    return { success: true, added: toAdd, removed: toRemove, skipped };
   });
 
   // ===== Classes =====

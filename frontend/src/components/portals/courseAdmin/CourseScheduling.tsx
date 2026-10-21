@@ -16,7 +16,7 @@ import {
 import { api } from '../../../services/api';
 import { useSnackbar } from '../../../contexts/SnackbarContext';
 import { useQueryClient, useQuery } from '@tanstack/react-query';
-import { formatDisplayDate, toLocalDateString, parseLocalDate } from '../../../utils/formatters';
+import { formatDisplayDate, toLocalDateString, parseLocalDate, formatStudentCount } from '../../../utils/formatters';
 import LinkButton from '../../gtacpr/LinkButton';
 import DataTable, { DataTableRow } from '../../gtacpr/DataTable';
 import StatusChip from '../../gtacpr/StatusChip';
@@ -179,7 +179,7 @@ const CourseScheduling = () => {
               ['Course', courseToCancel?.courseTypeName],
               ['Organization', courseToCancel?.organizationName],
               ['Location', courseToCancel?.location],
-              ['Students', courseToCancel?.registeredStudents || 0],
+              ['Students', formatStudentCount(courseToCancel?.registeredStudents)],
             ].map(([l, v]) => (
               <Box key={String(l)} sx={{ display: 'flex', py: 0.5 }}>
                 <Typography sx={{ fontSize: 13, fontWeight: 600, color: (theme) => theme.palette.text.secondary, width: 100 }}>{l}</Typography>

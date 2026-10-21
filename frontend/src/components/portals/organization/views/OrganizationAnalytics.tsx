@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useCallback } from 'react';
 import { Box, Typography, Grid } from '@mui/material';
 import { formatDisplayDate } from '../../../../utils/dateUtils';
+import { formatStudentCount } from '../../../../utils/formatters';
 import StatCard from '../../../gtacpr/StatCard';
 import DataTable, { DataTableRow } from '../../../gtacpr/DataTable';
 import StatusChip from '../../../gtacpr/StatusChip';
@@ -216,7 +217,7 @@ const OrganizationAnalytics: React.FC<OrganizationAnalyticsProps> = ({
               <Typography sx={{ fontSize: 13.5, fontWeight: 600, color: (theme) => theme.palette.text.primary }}>{course.courseTypeName}</Typography>
               <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>{formatDisplayDate(course.requestSubmittedDate)}</Typography>
               <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>{course.location}</Typography>
-              <Typography sx={{ fontSize: 13, fontWeight: 600, color: (theme) => theme.palette.text.primary, textAlign: 'right' }}>{course.registeredStudents}</Typography>
+              <Typography sx={{ fontSize: 13, fontWeight: 600, color: (theme) => theme.palette.text.primary, textAlign: 'right' }}>{formatStudentCount(course.registeredStudents)}</Typography>
               <StatusChip kind={course.status?.toLowerCase() === 'completed' ? 'success' : course.status?.toLowerCase() === 'confirmed' ? 'active' : 'pending'} label={course.status} />
               <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>{course.instructor || 'TBD'}</Typography>
             </DataTableRow>

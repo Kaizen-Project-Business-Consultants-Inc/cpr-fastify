@@ -25,6 +25,7 @@ import InstructorDashboard from './InstructorDashboard';
 import AdminViewStudentsDialog from '../../dialogs/AdminViewStudentsDialog';
 import { useQuery, useQueryClient, keepPreviousData } from '@tanstack/react-query';
 import { formatDisplayDate } from '../../../utils/dateUtils';
+import { formatStudentCount } from '../../../utils/formatters';
 import DataTable, { DataTableRow } from '../../gtacpr/DataTable';
 import StatusChip from '../../gtacpr/StatusChip';
 import { PrimaryButton, GhostButton } from '../../gtacpr/Buttons';
@@ -218,6 +219,9 @@ const scheduleColumns = [
   { key: 'notes', label: 'Notes', width: '1fr' },
 ];
 
+// Shown instead of "none" when a list couldn't be loaded (e.g. too many requests).
+const LOAD_FAILED = "Couldn't load this list. Use Refresh Data or try again in a minute.";
+
 const getAssignmentStatusKind = (
   status: string | undefined
 ): 'success' | 'active' | 'warning' | 'neutral' | 'inactive' => {
@@ -301,7 +305,7 @@ const InstructorManagement: React.FC = () => {
     refetchInterval: COURSE_REFRESH_MS,
   });
 
-  const { data: pendingResult, isLoading: pendingLoading } = useQuery({
+  const { data: pendingResult, isLoading: pendingLoading, isError: pendingError } = useQuery({
     queryKey: ['pendingCourses', pendingPage],
     queryFn: async () => (await api.get('/courses/pending', { params: { page: pendingPage, limit: COURSE_PAGE_SIZE } })).data as PagedCourses,
     refetchInterval: COURSE_REFRESH_MS,
@@ -317,7 +321,7 @@ const InstructorManagement: React.FC = () => {
     refetchInterval: COURSE_REFRESH_MS,
   });
 
-  const { data: completedResult, isLoading: completedLoading } = useQuery({
+  const { data: completedResult, isLoading: completedLoading, isError: completedError } = useQuery({
     queryKey: ['completedCourses', completedPage],
     queryFn: async () => (await api.get('/courses/completed', { params: { page: completedPage, limit: COURSE_PAGE_SIZE } })).data as PagedCourses,
     refetchInterval: COURSE_REFRESH_MS,
@@ -751,7 +755,7 @@ const InstructorManagement: React.FC = () => {
 • Date: ${selectedCourse.scheduledDate ? formatDisplayDate(selectedCourse.scheduledDate) : '-'}
 • Time: ${assignmentData.startTime} - ${assignmentData.endTime}
 • Location: ${selectedCourse.location}
-• Students: ${selectedCourse.registeredStudents || 0}
+• Students: ${formatStudentCount(selectedCourse.registeredStudents)}
 
 The course status has been updated to "Confirmed" and moved to the confirmed courses list.`;
 
@@ -975,6 +979,8 @@ The course status has been updated to "Confirmed" and moved to the confirmed cou
         >
           {pendingLoading ? (
             <TableLoading />
+          ) : pendingError && pendingCourses.length === 0 ? (
+            <TableEmpty message={LOAD_FAILED} />
           ) : pendingCourses.length === 0 ? (
             <TableEmpty message="No pending course requests" />
           ) : (
@@ -996,7 +1002,7 @@ The course status has been updated to "Confirmed" and moved to the confirmed cou
               <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>
                 {course.courseTypeName || course.courseType || '-'}
               </Typography>
-              <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>{course.registeredStudents || 0}</Typography>
+              <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>{formatStudentCount(course.registeredStudents)}</Typography>
               <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>{course.notes}</Typography>
               <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
                 <GhostButton size="small" onClick={() => handleAssignOpen(course)}>
@@ -1271,7 +1277,7 @@ The course status has been updated to "Confirmed" and moved to the confirmed cou
                   {course.courseTypeName || course.courseType || '-'}
                 </Typography>
                 <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary, textAlign: 'center' }}>
-                  {course.registeredStudents || 0}
+                  {formatStudentCount(course.registeredStudents)}
                 </Typography>
                 <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary, textAlign: 'center' }}>
                   {course.studentsAttended || 0}
@@ -1336,6 +1342,8 @@ The course status has been updated to "Confirmed" and moved to the confirmed cou
         >
           {completedLoading ? (
             <TableLoading />
+          ) : completedError && completedCourses.length === 0 ? (
+            <TableEmpty message={LOAD_FAILED} />
           ) : completedCourses.length === 0 ? (
             <TableEmpty message="No completed courses yet" />
           ) : (
@@ -1361,7 +1369,7 @@ The course status has been updated to "Confirmed" and moved to the confirmed cou
                   {course.courseTypeName || course.courseType || '-'}
                 </Typography>
                 <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary, textAlign: 'center' }}>
-                  {course.registeredStudents || 0}
+                  {formatStudentCount(course.registeredStudents)}
                 </Typography>
                 <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary, textAlign: 'center' }}>
                   {course.studentsAttended || 0}
@@ -1598,7 +1606,7 @@ The course status has been updated to "Confirmed" and moved to the confirmed cou
               <br />
               <strong>Location:</strong> {selectedCourse?.location}
               <br />
-              <strong>Students:</strong> {selectedCourse?.registeredStudents || 0}
+              <strong>Students:</strong> {formatStudentCount(selectedCourse?.registeredStudents)}
               <br />
               <strong>Date Scheduled:</strong>{' '}
               {selectedCourse?.scheduledDate
@@ -1696,7 +1704,7 @@ The course status has been updated to "Confirmed" and moved to the confirmed cou
               <br />
               <strong>Location:</strong> {courseToEdit?.location}
               <br />
-              <strong>Students:</strong> {courseToEdit?.registeredStudents || 0}
+              <strong>Students:</strong> {formatStudentCount(courseToEdit?.registeredStudents)}
             </Typography>
           </Box>
 
