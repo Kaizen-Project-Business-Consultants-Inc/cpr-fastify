@@ -5,6 +5,7 @@ import { getHSTRate } from '../utils/taxConfig.js';
 import { PaginationParams, PaginatedResult, paginatedQuery } from '../utils/pagination.js';
 import type { PaymentRow, AgingInvoiceRow, BillingQueueRow } from '../types/billing.js';
 import { VERIFIED_PAYMENT_FILTER, VERIFIED_PAID_BY_INVOICE } from '../utils/paymentSql.js';
+import { completedClassDate } from '../utils/classDateSql.js';
 
 export { VERIFIED_PAYMENT_FILTER } from '../utils/paymentSql.js';
 
@@ -92,8 +93,8 @@ export class InvoiceRepository extends BaseRepository<Invoice> {
       pool.query<RowDataPacket[]>(
         `SELECT COUNT(*) as count FROM course_requests
          WHERE status = 'completed' AND deleted_at IS NULL
-         AND MONTH(completed_at) = MONTH(CURRENT_DATE)
-         AND YEAR(completed_at) = YEAR(CURRENT_DATE)`
+         AND MONTH(${completedClassDate('course_requests')}) = MONTH(CURRENT_DATE)
+         AND YEAR(${completedClassDate('course_requests')}) = YEAR(CURRENT_DATE)`
       ),
     ]);
 
@@ -112,7 +113,7 @@ export class InvoiceRepository extends BaseRepository<Invoice> {
          cr.id as course_id, cr.organization_id,
          o.name as organization_name, o.contact_email,
          ct.name as course_type_name, cr.location,
-         DATE(cr.completed_at) as date_completed, cr.registered_students,
+         ${completedClassDate('cr')} as date_completed, cr.registered_students,
          (SELECT COUNT(*) FROM course_students cs WHERE cs.course_request_id = cr.id AND cs.attended = true) as students_attended,
          cp.price_per_student as rate_per_student,
          ((SELECT COUNT(*) FROM course_students cs WHERE cs.course_request_id = cr.id AND cs.attended = true)
@@ -152,7 +153,7 @@ export class InvoiceRepository extends BaseRepository<Invoice> {
          ia.approved_at,
          i.paid_date, i.created_at,
          o.name as organization_name, o.contact_email,
-         cr.location, ct.name as course_type_name, cr.completed_at as date_completed,
+         cr.location, ct.name as course_type_name, ${completedClassDate('cr')} as date_completed,
          COALESCE(p.total_paid, 0) as amount_paid,
          GREATEST(0, i.amount - COALESCE(p.total_paid, 0)) as balance_due,
          CASE
@@ -194,7 +195,7 @@ export class InvoiceRepository extends BaseRepository<Invoice> {
       `SELECT
          i.*, o.name as organization_name, o.contact_email, o.contact_name, o.address, o.contact_phone,
          o.address_street, o.address_city, o.address_province, o.address_postal_code,
-         cr.location, cr.scheduled_date as course_date, cr.completed_at as date_completed,
+         cr.location, cr.scheduled_date as course_date, ${completedClassDate('cr')} as date_completed,
          cr.course_type_id, ct.name as course_type_name,
          COALESCE(cp.price_per_student, i.rate_per_student) as rate_per_student,
          COALESCE(NULLIF(TRIM(CONCAT(COALESCE(u.first_name,''),' ',COALESCE(u.last_name,''))), ''), u.username) as instructor_name,

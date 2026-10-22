@@ -24,6 +24,7 @@ vi.mock('../utils/taxConfig.js', () => ({
 
 import { billingRoutes } from '../routes/billing.js';
 import { orgBillingRoutes } from '../routes/org-billing.js';
+import { completedClassDate } from '../utils/classDateSql.js';
 
 /** Answer each query with `rows`, and any COUNT(*) with a count. */
 const answerWith = (rows: unknown[]) =>
@@ -158,5 +159,36 @@ describe('accounting billing screens: payment verification', () => {
       'i.rate_per_student as ratePerStudent', 'i.base_cost as baseCost', 'i.tax_amount as taxAmount',
       'i.amount as invoiceAmount',
     ]) expect(sql).toContain(field);
+  });
+});
+
+// UAT 2026-10-21: a class finished at 8:26 pm Toronto showed as completed the
+// next day, because completed_at is UTC. Billing dates use the class's own day.
+describe('billing dates use the day the class was held', () => {
+  let app: FastifyInstance;
+
+  beforeEach(async () => {
+    vi.clearAllMocks();
+    answerWith([]);
+    app = Fastify();
+    await app.register(billingRoutes);
+    await app.ready();
+  });
+  afterEach(() => app.close());
+
+  it.each([
+    ['the billing queue', '/billing-queue', /FROM course_requests cr/],
+    ['the invoice list', '/invoices', /FROM invoice_with_breakdown i/],
+    ['an invoice', '/invoices/7', /FROM invoices i/],
+  ])('%s', async (_label, url, match) => {
+    await app.inject({ method: 'GET', url });
+    const sql = sqlOf(match);
+    expect(sql).toContain(`${completedClassDate('cr')} as date_completed`);
+    expect(sql).not.toMatch(/completed_at\)? as date_completed/);
+  });
+
+  it('falls back to the completion day only when the class has no date', () => {
+    expect(completedClassDate('cr')).toBe(
+      'CASE WHEN cr.completed_at IS NOT NULL THEN COALESCE(cr.confirmed_date, cr.scheduled_date, DATE(cr.completed_at)) END');
   });
 });

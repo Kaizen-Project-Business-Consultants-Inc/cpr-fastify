@@ -1,5 +1,6 @@
 import { getPool } from '../config/database.js';
 import type { RowDataPacket } from 'mysql2/promise';
+import { completedClassDate } from '../utils/classDateSql.js';
 
 export class HRError extends Error {
   constructor(message: string, public statusCode: number = 400) {
@@ -53,7 +54,7 @@ export class HRService {
               COUNT(DISTINCT cr.id) as totalCourses,
               COUNT(DISTINCT CASE WHEN cr.status IN ('completed', 'invoiced') THEN cr.id END) as completedCourses,
               COUNT(DISTINCT CASE WHEN cr.status = 'confirmed' THEN cr.id END) as activeCourses,
-              MAX(cr.completed_at) as lastCourseDate
+              MAX(${completedClassDate('cr')}) as lastCourseDate
        FROM users u
        LEFT JOIN course_requests cr ON u.id = cr.instructor_id AND cr.deleted_at IS NULL
        WHERE u.role = 'instructor' AND u.status = 'active' ${searchClause}

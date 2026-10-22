@@ -10,6 +10,7 @@ import type { RowDataPacket, ResultSetHeader } from 'mysql2/promise';
 import type { PaymentPDFData } from '../services/PDFService.js';
 import { VERIFIED_PAYMENT_FILTER, VERIFIED_PAID_BY_INVOICE, verifiedPayment, pendingPayment } from '../utils/paymentSql.js';
 import { loadInvoiceForOrganization, sendInvoicePdf } from '../services/invoiceDocument.js';
+import { completedClassDate } from '../utils/classDateSql.js';
 
 const INVOICE_SORT_COLS = new Set(['created_at', 'due_date', 'amount', 'status', 'invoice_date', 'invoice_number']);
 const PAID_SORT_COLS = new Set(['paid_date', 'created_at', 'amount', 'invoice_number']);
@@ -45,7 +46,7 @@ export async function orgBillingRoutes(app: FastifyInstance) {
     const [rows] = await pool.query<RowDataPacket[]>(
       `SELECT i.id, i.invoice_number, i.created_at as invoice_date, i.due_date, i.amount,
               i.status, i.students_billed, i.paid_date,
-              cr.location, ct.name as course_type_name, cr.completed_at as course_date,
+              cr.location, ct.name as course_type_name, ${completedClassDate('cr')} as course_date,
               cr.id as course_request_id,
               COALESCE(SUM(CASE WHEN ${verifiedPayment('p')} THEN p.amount ELSE 0 END), 0) as amount_paid,
               GREATEST(0, (i.base_cost + i.tax_amount) - COALESCE(SUM(CASE WHEN ${verifiedPayment('p')} THEN p.amount ELSE 0 END), 0)) as balance_due,
@@ -323,7 +324,7 @@ export async function orgBillingRoutes(app: FastifyInstance) {
     const [rows] = await pool.query<RowDataPacket[]>(
       `SELECT i.id, i.id as invoice_id, i.invoice_number, i.created_at as invoice_date, i.due_date,
               i.amount, i.status, i.students_billed, i.paid_date,
-              cr.location, ct.name as course_type_name, cr.completed_at as course_date, cr.id as course_request_id,
+              cr.location, ct.name as course_type_name, ${completedClassDate('cr')} as course_date, cr.id as course_request_id,
               COALESCE(payments.total_paid, 0) as amount_paid,
               GREATEST(0, (i.base_cost + i.tax_amount) - COALESCE(payments.total_paid, 0)) as balance_due,
               cp.price_per_student as rate_per_student, i.base_cost, i.tax_amount,

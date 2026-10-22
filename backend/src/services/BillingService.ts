@@ -11,6 +11,7 @@ import { writeAudit, type AuditActor } from '../utils/auditLog.js';
 import { verifiedPayment } from '../utils/paymentSql.js';
 import { emailService } from './EmailService.js';
 import { env } from '../config/env.js';
+import { completedClassDate } from '../utils/classDateSql.js';
 
 const INVOICE_DUE_DAYS = 30;
 // A safety cap only: far above the number of invoices the business makes.
@@ -87,7 +88,7 @@ export class BillingService {
 
       // Get course + pricing details
       const [courseRows] = await conn.query<RowDataPacket[]>(
-        `SELECT cr.id, cr.organization_id, cr.completed_at, cr.location,
+        `SELECT cr.id, cr.organization_id, ${completedClassDate('cr')} as completed_on, cr.location,
                 o.name as organization_name, o.contact_email,
                 ct.name as course_type_name,
                 (SELECT COUNT(*) FROM course_students cs WHERE cs.course_request_id = cr.id AND cs.attended = true) as students_attended,
@@ -118,6 +119,8 @@ export class BillingService {
       const totalAmount = baseCost + taxAmount;
       const invoiceNumber = await this.invoiceNumberService.allocate(course.organization_id, conn);
 
+      // invoices.date_completed is a record only: the screens and PDF compute the
+      // class date from course_requests (utils/classDateSql.ts).
       const [result] = await conn.query<ResultSetHeader>(
         `INSERT INTO invoices (
            invoice_number, organization_id, course_request_id, invoice_date,
@@ -128,7 +131,7 @@ export class BillingService {
            CURRENT_DATE + INTERVAL ? DAY, FALSE, ?, ?, ?, ?, 'pending')`,
         [invoiceNumber, course.organization_id, courseId, totalAmount, baseCost, taxAmount,
          course.students_attended, INVOICE_DUE_DAYS, course.course_type_name,
-         course.location, course.completed_at, course.price_per_student]
+         course.location, course.completed_on, course.price_per_student]
       );
 
       // Mark course as invoiced

@@ -10,6 +10,7 @@ import {
   Typography,
   Box,
 } from '@mui/material';
+import { formatDisplayDate } from '../../utils/formatters';
 
 interface ServiceDetail {
   date: string;
@@ -36,14 +37,6 @@ const ServiceDetailsTable: React.FC<ServiceDetailsTableProps> = ({
       style: 'currency',
       currency: 'CAD',
     }).format(amount);
-  };
-
-  const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString('en-CA', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric',
-    });
   };
 
   const calculateTotals = () => {
@@ -88,7 +81,7 @@ const ServiceDetailsTable: React.FC<ServiceDetailsTableProps> = ({
                   '&:hover': { backgroundColor: 'grey.100' }
                 }}
               >
-                <TableCell>{formatDate(service.date)}</TableCell>
+                <TableCell>{formatDisplayDate(service.date)}</TableCell>
                 <TableCell>{service.location}</TableCell>
                 <TableCell>{service.course}</TableCell>
                 <TableCell align="center">{service.students}</TableCell>

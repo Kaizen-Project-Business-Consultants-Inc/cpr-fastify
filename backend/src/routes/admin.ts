@@ -13,6 +13,7 @@ import { writeAudit, logAudit } from '../utils/auditLog.js';
 import { canReceiveReset, sendPasswordResetLink, type ResetTarget } from '../services/passwordReset.js';
 import { randomBytes } from 'node:crypto';
 import { ERASED_EMAIL_DOMAIN, isErased, notReservedEmail, notReservedUsername } from '../utils/userAccount.js';
+import { completedClassDate } from '../utils/classDateSql.js';
 
 const createUserSchema = z.object({
   username: z.string().min(3).max(50).regex(/^[a-zA-Z0-9_-]+$/)
@@ -881,7 +882,7 @@ export async function adminRoutes(app: FastifyInstance) {
     if (wantsPage) {
       const result = await paginatedQuery(
         `SELECT s.*, COUNT(DISTINCT cs.course_request_id) as course_count,
-                MAX(cr.completed_at) as last_course_date,
+                MAX(${completedClassDate('cr')}) as last_course_date,
                 o.name as organization_name
          FROM students s
          LEFT JOIN course_students cs ON cs.student_id = s.id
@@ -898,7 +899,7 @@ export async function adminRoutes(app: FastifyInstance) {
 
     const [rows] = await pool.query<RowDataPacket[]>(
       `SELECT s.*, COUNT(DISTINCT cs.course_request_id) as course_count,
-              MAX(cr.completed_at) as last_course_date,
+              MAX(${completedClassDate('cr')}) as last_course_date,
               o.name as organization_name
        FROM students s
        LEFT JOIN course_students cs ON cs.student_id = s.id
@@ -1222,7 +1223,7 @@ export async function adminRoutes(app: FastifyInstance) {
       `SELECT s.first_name, s.last_name, s.email, s.phone,
               o.name as organization_name,
               COUNT(DISTINCT cs.course_request_id) as course_count,
-              MAX(cr.completed_at) as last_course_date,
+              DATE_FORMAT(MAX(${completedClassDate('cr')}), '%Y-%m-%d') as last_course_date,
               s.created_at
        FROM students s
        LEFT JOIN course_students cs ON cs.student_id = s.id

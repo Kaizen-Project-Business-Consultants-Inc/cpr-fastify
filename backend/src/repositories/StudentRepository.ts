@@ -1,6 +1,7 @@
 import type { PoolConnection, RowDataPacket } from 'mysql2/promise';
 import { getPool } from '../config/database.js';
 import { paginatedQuery, type PaginationParams, type PaginatedResult } from '../utils/pagination.js';
+import { completedClassDate } from '../utils/classDateSql.js';
 
 export interface Student {
   id: number;
@@ -121,7 +122,7 @@ export class StudentRepository {
   ): Promise<StudentWithHistory[] | PaginatedResult<StudentWithHistory>> {
     const dataSQL = `SELECT s.*,
               COUNT(DISTINCT cs.course_request_id) as course_count,
-              MAX(cr.completed_at) as last_course_date
+              MAX(${completedClassDate('cr')}) as last_course_date
        FROM students s
        LEFT JOIN course_students cs ON cs.student_id = s.id
        LEFT JOIN course_requests cr ON cs.course_request_id = cr.id
@@ -151,7 +152,7 @@ export class StudentRepository {
     const [rows] = await pool.query<(RowDataPacket & StudentWithHistory)[]>(
       `SELECT s.*,
               COUNT(DISTINCT cs.course_request_id) as course_count,
-              MAX(cr.completed_at) as last_course_date,
+              MAX(${completedClassDate('cr')}) as last_course_date,
               o.name as organization_name
        FROM students s
        LEFT JOIN course_students cs ON cs.student_id = s.id
@@ -171,7 +172,7 @@ export class StudentRepository {
     const [rows] = await pool.query<RowDataPacket[]>(
       `SELECT cs.id, cs.course_request_id, cs.attended, cs.attendance_marked,
               cs.certificate_number, cs.certificate_issued_at, cs.certificate_expires_at,
-              cr.completed_at, cr.location,
+              ${completedClassDate('cr')} as completed_at, cr.location,
               ct.name as course_type_name, ct.certification_validity_months,
               o.name as organization_name,
               COALESCE(NULLIF(TRIM(CONCAT(COALESCE(u.first_name,''),' ',COALESCE(u.last_name,''))), ''), u.username) as instructor_name

@@ -1,6 +1,7 @@
 import type { FastifyReply } from 'fastify';
 import type { RowDataPacket } from 'mysql2/promise';
 import { getPool } from '../config/database.js';
+import { completedClassDate } from '../utils/classDateSql.js';
 import type { InvoicePDFData } from './PDFService.js';
 
 type AttendanceRow = NonNullable<InvoicePDFData['attendance_list']>[number];
@@ -25,7 +26,7 @@ async function loadInvoice(id: number, scope: { scoped: false } | { scoped: true
   const orgId = scope.scoped ? scope.orgId : undefined;
   const [rows] = await pool.query<(RowDataPacket & InvoicePDFData)[]>(
     `SELECT i.*, o.name as organization_name, o.contact_email,
-            cr.location, cr.scheduled_date as date_completed, cr.registered_students as students_billed,
+            cr.location, ${completedClassDate('cr')} as date_completed, cr.registered_students as students_billed,
             ct.name as course_type_name,
             COALESCE(i.rate_per_student, op.price_per_student) as rate_per_student
      FROM invoices i
