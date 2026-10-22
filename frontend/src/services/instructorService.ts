@@ -141,10 +141,8 @@ export const useRefreshInstructorData = () => {
   const queryClient = useQueryClient();
   
   return () => {
+    // ['instructor'] covers every instructor list; extra calls would cancel and
+    // re-send the same requests.
     queryClient.invalidateQueries({ queryKey: ['instructor'] });
-    queryClient.invalidateQueries({ queryKey: INSTRUCTOR_QUERY_KEYS.classes });
-    queryClient.invalidateQueries({ queryKey: INSTRUCTOR_QUERY_KEYS.classesActive });
-    queryClient.invalidateQueries({ queryKey: INSTRUCTOR_QUERY_KEYS.classesCompleted });
-    queryClient.invalidateQueries({ queryKey: INSTRUCTOR_QUERY_KEYS.classesToday });
   };
 }; 

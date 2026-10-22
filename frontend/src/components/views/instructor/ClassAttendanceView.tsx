@@ -18,6 +18,7 @@ import {
 } from '@mui/material';
 import { instructorApi, collegesApi } from '../../../services/api';
 import { handleError } from '../../../services/errorHandler';
+import { useRefreshInstructorData } from '../../../services/instructorService';
 import DataTable, { DataTableRow } from '../../gtacpr/DataTable';
 import StatusChip from '../../gtacpr/StatusChip';
 import { PrimaryButton, GhostButton } from '../../gtacpr/Buttons';
@@ -74,6 +75,9 @@ const ClassAttendanceView: React.FC = () => {
   const [instructorComments, setInstructorComments] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
   const [colleges, setColleges] = useState<{ id: number; name: string }[]>([]);
+  // This screen calls the API directly, so the cached lists on My Schedule,
+  // Dashboard and Archive must be told to reload after a change here.
+  const refreshInstructorData = useRefreshInstructorData();
 
   const loadColleges = async () => {
     try {
@@ -173,6 +177,7 @@ const ClassAttendanceView: React.FC = () => {
       setAddStudentDialog(false);
       setError('');
       setSuccessMessage('Student added successfully!');
+      refreshInstructorData();
     } catch (error: unknown) {
       const axiosErr = error as { response?: { data?: { error?: string } } };
       const errorMessage = axiosErr.response?.data?.error || 'Failed to add student';
@@ -187,6 +192,7 @@ const ClassAttendanceView: React.FC = () => {
     try {
       setCompleting(true);
       await instructorApi.completeClass(selectedClass.courseId, instructorComments);
+      refreshInstructorData();
       setError('');
       setSuccessMessage('Class completed successfully! It has been moved to your archive.');
       await loadTodaysClasses();
