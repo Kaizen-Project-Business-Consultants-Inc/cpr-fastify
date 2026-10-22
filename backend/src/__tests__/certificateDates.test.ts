@@ -28,6 +28,7 @@ import { instructorRoutes } from '../routes/instructors.js';
 import { adminRoutes } from '../routes/admin.js';
 import { ISSUE_CERTIFICATES_SQL, completedClassDate } from '../utils/classDateSql.js';
 import { migrations } from '../config/migrations.js';
+import { torontoTodaySql } from '../utils/torontoDate.js';
 
 const flat = (sql: unknown) => String(sql).replace(/\s+/g, ' ');
 
@@ -136,5 +137,53 @@ describe('changing a course validity period', () => {
     await app.inject({ method: 'PUT', url: '/courses/18', payload: { certification_validity_months: null } });
     await app.inject({ method: 'PUT', url: '/courses/18', payload: { name: 'Basic First Aid' } });
     expect(mockQuery.mock.calls.some(([sql]) => flat(sql).includes('UPDATE course_students cs'))).toBe(false);
+  });
+});
+
+// A certificate is valid through its expiry day in Toronto. The checks used
+// NOW() (UTC), which reaches the next day at 8 pm Toronto, so certificates
+// showed as expired about 4 hours early.
+describe('certificate expiry uses the Toronto day', () => {
+  let app: FastifyInstance;
+  beforeEach(async () => {
+    vi.clearAllMocks();
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-10-22T00:30:00Z')); // 8:30 pm on Oct 21 in Toronto
+    mockQuery.mockReset().mockImplementation(async (sql: string) =>
+      /COUNT\(\*\) as count/.test(sql) ? [[{ count: 0 }]] : [[{}]]);
+    app = Fastify();
+    await app.register(adminRoutes);
+    await app.ready();
+  });
+  afterEach(async () => {
+    vi.useRealTimers();
+    await app.close();
+  });
+
+  it('builds the Toronto date, still Oct 21 at 8:30 pm', () => {
+    expect(torontoTodaySql()).toBe("DATE('2026-10-21')");
+  });
+
+  it.each([
+    ['expiring', '/certifications/expiring?days=30'],
+    ['expired', '/certifications/expired'],
+    ['stats', '/certifications/stats'],
+    ['expiring CSV', '/certifications/expiring/export/csv'],
+  ])('%s compares with the Toronto day and skips removed students', async (_label, url) => {
+    await app.inject({ method: 'GET', url });
+    const sqls = mockQuery.mock.calls.map(([sql]) => flat(sql));
+    expect(sqls.length).toBeGreaterThan(0);
+    for (const sql of sqls) {
+      expect(sql).toContain("DATE('2026-10-21')");
+      expect(sql).not.toMatch(/NOW\(\)|CURDATE\(\)/);
+      expect(sql).toContain('cs.deleted_at IS NULL');
+    }
+  });
+
+  it('a certificate expiring today is still valid, and expired only from tomorrow', async () => {
+    await app.inject({ method: 'GET', url: '/certifications/stats' });
+    const sql = flat(mockQuery.mock.calls[0][0]);
+    expect(sql).toContain("cs.certificate_expires_at >= DATE('2026-10-21') THEN 1 END) as active_certs");
+    expect(sql).toContain("cs.certificate_expires_at < DATE('2026-10-21') THEN 1 END) as expired");
   });
 });

@@ -2,6 +2,7 @@ import { FastifyInstance, FastifyReply } from 'fastify';
 import type { PoolConnection, RowDataPacket, ResultSetHeader } from 'mysql2/promise';
 import { z } from 'zod';
 import { getPool } from '../config/database.js';
+import { torontoTodaySql } from '../utils/torontoDate.js';
 import { requireRole } from '../plugins/auth.js';
 import { logger } from '../config/logger.js';
 import { env } from '../config/env.js';
@@ -980,8 +981,8 @@ export async function adminRoutes(app: FastifyInstance) {
        JOIN class_types ct ON cr.course_type_id = ct.id
        LEFT JOIN organizations o ON s.organization_id = o.id
        WHERE cs.certificate_expires_at IS NOT NULL
-         AND cs.certificate_expires_at BETWEEN NOW() AND DATE_ADD(NOW(), INTERVAL ? DAY)
-         AND cs.attended = true`;
+         AND cs.certificate_expires_at BETWEEN ${torontoTodaySql()} AND DATE_ADD(${torontoTodaySql()}, INTERVAL ? DAY)
+         AND cs.attended = true AND cs.deleted_at IS NULL`;
 
     const result = await paginatedQuery(
       `SELECT s.id as student_id, s.email, s.first_name, s.last_name, s.phone,
@@ -989,7 +990,7 @@ export async function adminRoutes(app: FastifyInstance) {
               ct.name as course_type_name, ct.certification_validity_months,
               cs.certificate_issued_at, cs.certificate_expires_at,
               cs.certificate_number,
-              DATEDIFF(cs.certificate_expires_at, NOW()) as days_until_expiry
+              DATEDIFF(cs.certificate_expires_at, ${torontoTodaySql()}) as days_until_expiry
        ${baseFrom}
        ORDER BY cs.certificate_expires_at ASC`,
       `SELECT COUNT(*) as count ${baseFrom}`,
@@ -1008,8 +1009,8 @@ export async function adminRoutes(app: FastifyInstance) {
        JOIN class_types ct ON cr.course_type_id = ct.id
        LEFT JOIN organizations o ON s.organization_id = o.id
        WHERE cs.certificate_expires_at IS NOT NULL
-         AND cs.certificate_expires_at < NOW()
-         AND cs.attended = true`;
+         AND cs.certificate_expires_at < ${torontoTodaySql()}
+         AND cs.attended = true AND cs.deleted_at IS NULL`;
 
     const result = await paginatedQuery(
       `SELECT s.id as student_id, s.email, s.first_name, s.last_name, s.phone,
@@ -1017,7 +1018,7 @@ export async function adminRoutes(app: FastifyInstance) {
               ct.name as course_type_name,
               cs.certificate_issued_at, cs.certificate_expires_at,
               cs.certificate_number,
-              DATEDIFF(NOW(), cs.certificate_expires_at) as days_expired
+              DATEDIFF(${torontoTodaySql()}, cs.certificate_expires_at) as days_expired
        ${baseFrom}
        ORDER BY cs.certificate_expires_at DESC`,
       `SELECT COUNT(*) as count ${baseFrom}`,
@@ -1031,12 +1032,12 @@ export async function adminRoutes(app: FastifyInstance) {
   app.get('/certifications/stats', { preHandler: adminRole }, async () => {
     const [rows] = await pool.query<RowDataPacket[]>(`
       SELECT
-        COUNT(CASE WHEN cs.certificate_expires_at > NOW() THEN 1 END) as active_certs,
-        COUNT(CASE WHEN cs.certificate_expires_at BETWEEN NOW() AND DATE_ADD(NOW(), INTERVAL 30 DAY) THEN 1 END) as expiring_30d,
-        COUNT(CASE WHEN cs.certificate_expires_at BETWEEN NOW() AND DATE_ADD(NOW(), INTERVAL 90 DAY) THEN 1 END) as expiring_90d,
-        COUNT(CASE WHEN cs.certificate_expires_at < NOW() THEN 1 END) as expired
+        COUNT(CASE WHEN cs.certificate_expires_at >= ${torontoTodaySql()} THEN 1 END) as active_certs,
+        COUNT(CASE WHEN cs.certificate_expires_at BETWEEN ${torontoTodaySql()} AND DATE_ADD(${torontoTodaySql()}, INTERVAL 30 DAY) THEN 1 END) as expiring_30d,
+        COUNT(CASE WHEN cs.certificate_expires_at BETWEEN ${torontoTodaySql()} AND DATE_ADD(${torontoTodaySql()}, INTERVAL 90 DAY) THEN 1 END) as expiring_90d,
+        COUNT(CASE WHEN cs.certificate_expires_at < ${torontoTodaySql()} THEN 1 END) as expired
       FROM course_students cs
-      WHERE cs.certificate_expires_at IS NOT NULL AND cs.attended = true
+      WHERE cs.certificate_expires_at IS NOT NULL AND cs.attended = true AND cs.deleted_at IS NULL
     `);
     return { success: true, data: rows[0] };
   });
@@ -1078,15 +1079,15 @@ export async function adminRoutes(app: FastifyInstance) {
               ct.name as course_type_name, ct.certification_validity_months,
               cs.certificate_issued_at, cs.certificate_expires_at,
               cs.certificate_number,
-              DATEDIFF(cs.certificate_expires_at, NOW()) as days_until_expiry
+              DATEDIFF(cs.certificate_expires_at, ${torontoTodaySql()}) as days_until_expiry
        FROM course_students cs
        JOIN students s ON cs.student_id = s.id
        JOIN course_requests cr ON cs.course_request_id = cr.id
        JOIN class_types ct ON cr.course_type_id = ct.id
        LEFT JOIN organizations o ON s.organization_id = o.id
        WHERE cs.certificate_expires_at IS NOT NULL
-         AND cs.certificate_expires_at BETWEEN NOW() AND DATE_ADD(NOW(), INTERVAL ? DAY)
-         AND cs.attended = true
+         AND cs.certificate_expires_at BETWEEN ${torontoTodaySql()} AND DATE_ADD(${torontoTodaySql()}, INTERVAL ? DAY)
+         AND cs.attended = true AND cs.deleted_at IS NULL
        ORDER BY cs.certificate_expires_at ASC`,
       [withinDays]
     );
@@ -1287,11 +1288,11 @@ export async function adminRoutes(app: FastifyInstance) {
     }
     if (query.compliance_status) {
       if (query.compliance_status === 'valid') {
-        conditions.push('cs.certificate_expires_at > NOW()');
+        conditions.push(`cs.certificate_expires_at >= ${torontoTodaySql()}`);
       } else if (query.compliance_status === 'expiring') {
-        conditions.push('cs.certificate_expires_at > NOW() AND cs.certificate_expires_at <= DATE_ADD(NOW(), INTERVAL 90 DAY)');
+        conditions.push(`cs.certificate_expires_at >= ${torontoTodaySql()} AND cs.certificate_expires_at <= DATE_ADD(${torontoTodaySql()}, INTERVAL 90 DAY)`);
       } else if (query.compliance_status === 'expired') {
-        conditions.push('(cs.certificate_expires_at IS NOT NULL AND cs.certificate_expires_at <= NOW())');
+        conditions.push(`(cs.certificate_expires_at IS NOT NULL AND cs.certificate_expires_at < ${torontoTodaySql()})`);
       }
     }
 
@@ -1309,8 +1310,8 @@ export async function adminRoutes(app: FastifyInstance) {
               COALESCE(NULLIF(TRIM(CONCAT(COALESCE(u.first_name,''),' ',COALESCE(u.last_name,''))), ''), u.username) as instructor_name,
               CASE
                 WHEN cs.certificate_expires_at IS NULL THEN 'expired'
-                WHEN cs.certificate_expires_at <= NOW() THEN 'expired'
-                WHEN cs.certificate_expires_at <= DATE_ADD(NOW(), INTERVAL 90 DAY) THEN 'expiring'
+                WHEN cs.certificate_expires_at < ${torontoTodaySql()} THEN 'expired'
+                WHEN cs.certificate_expires_at <= DATE_ADD(${torontoTodaySql()}, INTERVAL 90 DAY) THEN 'expiring'
                 ELSE 'valid'
               END as compliance_status
        FROM course_students cs
@@ -1380,11 +1381,11 @@ export async function adminRoutes(app: FastifyInstance) {
     const [summaryRows] = await pool.query<RowDataPacket[]>(`
       SELECT
         COUNT(DISTINCT s.id) as total_trained,
-        COUNT(DISTINCT CASE WHEN cs.certificate_expires_at > NOW() THEN s.id END) as current_certs,
-        COUNT(DISTINCT CASE WHEN cs.certificate_expires_at IS NOT NULL AND cs.certificate_expires_at <= NOW() THEN s.id END) as expired_certs,
-        COUNT(DISTINCT CASE WHEN cs.certificate_expires_at > NOW() AND cs.certificate_expires_at <= DATE_ADD(NOW(), INTERVAL 30 DAY) THEN s.id END) as expiring_30d,
-        COUNT(DISTINCT CASE WHEN cs.certificate_expires_at > NOW() AND cs.certificate_expires_at <= DATE_ADD(NOW(), INTERVAL 60 DAY) THEN s.id END) as expiring_60d,
-        COUNT(DISTINCT CASE WHEN cs.certificate_expires_at > NOW() AND cs.certificate_expires_at <= DATE_ADD(NOW(), INTERVAL 90 DAY) THEN s.id END) as expiring_90d,
+        COUNT(DISTINCT CASE WHEN cs.certificate_expires_at >= ${torontoTodaySql()} THEN s.id END) as current_certs,
+        COUNT(DISTINCT CASE WHEN cs.certificate_expires_at IS NOT NULL AND cs.certificate_expires_at < ${torontoTodaySql()} THEN s.id END) as expired_certs,
+        COUNT(DISTINCT CASE WHEN cs.certificate_expires_at >= ${torontoTodaySql()} AND cs.certificate_expires_at <= DATE_ADD(${torontoTodaySql()}, INTERVAL 30 DAY) THEN s.id END) as expiring_30d,
+        COUNT(DISTINCT CASE WHEN cs.certificate_expires_at >= ${torontoTodaySql()} AND cs.certificate_expires_at <= DATE_ADD(${torontoTodaySql()}, INTERVAL 60 DAY) THEN s.id END) as expiring_60d,
+        COUNT(DISTINCT CASE WHEN cs.certificate_expires_at >= ${torontoTodaySql()} AND cs.certificate_expires_at <= DATE_ADD(${torontoTodaySql()}, INTERVAL 90 DAY) THEN s.id END) as expiring_90d,
         COUNT(DISTINCT CASE WHEN cr.scheduled_date >= DATE_SUB(NOW(), INTERVAL 12 MONTH) THEN s.id END) as trained_last_12mo
       FROM course_students cs
       JOIN students s ON cs.student_id = s.id

@@ -2,6 +2,7 @@ import type { PoolConnection, RowDataPacket } from 'mysql2/promise';
 import { getPool } from '../config/database.js';
 import { paginatedQuery, type PaginationParams, type PaginatedResult } from '../utils/pagination.js';
 import { completedClassDate } from '../utils/classDateSql.js';
+import { torontoTodaySql } from '../utils/torontoDate.js';
 
 export interface Student {
   id: number;
@@ -172,6 +173,7 @@ export class StudentRepository {
     const [rows] = await pool.query<RowDataPacket[]>(
       `SELECT cs.id, cs.course_request_id, cs.attended, cs.attendance_marked,
               cs.certificate_number, cs.certificate_issued_at, cs.certificate_expires_at,
+              DATEDIFF(cs.certificate_expires_at, ${torontoTodaySql()}) as days_until_expiry,
               ${completedClassDate('cr')} as completed_at, cr.location,
               ct.name as course_type_name, ct.certification_validity_months,
               o.name as organization_name,

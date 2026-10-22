@@ -1,4 +1,5 @@
 import { getPool } from '../config/database.js';
+import { torontoTodaySql } from '../utils/torontoDate.js';
 import { logger } from '../config/logger.js';
 import { EmailService } from './EmailService.js';
 import type { RowDataPacket, ResultSetHeader } from 'mysql2/promise';
@@ -38,14 +39,14 @@ export class CertReminderService {
           `SELECT cs.id as course_student_id, cs.email, cs.first_name, cs.last_name,
                   cs.certificate_number, cs.certificate_expires_at,
                   ct.name as course_type_name,
-                  DATEDIFF(cs.certificate_expires_at, CURDATE()) as days_until_expiry
+                  DATEDIFF(cs.certificate_expires_at, ${torontoTodaySql()}) as days_until_expiry
            FROM course_students cs
            JOIN course_requests cr ON cs.course_request_id = cr.id
            JOIN class_types ct ON cr.course_type_id = ct.id
-           WHERE cs.attended = true
+           WHERE cs.attended = true AND cs.deleted_at IS NULL
              AND cs.certificate_expires_at IS NOT NULL
              AND cs.email IS NOT NULL AND cs.email != ''
-             AND DATEDIFF(cs.certificate_expires_at, CURDATE()) BETWEEN 0 AND ?
+             AND DATEDIFF(cs.certificate_expires_at, ${torontoTodaySql()}) BETWEEN 0 AND ?
              AND NOT EXISTS (
                SELECT 1 FROM certification_reminders r
                WHERE r.course_student_id = cs.id AND r.reminder_type = ?

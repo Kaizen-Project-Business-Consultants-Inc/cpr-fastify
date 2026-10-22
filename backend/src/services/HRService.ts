@@ -1,4 +1,5 @@
 import { getPool } from '../config/database.js';
+import { torontoTodaySql } from '../utils/torontoDate.js';
 import type { RowDataPacket } from 'mysql2/promise';
 import { completedClassDate } from '../utils/classDateSql.js';
 
@@ -26,7 +27,7 @@ export class HRService {
       // same rule as Sysadmin -> Certification Tracking: attended, expiring in 30 days.
       pool.query<RowDataPacket[]>(
         `SELECT COUNT(*) as count FROM course_students
-         WHERE attended = true AND certificate_expires_at BETWEEN NOW() AND NOW() + INTERVAL 30 DAY`
+         WHERE attended = true AND deleted_at IS NULL AND certificate_expires_at BETWEEN ${torontoTodaySql()} AND ${torontoTodaySql()} + INTERVAL 30 DAY`
       ),
     ]);
 

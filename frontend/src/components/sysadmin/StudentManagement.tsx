@@ -52,6 +52,8 @@ interface CourseHistoryEntry {
   location?: string;
   completed_at?: string;
   certificate_expires_at?: string;
+  /** Days left in Toronto, worked out by the server; negative once expired. */
+  days_until_expiry?: number | null;
 }
 
 const columns = [
@@ -109,12 +111,6 @@ const StudentManagement = ({ onShowSnackbar }: StudentManagementProps) => {
 
   const loadStudents = grid.load;
   useEffect(() => { loadStudents(1); }, [loadStudents, debouncedSearch]);
-
-  // Snapshot "now" once per mount (via the useState lazy initializer,
-  // which runs a single time) rather than calling Date.now() directly in
-  // render, which the purity rule flags as non-deterministic; the
-  // certificate countdown below only needs to be accurate to the day.
-  const [now] = useState(() => Date.now());
 
   const handleViewStudent = async (student: Student) => {
     setDetailOpen(true);
@@ -286,8 +282,9 @@ const StudentManagement = ({ onShowSnackbar }: StudentManagementProps) => {
               {courseHistory.map((course: CourseHistoryEntry) => {
                 let chipKind: 'active' | 'warning' | 'danger' | 'neutral' = 'neutral';
                 let chipLabel = '—';
-                if (course.certificate_expires_at) {
-                  const daysLeft = Math.ceil((new Date(course.certificate_expires_at).getTime() - now) / 86400000);
+                if (course.certificate_expires_at && course.days_until_expiry != null) {
+                  // The server counts days in Toronto; a certificate is valid through its expiry day.
+                  const daysLeft = Number(course.days_until_expiry);
                   if (daysLeft < 0) { chipKind = 'danger'; chipLabel = 'Expired'; }
                   else if (daysLeft <= 90) { chipKind = 'warning'; chipLabel = `${daysLeft}d left`; }
                   else { chipKind = 'active'; chipLabel = 'Active'; }
