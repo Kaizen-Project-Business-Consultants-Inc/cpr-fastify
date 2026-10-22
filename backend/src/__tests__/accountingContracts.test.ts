@@ -192,3 +192,35 @@ describe('billing dates use the day the class was held', () => {
       'CASE WHEN cr.completed_at IS NOT NULL THEN COALESCE(cr.confirmed_date, cr.scheduled_date, DATE(cr.completed_at)) END');
   });
 });
+
+describe('aging report', () => {
+  let app: FastifyInstance;
+
+  beforeEach(async () => {
+    vi.clearAllMocks();
+    answerWith([]);
+    app = Fastify();
+    await app.register(billingRoutes);
+    await app.ready();
+  });
+  afterEach(() => app.close());
+
+  it.each(['2026-02-31', '21/10/2026', 'today'])('refuses an as-of date of %s', async (date) => {
+    const res = await app.inject({ method: 'GET', url: `/aging-report?as_of_date=${date}` });
+    expect(res.statusCode).toBe(400);
+    expect(mockQuery).not.toHaveBeenCalled();
+  });
+
+  it('collection efficiency counts the same invoices, for the chosen organization', async () => {
+    const res = await app.inject({ method: 'GET', url: '/aging-report?as_of_date=2026-10-21&organization_id=5' });
+    expect(res.statusCode).toBe(200);
+    const call = mockQuery.mock.calls.find(([sql]) => /total_collected/.test(sql as string))!;
+    const [sql, params] = call as [string, unknown[]];
+    expect(params).toHaveLength((sql.match(/\?/g) ?? []).length);
+    expect(params).toEqual(['2026-10-21', 5, '2026-10-21', 5]);
+    for (const alias of ['i2', 'i']) {
+      expect(sql).toContain(`${alias}.posted_to_org = TRUE`);
+      expect(sql).toContain(`${alias}.organization_id = ?`);
+    }
+  });
+});

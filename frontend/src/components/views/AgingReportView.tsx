@@ -38,6 +38,9 @@ import StatusChip from '../gtacpr/StatusChip';
 import StatCard from '../gtacpr/StatCard';
 import { PrimaryButton, GhostButton } from '../gtacpr/Buttons';
 import { getErrorMessage } from '../../utils/errorMessage';
+// formatDate shows calendar dates as sent; new Date() read them as UTC
+// midnight, a day early in Toronto.
+import { getTodayDate, formatDisplayDate, formatDate } from '../../utils/formatters';
 
 /** Rows per page in the bucket drill-down dialog. */
 const DETAIL_PAGE_SIZE = 25;
@@ -113,9 +116,8 @@ const AgingReportView = () => {
   const [selectedTab, setSelectedTab] = useState(0);
   const [detailPage, setDetailPage] = useState(0);
   const [organizationFilter, setOrganizationFilter] = useState('');
-  const [asOfDate, setAsOfDate] = useState(
-    new Date().toISOString().split('T')[0]
-  );
+  // The local day; toISOString() is UTC and runs a day ahead in the evening.
+  const [asOfDate, setAsOfDate] = useState(getTodayDate);
   const [selectedBucket, setSelectedBucket] = useState<AgingBucketSummary | null>(null);
   const [detailDialogOpen, setDetailDialogOpen] = useState(false);
 
@@ -169,7 +171,7 @@ const AgingReportView = () => {
       ],
       [
         'As of Date:',
-        new Date(reportData.report_metadata.as_of_date).toLocaleDateString(),
+        formatDisplayDate(reportData.report_metadata.as_of_date, '-'),
       ],
       [''],
       ['Executive Summary'],
@@ -201,7 +203,8 @@ const AgingReportView = () => {
         bucket.avg_days_outstanding,
       ]),
     ]
-      .map(row => row.join(','))
+      // Quote every cell: dates ("Oct 21, 2026") and amounts ("$1,234") contain commas.
+      .map(row => row.map(cell => `"${String(cell ?? '').replace(/"/g, '""')}"`).join(','))
       .join('\n');
 
     const blob = new Blob([csvContent], { type: 'text/csv' });
@@ -218,11 +221,6 @@ const AgingReportView = () => {
       style: 'currency',
       currency: 'CAD',
     }).format(amount || 0);
-  };
-
-  const formatDate = (dateString: string | undefined | null) => {
-    if (!dateString) return '-';
-    return new Date(dateString).toLocaleDateString();
   };
 
   const getBucketKind = (bucket: string): 'success' | 'warning' | 'danger' | 'neutral' => {

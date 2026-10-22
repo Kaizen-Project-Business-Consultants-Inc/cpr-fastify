@@ -26,6 +26,7 @@ vi.mock('../utils/taxConfig.js', () => ({
 }));
 
 import { InvoiceRepository, VERIFIED_PAYMENT_FILTER } from '../repositories/InvoiceRepository.js';
+import { format } from 'mysql2';
 
 describe('Financial correctness fixes', () => {
   let repo: InvoiceRepository;
@@ -190,6 +191,22 @@ describe('Financial correctness fixes', () => {
 
       const params: unknown[] = mockPoolQuery.mock.calls[0][1];
       expect(params).toContain(0.01);
+    });
+
+    // UAT 2026-10-21: six dates for five date placeholders pushed a date into
+    // the balance check, so the report never listed anything. toContain()
+    // above didn't catch it; this checks each value lands in its own place.
+    it.each([[undefined], [5]])('puts every value in its own place (organization %s)', async (organizationId) => {
+      mockPoolQuery.mockResolvedValue([[]]);
+
+      await repo.getAgingReport({ asOfDate: '2026-10-21', postedOnly: true, threshold: 0.01, organizationId });
+
+      const [sql, params] = mockPoolQuery.mock.calls[0] as [string, unknown[]];
+      expect(params).toHaveLength((sql.match(/\?/g) ?? []).length);
+      const filled = format(sql, params).replace(/\s+/g, ' ');
+      expect(filled).toContain('> 0.01');
+      expect(filled).not.toMatch(/> '2026-10-21'/);
+      if (organizationId) expect(filled).toContain('i.organization_id = 5');
     });
   });
 });

@@ -254,11 +254,23 @@ export async function billingRoutes(app: FastifyInstance) {
   });
 
   // ===== Comprehensive aging report (for AgingReportView) =====
-  app.get('/aging-report', { preHandler: acctRole }, async (request) => {
-    const { organization_id, as_of_date } = request.query as Record<string, string>;
+  const agingQuerySchema = z.object({
+    organization_id: z.string().optional(),
+    // A real calendar day: MariaDB turns 2026-02-31 into NULL, which put every
+    // invoice in "90+ Days".
+    as_of_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Use YYYY-MM-DD')
+      .refine((d) => !Number.isNaN(Date.parse(`${d}T00:00:00Z`)) && new Date(`${d}T00:00:00Z`).toISOString().startsWith(d), 'Not a real date')
+      .optional(),
+  });
+
+  app.get('/aging-report', { preHandler: acctRole }, async (request, reply) => {
+    const parsed = agingQuerySchema.safeParse(request.query);
+    if (!parsed.success) return reply.status(400).send({ error: parsed.error.issues[0]?.message ?? 'Invalid request' });
+    const { organization_id, as_of_date } = parsed.data;
     const pool = getPool();
     const invoiceRepo = new InvoiceRepository();
-    const asOfDate = as_of_date || new Date().toISOString().split('T')[0];
+    // Toronto's day by default; the UTC date runs a day ahead after 8 pm.
+    const asOfDate = as_of_date ?? torontoToday();
 
     const invoices = await invoiceRepo.getAgingReport({
       asOfDate,
@@ -318,13 +330,20 @@ export async function billingRoutes(app: FastifyInstance) {
     });
 
     // Collection efficiency
+    // Both totals cover the same invoices: posted, not void or cancelled, and
+    // the chosen organization when one is picked.
+    const effOrgId = organization_id ? parseInt(organization_id) : NaN;
+    const effOrg = (alias: string) => (Number.isNaN(effOrgId) ? '' : `AND ${alias}.organization_id = ?`);
+    const effInvoices = (alias: string) =>
+      `${alias}.invoice_date >= DATE_SUB(?, INTERVAL 90 DAY) AND ${alias}.posted_to_org = TRUE
+       AND ${alias}.status NOT IN ('void', 'cancelled') ${effOrg(alias)}`;
+    const effParams = Number.isNaN(effOrgId) ? [asOfDate] : [asOfDate, effOrgId];
     const [effRows] = await pool.query<RowDataPacket[]>(
       `SELECT COALESCE(SUM(i.amount), 0) as total_invoiced,
               COALESCE((SELECT SUM(p.amount) FROM payments p JOIN invoices i2 ON p.invoice_id = i2.id
-                        WHERE ${verifiedPayment('p')}
-                          AND i2.invoice_date >= DATE_SUB(?, INTERVAL 90 DAY)), 0) as total_collected
-       FROM invoices i WHERE i.invoice_date >= DATE_SUB(?, INTERVAL 90 DAY) AND i.posted_to_org = TRUE`,
-      [asOfDate, asOfDate]
+                        WHERE ${verifiedPayment('p')} AND ${effInvoices('i2')}), 0) as total_collected
+       FROM invoices i WHERE ${effInvoices('i')}`,
+      [...effParams, ...effParams]
     );
     const totalInvoiced = Number(effRows[0]?.total_invoiced) || 0;
     const totalCollected = Number(effRows[0]?.total_collected) || 0;

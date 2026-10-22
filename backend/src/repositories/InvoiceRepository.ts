@@ -305,9 +305,7 @@ export class InvoiceRepository extends BaseRepository<Invoice> {
     const { asOfDate, organizationId, postedOnly = false, threshold = 0 } = options;
     const pool = getPool();
 
-    let orgFilter = '';
-    const params: unknown[] = [asOfDate, asOfDate, asOfDate, asOfDate, asOfDate, asOfDate];
-    if (organizationId) { orgFilter = 'AND i.organization_id = ?'; params.push(organizationId); }
+    const orgFilter = organizationId ? 'AND i.organization_id = ?' : '';
 
     const postedFilter = postedOnly ? 'AND i.posted_to_org = TRUE' : '';
 
@@ -335,7 +333,10 @@ export class InvoiceRepository extends BaseRepository<Invoice> {
          AND (i.amount - COALESCE(pp.total_paid, 0)) > ?
          ${orgFilter}
        ORDER BY days_outstanding DESC, o.name, i.invoice_date`,
-      [...params.slice(0, 6), threshold, ...(organizationId ? [organizationId] : [])]
+      // One as-of date per placeholder above (five). A sixth once slid into the
+      // balance check, comparing the balance with the date, so the report was
+      // always empty (UAT 2026-10-21).
+      [...Array(5).fill(asOfDate), threshold, ...(organizationId ? [organizationId] : [])]
     );
 
     return rows;
