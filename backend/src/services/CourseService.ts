@@ -3,7 +3,8 @@ import { logger } from '../config/logger.js';
 import { CourseRequestRepository, CourseRequest, CourseWithDetails } from '../repositories/CourseRequestRepository.js';
 import { CourseStudentRepository, CourseStudent } from '../repositories/CourseStudentRepository.js';
 import { UserRepository } from '../repositories/UserRepository.js';
-import { emailService } from './EmailService.js';
+import { emailService, type InstructorNoticeKind } from './EmailService.js';
+import { env } from '../config/env.js';
 import { torontoToday } from '../utils/torontoDate.js';
 import type { RowDataPacket } from 'mysql2/promise';
 
@@ -89,7 +90,8 @@ export class CourseService {
       );
       // If no preference row exists, send by default
       if (rows.length === 0) return true;
-      return rows[0].email_enabled !== false;
+      // MariaDB sends BOOLEAN as 0/1, so `!== false` never turned email off.
+      return !(rows[0].email_enabled === 0 || rows[0].email_enabled === false);
     } catch {
       // If table doesn't exist or query fails, send by default
       return true;
@@ -110,6 +112,51 @@ export class CourseService {
       if (shouldSend) emails.push(row.email);
     }
     return emails;
+  }
+
+  /**
+   * Emails an instructor that they were booked, or that their class changed or
+   * was cancelled. Runs after the change is saved; a failed email never undoes
+   * it. Uses the course as it now stands; `when` gives the old date and times
+   * for an instructor taken off a class. Respects their course_status_change
+   * email preference.
+   */
+  private notifyInstructor(
+    kind: InstructorNoticeKind,
+    instructorId: number | null | undefined,
+    courseId: number,
+    extra: { reason?: string; when?: { date: unknown; startTime: unknown; endTime: unknown } } = {},
+  ): void {
+    if (!instructorId) return;
+    (async () => {
+      const [rows] = await getPool().query<RowDataPacket[]>(
+        `SELECT u.email, u.first_name, u.last_name, u.username,
+                ct.name AS course_name, o.name AS organization_name, cr.location,
+                COALESCE(cr.confirmed_date, cr.scheduled_date) AS course_date,
+                cr.confirmed_start_time, cr.confirmed_end_time
+         FROM users u
+         JOIN course_requests cr ON cr.id = ?
+         LEFT JOIN class_types ct ON cr.course_type_id = ct.id
+         LEFT JOIN organizations o ON cr.organization_id = o.id
+         WHERE u.id = ? AND u.status = 'active' AND u.email IS NOT NULL AND u.email != ''`,
+        [courseId, instructorId]
+      );
+      const r = rows[0];
+      if (!r || !(await this.shouldSendEmail(instructorId, 'course_status_change'))) return;
+      const day = (v: unknown) => (v ? new Date(v as string).toISOString().slice(0, 10) : '');
+      const when = extra.when;
+      await emailService.sendInstructorCourseEmail(r.email, kind, {
+        instructorName: [r.first_name, r.last_name].filter(Boolean).join(' ') || r.username,
+        courseName: r.course_name ?? 'Course',
+        organizationName: r.organization_name ?? '',
+        date: day(when ? when.date : r.course_date),
+        startTime: (when ? when.startTime : r.confirmed_start_time) as string | null,
+        endTime: (when ? when.endTime : r.confirmed_end_time) as string | null,
+        location: r.location ?? '',
+        reason: extra.reason,
+        scheduleUrl: `${env.FRONTEND_URL}/instructor/classes`,
+      });
+    })().catch((err) => logger.error({ err, courseId, instructorId, kind }, 'Failed to send instructor course email'));
   }
 
   private async getCourseDetails(courseId: number): Promise<{ courseName: string; date: string; location: string; organizationId: number }> {
@@ -264,6 +311,7 @@ export class CourseService {
 
       const updated = await this.courseRepo.findById(input.courseId);
       logger.info({ courseId: input.courseId, instructorId: input.instructorId }, 'Instructor assigned');
+      this.notifyInstructor('booked', input.instructorId, input.courseId);
 
       // Fire-and-forget: send course confirmed email to org admins
       this.getCourseDetails(input.courseId).then(async (details) => {
@@ -345,6 +393,8 @@ export class CourseService {
 
       const updated = await this.courseRepo.findById(courseId);
       logger.info({ courseId, reason }, 'Course cancelled');
+      // Only a class the instructor was actually booked on.
+      if (course.status === 'confirmed') this.notifyInstructor('cancelled', course.instructor_id, courseId, { reason });
 
       // Fire-and-forget: send course cancelled email to org admins
       this.getCourseDetails(courseId).then(async (details) => {
@@ -444,6 +494,24 @@ export class CourseService {
 
       const updated = await this.courseRepo.findById(input.courseId);
       logger.info({ courseId: input.courseId }, 'Course rescheduled');
+      const newInstructorId = input.instructorId ?? course.instructor_id;
+      if (course.instructor_id && newInstructorId !== course.instructor_id) {
+        this.notifyInstructor('removed', course.instructor_id, input.courseId, {
+          when: { date: course.confirmed_date ?? course.scheduled_date, startTime: course.confirmed_start_time, endTime: course.confirmed_end_time },
+        });
+        this.notifyInstructor('booked', newInstructorId, input.courseId);
+      } else if (!course.instructor_id) {
+        this.notifyInstructor('booked', newInstructorId, input.courseId);
+      } else {
+        // The Edit dialog always sends the date and times, so only email when
+        // something the instructor needs to know actually changed.
+        const oldDay = course.confirmed_date ? new Date(course.confirmed_date).toISOString().slice(0, 10) : null;
+        const sameTime = (oldTime: unknown, newTime?: string) => !newTime || String(oldTime ?? '').slice(0, 5) === newTime.slice(0, 5);
+        const changed = oldDay !== input.scheduledDate
+          || !sameTime(course.confirmed_start_time, input.startTime)
+          || !sameTime(course.confirmed_end_time, input.endTime);
+        if (changed) this.notifyInstructor('rescheduled', newInstructorId, input.courseId);
+      }
       return updated!;
     } catch (err) {
       await conn.rollback();

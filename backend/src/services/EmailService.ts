@@ -1,13 +1,57 @@
 import { env } from '../config/env.js';
 import { logger } from '../config/logger.js';
-import { safeHtml } from '../utils/html.js';
+import { safeHtml, raw } from '../utils/html.js';
 
 
+// Dates here are calendar days (YYYY-MM-DD), read as UTC midnight; format
+// them in UTC so a server in another zone can't show the day before.
 function formatDate(dateStr: string): string {
   return new Date(dateStr).toLocaleDateString('en-US', {
-    year: 'numeric', month: 'long', day: 'numeric',
+    year: 'numeric', month: 'long', day: 'numeric', timeZone: 'UTC',
   });
 }
+
+/** "09:30:00" or "09:30" → "9:30 AM"; anything else unchanged. */
+function formatClockTime(value: string | null | undefined): string {
+  const m = /^(\d{1,2}):(\d{2})/.exec(value ?? '');
+  if (!m) return value ?? '';
+  const h = Number(m[1]);
+  return `${h % 12 || 12}:${m[2]} ${h < 12 ? 'AM' : 'PM'}`;
+}
+
+/** What happened to an instructor's class. */
+export type InstructorNoticeKind = 'booked' | 'rescheduled' | 'cancelled' | 'removed';
+
+export interface InstructorNoticeData {
+  instructorName: string;
+  courseName: string;
+  organizationName: string;
+  date: string;
+  startTime: string | null;
+  endTime: string | null;
+  location: string;
+  reason?: string;
+  scheduleUrl: string;
+}
+
+const INSTRUCTOR_NOTICE: Record<InstructorNoticeKind, { subject: (d: InstructorNoticeData) => string; heading: string; intro: string; color: string }> = {
+  booked: {
+    subject: (d) => `You're booked: ${d.courseName} on ${formatDate(d.date)}`,
+    heading: "You're booked for a class", intro: "You've been booked to teach this class:", color: '#28a745',
+  },
+  rescheduled: {
+    subject: (d) => `Class changed: ${d.courseName} is now on ${formatDate(d.date)}`,
+    heading: 'Your class has changed', intro: 'One of your classes has new details:', color: '#007bff',
+  },
+  cancelled: {
+    subject: (d) => `Class cancelled: ${d.courseName} on ${formatDate(d.date)}`,
+    heading: 'Your class is cancelled', intro: 'This class has been cancelled, so you no longer need to teach it:', color: '#d32f2f',
+  },
+  removed: {
+    subject: (d) => `You're no longer teaching ${d.courseName} on ${formatDate(d.date)}`,
+    heading: 'Another instructor is teaching this class', intro: 'This class has been given to another instructor, so you no longer need to teach it:', color: '#6c757d',
+  },
+};
 
 const EMAIL_TEMPLATES = {
   COURSE_CONFIRMED: (d: { courseName: string; date: string; location: string; instructorName: string; startTime: string; endTime: string }) => ({
@@ -172,6 +216,31 @@ export class EmailService {
   ) {
     const t = EMAIL_TEMPLATES.COURSE_COMPLETED(data);
     return this.sendEmail(to, t.subject, t.html);
+  }
+
+  /** Tells an instructor they were booked, or that their class changed or was cancelled. */
+  async sendInstructorCourseEmail(to: string, kind: InstructorNoticeKind, d: InstructorNoticeData): Promise<boolean> {
+    const n = INSTRUCTOR_NOTICE[kind];
+    const time = d.startTime && d.endTime ? `${formatClockTime(d.startTime)} - ${formatClockTime(d.endTime)}` : 'To be confirmed';
+    const reasonLine = d.reason ? safeHtml`<p><strong>Reason:</strong> ${d.reason}</p>` : '';
+    const html = safeHtml`
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+        <h2 style="color: ${n.color};">${n.heading}</h2>
+        <p>Hi ${d.instructorName},</p>
+        <p>${n.intro}</p>
+        <div style="background-color: #f8f9fa; padding: 15px; border-radius: 5px; margin: 15px 0;">
+          <p><strong>Course:</strong> ${d.courseName}</p>
+          <p><strong>Organization:</strong> ${d.organizationName}</p>
+          <p><strong>Date:</strong> ${formatDate(d.date)}</p>
+          <p><strong>Time:</strong> ${time}</p>
+          <p><strong>Location:</strong> ${d.location || 'To be confirmed'}</p>
+          ${raw(reasonLine)}
+        </div>
+        <p>See all your classes in <a href="${d.scheduleUrl}">My Schedule</a>.</p>
+        <p style="color: #6c757d; font-size: 0.9em;">This is an automated message, please do not reply.</p>
+      </div>
+    `;
+    return this.sendEmail(to, n.subject(d), html);
   }
 
   /** Tells an organization a new invoice is in its portal (sent when accounting posts it). */

@@ -8,6 +8,7 @@ const { conn } = vi.hoisted(() => ({
 vi.mock('../config/database.js', () => ({ getPool: () => ({ getConnection: async () => conn }) }));
 vi.mock('../config/logger.js', () => ({ logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 vi.mock('../services/EmailService.js', () => ({ emailService: {} }));
+vi.mock('../config/env.js', () => ({ env: {} }));
 
 import { torontoToday } from '../utils/torontoDate.js';
 import { CourseService } from '../services/CourseService.js';
