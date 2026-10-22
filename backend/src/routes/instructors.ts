@@ -7,6 +7,7 @@ import { StudentRepository } from '../repositories/StudentRepository.js';
 import { emailService } from '../services/EmailService.js';
 import { maybePaginate, paginatedResponse } from '../utils/pagination.js';
 import { torontoToday } from '../utils/torontoDate.js';
+import { ISSUE_CERTIFICATES_SQL } from '../utils/classDateSql.js';
 import type { RowDataPacket, ResultSetHeader } from 'mysql2/promise';
 
 const addStudentSchema = z.object({
@@ -294,31 +295,18 @@ export async function instructorRoutes(app: FastifyInstance) {
     );
     if (check.length === 0) return reply.status(404).send({ error: 'Course request not found or not authorized' });
 
-    // If marking attended, auto-set certificate dates based on class type validity
-    let certUpdate = '';
-    const certValues: unknown[] = [attended, studentId, classId];
-    if (attended) {
-      const [typeRows] = await pool.query<RowDataPacket[]>(
-        `SELECT ct.certification_validity_months, cr.completed_at
-         FROM course_requests cr JOIN class_types ct ON cr.course_type_id = ct.id
-         WHERE cr.id = ?`,
-        [classId]
-      );
-      const ct = typeRows[0];
-      if (ct?.certification_validity_months && ct.completed_at) {
-        certUpdate = ', certificate_issued_at = ?, certificate_expires_at = DATE_ADD(?, INTERVAL ? MONTH)';
-        certValues.splice(1, 0, ct.completed_at, ct.completed_at, ct.certification_validity_months);
-      }
-    } else {
-      certUpdate = ', certificate_issued_at = NULL, certificate_expires_at = NULL';
-    }
-
+    // Absent: no certificate. Present: certificate dates are set here only if
+    // the class is already completed; Complete Class sets them otherwise.
     const [result] = await pool.query<ResultSetHeader>(
-      `UPDATE course_students SET attended = ?, attendance_marked = true${certUpdate}, updated_at = CURRENT_TIMESTAMP
+      `UPDATE course_students SET attended = ?, attendance_marked = true${attended ? '' : ', certificate_issued_at = NULL, certificate_expires_at = NULL'},
+         updated_at = CURRENT_TIMESTAMP
        WHERE id = ? AND course_request_id = ?`,
-      certValues
+      [attended, studentId, classId]
     );
     if (result.affectedRows === 0) return reply.status(404).send({ error: 'Student not found' });
+    if (attended) {
+      await pool.query(`${ISSUE_CERTIFICATES_SQL} AND cs.id = ? AND cs.course_request_id = ?`, [studentId, classId]);
+    }
 
     const [rows] = await pool.query<RowDataPacket[]>(
       'SELECT id, first_name, last_name, email, attended, attendance_marked, certificate_issued_at, certificate_expires_at FROM course_students WHERE id = ?',
@@ -414,6 +402,9 @@ export async function instructorRoutes(app: FastifyInstance) {
          WHERE id = ? AND instructor_id = ?`,
         [instructor_comments ?? null, classId, request.userId]
       );
+      // Attendance is marked before the class is completed, so this is where
+      // the attended students' certificates get their dates.
+      await completeConn.query(`${ISSUE_CERTIFICATES_SQL} AND cs.course_request_id = ?`, [classId]);
       await completeConn.query(
         `UPDATE classes SET status = 'completed', updated_at = CURRENT_TIMESTAMP
          WHERE instructor_id = ? AND DATE(start_time) = (SELECT DATE(confirmed_date) FROM course_requests WHERE id = ?)`,

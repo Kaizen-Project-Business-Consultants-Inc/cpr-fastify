@@ -13,7 +13,7 @@ import { writeAudit, logAudit } from '../utils/auditLog.js';
 import { canReceiveReset, sendPasswordResetLink, type ResetTarget } from '../services/passwordReset.js';
 import { randomBytes } from 'node:crypto';
 import { ERASED_EMAIL_DOMAIN, isErased, notReservedEmail, notReservedUsername } from '../utils/userAccount.js';
-import { completedClassDate } from '../utils/classDateSql.js';
+import { completedClassDate, ISSUE_CERTIFICATES_SQL } from '../utils/classDateSql.js';
 
 const createUserSchema = z.object({
   username: z.string().min(3).max(50).regex(/^[a-zA-Z0-9_-]+$/)
@@ -188,6 +188,10 @@ export async function adminRoutes(app: FastifyInstance) {
        ...(certification_validity_months !== undefined ? [certification_validity_months ?? null] : []), id]
     );
     if (result.affectedRows === 0) return reply.status(404).send({ error: 'Course not found' });
+    // A new validity period applies to classes already completed, too.
+    if (certification_validity_months != null) {
+      await pool.query(`${ISSUE_CERTIFICATES_SQL} AND ct.id = ?`, [id]);
+    }
     const [rows] = await pool.query<RowDataPacket[]>('SELECT * FROM class_types WHERE id = ?', [id]);
     return { success: true, message: 'Course updated successfully', data: rows[0] };
   });

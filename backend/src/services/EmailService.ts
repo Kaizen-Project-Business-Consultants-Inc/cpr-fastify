@@ -229,7 +229,7 @@ export class EmailService {
         </div>
         <div style="padding: 30px; background: #f9f9f9;">
           <p>Hi ${firstName},</p>
-          <p>Your <strong>${courseName}</strong> certification (${certNumber}) expires on <strong>${new Date(expiresAt).toLocaleDateString('en-CA')}</strong> — that's <strong>${daysUntilExpiry} days</strong> from now.</p>
+          <p>Your <strong>${courseName}</strong> certification (${certNumber}) expires on <strong>${new Date(expiresAt).toLocaleDateString('en-CA', { timeZone: 'UTC' })}</strong> — that's <strong>${daysUntilExpiry} days</strong> from now.</p>
           <p>To maintain your certification, please schedule a renewal course before your expiry date.</p>
           <p>Contact your organization or visit our website to find upcoming courses.</p>
           <p style="margin-top: 30px; color: #666; font-size: 13px;">— GTACPR Training Management</p>

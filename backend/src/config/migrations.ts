@@ -518,6 +518,28 @@ export const migrations: Migration[] = [
       }
     },
   },
+  {
+    version: 30,
+    name: 'certificate_dates_from_class_day',
+    // Complete Class never set certificate dates (attendance is marked first,
+    // and only attendance set them), and v10 used the UTC completion time,
+    // which put evening classes on the next day. Re-derive them for every
+    // attended student of a completed class from the day it was held.
+    // Written out (not the shared helper) so this migration never changes.
+    up: async (pool: Pool) => {
+      const classDay = `CASE WHEN cr.completed_at IS NOT NULL
+        THEN COALESCE(cr.confirmed_date, cr.scheduled_date, DATE(cr.completed_at)) END`;
+      const [result] = await pool.query<ResultSetHeader>(`
+        UPDATE course_students cs
+        JOIN course_requests cr ON cs.course_request_id = cr.id
+        JOIN class_types ct ON cr.course_type_id = ct.id
+        SET cs.certificate_issued_at = ${classDay},
+            cs.certificate_expires_at = DATE_ADD(${classDay}, INTERVAL ct.certification_validity_months MONTH)
+        WHERE cs.attended = true AND cs.deleted_at IS NULL
+          AND cr.completed_at IS NOT NULL AND ct.certification_validity_months IS NOT NULL`);
+      logger.info({ updated: result.affectedRows }, 'Certificate dates set from the class day');
+    },
+  },
 ];
 
 const MIGRATION_LOCK = 'cpr_migrations';

@@ -10,6 +10,7 @@ import SegmentedToggle from '../gtacpr/SegmentedToggle';
 import { GhostButton } from '../gtacpr/Buttons';
 import { useServerPagination } from '../../hooks/useServerPagination';
 import type { Theme } from '@mui/material/styles';
+import { formatDisplayDate } from '../../utils/formatters';
 
 interface CertificationTrackingProps {
   onShowSnackbar: (message: string, severity: 'success' | 'error' | 'warning' | 'info') => void;
@@ -218,7 +219,7 @@ const CertificationTracking = ({ onShowSnackbar }: CertificationTrackingProps) =
               {/* EXPIRES */}
               <Typography sx={{ fontSize: 13, fontWeight: 500, color: (theme) => theme.palette.text.primary }}>
                 {cert.certificate_expires_at
-                  ? new Date(cert.certificate_expires_at).toLocaleDateString()
+                  ? formatDisplayDate(cert.certificate_expires_at)
                   : '—'}
               </Typography>
               {/* STATUS */}
