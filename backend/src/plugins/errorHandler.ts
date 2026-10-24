@@ -12,7 +12,7 @@ export function errorHandler(error: FastifyError, request: FastifyRequest, reply
   if (error instanceof ZodError) {
     return reply.status(400).send({
       error: 'Validation failed',
-      details: error.errors.map((e) => ({
+      details: error.issues.map((e) => ({
         field: e.path.join('.'),
         message: e.message,
       })),

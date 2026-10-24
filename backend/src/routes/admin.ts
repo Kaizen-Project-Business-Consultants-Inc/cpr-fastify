@@ -34,14 +34,18 @@ const createUserSchema = z.object({
   userComments: z.string().max(5000).nullish(),
 });
 
-const createCourseSchema = z.object({
+const courseFields = z.object({
   name: z.string().min(1),
   description: z.string().optional(),
   duration_minutes: z.number().int().positive(),
   course_code: z.string().optional(),
-  is_active: z.boolean().default(true),
+  is_active: z.boolean().optional(),
   certification_validity_months: z.number().int().min(1).max(120).nullable().optional(),
 });
+// Only create defaults is_active. The update schema must not: in zod 4 a default
+// inside .partial() fires on a missing key, which re-activated deactivated courses.
+const createCourseSchema = courseFields.extend({ is_active: z.boolean().default(true) });
+export const updateCourseSchema = courseFields.partial();
 
 // The organizations table's own column names ('' clears a field on update).
 const createOrgSchema = z.object({
@@ -172,7 +176,7 @@ export async function adminRoutes(app: FastifyInstance) {
 
   app.put('/courses/:id', { preHandler: adminRole }, async (request, reply) => {
     const { id } = request.params as { id: string };
-    const { name, description, duration_minutes, course_code, is_active, certification_validity_months } = createCourseSchema.partial().parse(request.body);
+    const { name, description, duration_minutes, course_code, is_active, certification_validity_months } = updateCourseSchema.parse(request.body);
 
     if (name) {
       const [dup] = await pool.query<RowDataPacket[]>('SELECT id FROM class_types WHERE LOWER(name) = LOWER(?) AND id != ?', [name, id]);

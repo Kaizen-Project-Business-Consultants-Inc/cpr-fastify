@@ -51,7 +51,7 @@ export const GENERIC_SERVER_ERROR = 'An unexpected error occurred';
 export function httpError(err: unknown, fallbackStatus = 500): HttpErrorInfo {
   // Bad input parsed inside a try is the caller's mistake: a 400 naming the field.
   if (err instanceof ZodError) {
-    const first = err.errors[0];
+    const first = err.issues[0];
     const field = first?.path.join('.');
     return { statusCode: 400, message: first ? `${field ? `${field}: ` : ''}${first.message}` : 'Validation failed' };
   }

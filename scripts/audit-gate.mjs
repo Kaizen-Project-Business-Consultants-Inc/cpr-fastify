@@ -4,9 +4,7 @@
 import { execSync } from 'node:child_process';
 
 const ACCEPTED = {
-  // zod 3 -> 4 is a breaking upgrade; needs its own change. Only reachable by
-  // sending the server oversized collections. Remove once zod is on >=4.6.6.
-  'GHSA-mrhx-c7xc-m3w5': 'zod memory exhaustion (upgrade to zod 4 pending)',
+  // 'GHSA-xxxx-xxxx-xxxx': 'what it is, why it is accepted, how to remove it',
 };
 
 let raw;
