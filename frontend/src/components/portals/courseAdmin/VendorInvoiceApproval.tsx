@@ -177,21 +177,24 @@ const VendorInvoiceApproval: React.FC = () => {
     }
   }, [searchParam]);
 
+  // load/reload are stable callbacks; depend on them, not on the whole grid object.
+  const { load: loadGrid, reload: reloadGrid } = grid;
+
   const refresh = useCallback(() => {
-    grid.load(1);
+    loadGrid(1);
     loadCounts();
-  }, [grid.load, loadCounts]);
+  }, [loadGrid, loadCounts]);
 
   /** Re-fetch the page currently on screen plus the whole-set counts. */
   const reloadCurrentPage = useCallback(() => {
-    grid.reload();
+    reloadGrid();
     loadCounts();
-  }, [grid.reload, loadCounts]);
+  }, [reloadGrid, loadCounts]);
 
   // Status filter and search restart at page 1; `refresh` changes identity with them.
   useEffect(() => {
-    grid.load(1);
-  }, [grid.load, statusParam, searchParam]);
+    loadGrid(1);
+  }, [loadGrid, statusParam, searchParam]);
 
   useEffect(() => {
     loadCounts();
