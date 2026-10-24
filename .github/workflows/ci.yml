@@ -23,7 +23,7 @@ jobs:
       - run: npm ci --legacy-peer-deps
         working-directory: .
       - name: Audit production dependencies
-        run: npm audit --omit=dev --audit-level=high
+        run: node scripts/audit-gate.mjs
         working-directory: .
       - run: npx tsc --noEmit
       - run: npx eslint src/
