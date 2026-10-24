@@ -54,7 +54,7 @@ jobs:
 
       # Production build
       - run: VITE_API_URL=https://cpr.kpbc.ca/api/v1 npx vite build
-      - uses: actions/upload-artifact@v5
+      - uses: actions/upload-artifact@v7
         with:
           name: frontend-dist
           path: frontend/dist
@@ -64,7 +64,7 @@ jobs:
       # Staging build (same code, staging API URL). The staging server cannot
       # build the frontend itself (vite exceeds its memory limit).
       - run: rm -rf dist && VITE_API_URL=https://stagecprapp.kpbc.ca/api/v1 npx vite build
-      - uses: actions/upload-artifact@v5
+      - uses: actions/upload-artifact@v7
         with:
           name: frontend-dist-staging
           path: frontend/dist
@@ -97,7 +97,7 @@ jobs:
           echo "$OUT" | tail -3 | cut -c1-300
           echo "$OUT" | grep -q "ECONNREFUSED" || { echo "Bundle did not reach DB connect — module resolution problem?"; exit 1; }
 
-      - uses: actions/download-artifact@v5
+      - uses: actions/download-artifact@v8
         with:
           name: frontend-dist-staging
           path: frontend/dist
@@ -179,7 +179,7 @@ jobs:
           echo "$OUT" | grep -q "ECONNREFUSED" || { echo "Bundle did not reach DB connect — module resolution problem?"; exit 1; }
 
       # Download frontend build from previous job
-      - uses: actions/download-artifact@v5
+      - uses: actions/download-artifact@v8
         with:
           name: frontend-dist
           path: frontend/dist
@@ -255,7 +255,7 @@ jobs:
           BASE_URL: https://stagecprapp.kpbc.ca
           E2E_TEST_PASSWORD: ${{ secrets.E2E_TEST_PASSWORD }}
         run: npx playwright test --project=chromium --reporter=line
-      - uses: actions/upload-artifact@v5
+      - uses: actions/upload-artifact@v7
         if: failure()
         with:
           name: playwright-report
