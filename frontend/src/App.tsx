@@ -8,6 +8,7 @@ import RoleBasedRouter from './components/RoleBasedRouter';
 import { ErrorBoundary } from './components/common/ErrorBoundary';
 import { SnackbarProvider } from './contexts/SnackbarContext';
 import SessionWarning from './components/common/SessionWarning';
+import UpdateNotice from './components/common/UpdateNotice';
 import LocationTracker from './components/LocationTracker';
 import TransitionWrapper from './components/common/TransitionWrapper';
 
@@ -39,6 +40,7 @@ function App() {
     <SnackbarProvider>
           <ErrorBoundary>
             <SessionWarning showAtMinutes={5} />
+            <UpdateNotice />
             <LocationTracker />
             <TransitionWrapper>
               <Suspense fallback={<LazyFallback />}>
