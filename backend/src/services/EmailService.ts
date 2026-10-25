@@ -67,7 +67,7 @@ const EMAIL_TEMPLATES = {
           <p><strong>Location:</strong> ${d.location}</p>
           <p><strong>Instructor:</strong> ${d.instructorName}</p>
         </div>
-        <p>You can view the full details through your organization portal.</p>
+        <p>You can view the full details through your organization portal: <a href="${env.FRONTEND_URL}">${env.FRONTEND_URL}</a></p>
         <p style="color: #6c757d; font-size: 0.9em;">This is an automated message, please do not reply.</p>
       </div>
     `,
@@ -101,7 +101,7 @@ const EMAIL_TEMPLATES = {
           <p><strong>Date:</strong> ${formatDate(d.date)}</p>
           <p><strong>Attendance:</strong> ${d.studentsAttended} of ${d.totalStudents} students attended</p>
         </div>
-        <p>You can view the full details and attendance records through your organization portal.</p>
+        <p>You can view the full details and attendance records through your organization portal: <a href="${env.FRONTEND_URL}">${env.FRONTEND_URL}</a></p>
         <p style="color: #6c757d; font-size: 0.9em;">This is an automated message, please do not reply.</p>
       </div>
     `,
