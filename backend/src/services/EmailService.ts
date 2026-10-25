@@ -112,6 +112,8 @@ export class EmailService {
   private apiKey: string | null;
   private fromAddress: string;
   private static instance: EmailService;
+  /** Where a person can report a request they did not make (the address on the public login page). */
+  private static readonly SUPPORT_ADDRESS = 'admin@kpbc.ca';
 
   private constructor() {
     this.apiKey = env.RESEND_API_KEY || null;
@@ -135,7 +137,8 @@ export class EmailService {
     to: string,
     subject: string,
     html: string,
-    attachments?: { filename: string; content: Buffer }[]
+    attachments?: { filename: string; content: Buffer }[],
+    cc?: string[]
   ): Promise<boolean> {
     if (!this.apiKey) {
       logger.info({ to, subject }, 'Email mock — no API key configured');
@@ -149,6 +152,8 @@ export class EmailService {
         subject,
         html,
       };
+
+      if (cc?.length) body.cc = cc;
 
       if (attachments?.length) {
         body.attachments = attachments.map(a => ({
@@ -216,6 +221,50 @@ export class EmailService {
   ) {
     const t = EMAIL_TEMPLATES.COURSE_COMPLETED(data);
     return this.sendEmail(to, t.subject, t.html);
+  }
+
+  /** Tells the user who requested a course that it arrived. The organization's admins are copied. */
+  async sendCourseRequestReceivedEmail(
+    to: string,
+    cc: string[],
+    data: {
+      requesterName: string; organizationName: string; courseName: string; date: string; location: string;
+      students: number; portalUrl: string;
+      /** The request came in as an email. The sender's address is not proven, so say so and leave out their free text. */
+      viaEmail?: boolean;
+    }
+  ): Promise<boolean> {
+    const details = data.viaEmail
+      ? safeHtml`
+        <p><strong>Course:</strong> ${data.courseName}</p>
+        <p><strong>Requested date:</strong> ${formatDate(data.date)}</p>
+        <p><strong>Students:</strong> ${data.students > 0 ? String(data.students) : 'To be confirmed'}</p>`
+      : safeHtml`
+        <p><strong>Course:</strong> ${data.courseName}</p>
+        <p><strong>Requested date:</strong> ${formatDate(data.date)}</p>
+        <p><strong>Location:</strong> ${data.location}</p>
+        <p><strong>Students:</strong> ${data.students > 0 ? String(data.students) : 'To be confirmed'}</p>`;
+    const intro = data.viaEmail
+      ? safeHtml`<p>We received an email asking for a course for ${data.organizationName}. If that was you, there is nothing more to do. Course Admin will review it, assign an instructor, and email you when it is confirmed.</p>`
+      : safeHtml`<p>Your request for ${data.organizationName} is in. Course Admin will review it, assign an instructor, and email you when it is confirmed.</p>`;
+    const outro = data.viaEmail
+      ? safeHtml`<p>Follow it under <strong>My Courses</strong>: <a href="${data.portalUrl}">${data.portalUrl}</a></p>
+        <p><strong>Was this not you?</strong> Please tell us at ${EmailService.SUPPORT_ADDRESS} so we can look into it.</p>`
+      : safeHtml`<p>Follow it under <strong>My Courses</strong>: <a href="${data.portalUrl}">${data.portalUrl}</a></p>`;
+    const html = safeHtml`
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+        <h2 style="color: #007bff;">${data.viaEmail ? 'We received an email asking for a course' : 'We received your course request'}</h2>
+        <p>Hi ${data.requesterName},</p>
+        ${raw(intro)}
+        <div style="background-color: #f8f9fa; padding: 15px; border-radius: 5px; margin: 15px 0;">
+          ${raw(details)}
+        </div>
+        ${raw(outro)}
+        <p style="color: #6c757d; font-size: 0.9em;">This is an automated message, please do not reply.</p>
+      </div>
+    `;
+    const subject = `${data.viaEmail ? 'Course request received by email' : 'Request received'}: ${data.courseName} on ${formatDate(data.date)}`;
+    return this.sendEmail(to, subject, html, undefined, cc);
   }
 
   /** Tells an instructor they were booked, or that their class changed or was cancelled. */

@@ -22,6 +22,9 @@ export class CourseError extends Error {
 
 // --- Types ---
 
+/** Resend refuses a whole message if one recipient is malformed, so only well-formed addresses are used. */
+const EMAIL_SHAPE = /^[^\s@,;<>]+@[^\s@,;<>]+$/;
+
 export interface CreateCourseRequestInput {
   organizationId: number;
   courseTypeId: number;
@@ -31,6 +34,8 @@ export interface CreateCourseRequestInput {
   registeredStudents: number;
   notes?: string;
   source?: 'portal' | 'email';
+  /** The signed-in user, or the matched email sender, who made the request. */
+  requestedByUserId?: number | null;
 }
 
 export interface AssignInstructorInput {
@@ -179,6 +184,61 @@ export class CourseService {
     };
   }
 
+  /**
+   * Emails the requester that the request arrived, copying the organization's
+   * admins who have status emails on. Fire-and-forget: a failed email never
+   * undoes the request. If the requester can't be emailed, the admins get it.
+   */
+  private notifyRequestReceived(courseId: number, input: CreateCourseRequestInput): void {
+    // No requester means staff created it, so nobody at the organization is told.
+    if (!input.requestedByUserId) return;
+    (async () => {
+      const pool = getPool();
+      const [rows] = await pool.query<RowDataPacket[]>(
+        `SELECT ct.name AS course_name, o.name AS organization_name, o.contact_email, cr.scheduled_date
+         FROM course_requests cr
+         LEFT JOIN class_types ct ON cr.course_type_id = ct.id
+         LEFT JOIN organizations o ON cr.organization_id = o.id
+         WHERE cr.id = ?`,
+        [courseId]
+      );
+      const [users] = await pool.query<RowDataPacket[]>(
+        `SELECT email, first_name, last_name, username FROM users
+         WHERE id = ? AND organization_id = ? AND status = 'active' AND email IS NOT NULL AND email != ''`,
+        [input.requestedByUserId, input.organizationId]
+      );
+      const found: RowDataPacket | undefined = users[0];
+      const requester = found && EMAIL_SHAPE.test(String(found.email)) ? found : undefined;
+      // Copy each well-formed address once, never the requester: the organization's admins, then its
+      // contact email. The contact email is a second pair of eyes when the requester is the only admin.
+      const seen = new Set<string>(requester ? [String(requester.email).toLowerCase()] : []);
+      const copied: string[] = [];
+      const adminEmails = await this.getOrgAdminEmailsWithPreference(input.organizationId, 'course_status_change');
+      const contactEmail = String(rows[0]?.contact_email ?? '').trim();
+      for (const e of contactEmail ? [...adminEmails, contactEmail] : adminEmails) {
+        const key = e.toLowerCase();
+        if (!EMAIL_SHAPE.test(e) || seen.has(key)) continue;
+        seen.add(key);
+        copied.push(e);
+      }
+      const to = requester ? String(requester.email) : copied.shift();
+      if (!to) return;
+      const requesterName = requester
+        ? [requester.first_name, requester.last_name].filter(Boolean).join(' ') || String(requester.username)
+        : 'there';
+      await emailService.sendCourseRequestReceivedEmail(to, copied, {
+        requesterName,
+        organizationName: rows[0]?.organization_name ?? 'your organization',
+        courseName: rows[0]?.course_name ?? 'Course',
+        date: rows[0]?.scheduled_date ? new Date(rows[0].scheduled_date).toISOString().slice(0, 10) : String(input.scheduledDate).slice(0, 10),
+        location: input.location,
+        students: input.registeredStudents,
+        portalUrl: env.FRONTEND_URL,
+        viaEmail: input.source === 'email',
+      });
+    })().catch((err) => logger.error({ err, courseId }, 'Failed to send course request received email'));
+  }
+
   // --- Course request creation (org users) ---
 
   async createRequest(input: CreateCourseRequestInput): Promise<CourseRequest> {
@@ -211,6 +271,7 @@ export class CourseService {
     if (!course) throw new CourseError('Failed to create course request', 500);
 
     logger.info({ courseId: id, orgId: input.organizationId }, 'Course request created');
+    this.notifyRequestReceived(id, input);
     return course;
   }
 

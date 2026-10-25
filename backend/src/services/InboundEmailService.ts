@@ -407,6 +407,7 @@ export class InboundEmailService {
           fields.registeredStudents == null ? 'Number of students to be confirmed.' : null,
         ].filter(Boolean).join(' '),
         source: 'email',
+        requestedByUserId: sender.userId,
       });
       await this.repo.create({
         ...row, status: 'created_request', parse_tier: tier,

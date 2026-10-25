@@ -67,6 +67,23 @@ describe('inbound email review routes', () => {
     expect(mockAudit).toHaveBeenCalledWith(expect.objectContaining({ action: 'inbound_email_request_created', entityId: 5 }));
   });
 
+  it('tells the sender about the request only when they belong to the chosen organization', async () => {
+    repoMock.transition.mockResolvedValue(true);
+    mockCreateRequest.mockResolvedValue({ id: 40 });
+
+    repoMock.findOne.mockResolvedValue({ ...heldEmail, matched_organization_id: 1, matched_user_id: 77 });
+    await app.inject({ method: 'POST', url: '/inbound-email/5/create-request', payload: validBody });
+    expect(mockCreateRequest).toHaveBeenLastCalledWith(expect.objectContaining({ requestedByUserId: 77 }));
+
+    repoMock.findOne.mockResolvedValue({ ...heldEmail, matched_organization_id: 2, matched_user_id: 77 });
+    await app.inject({ method: 'POST', url: '/inbound-email/5/create-request', payload: validBody });
+    expect(mockCreateRequest).toHaveBeenLastCalledWith(expect.objectContaining({ requestedByUserId: null }));
+
+    repoMock.findOne.mockResolvedValue({ ...heldEmail, matched_organization_id: null, matched_user_id: null });
+    await app.inject({ method: 'POST', url: '/inbound-email/5/create-request', payload: validBody });
+    expect(mockCreateRequest).toHaveBeenLastCalledWith(expect.objectContaining({ requestedByUserId: null }));
+  });
+
   it('puts the email back on the list when the request is refused', async () => {
     repoMock.findOne.mockResolvedValue(heldEmail);
     repoMock.transition.mockResolvedValue(true);

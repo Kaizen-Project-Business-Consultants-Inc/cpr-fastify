@@ -155,6 +155,8 @@ export async function inboundEmailRoutes(app: FastifyInstance) {
           input.registeredStudents === 0 ? 'Number of students to be confirmed.' : null,
         ].filter(Boolean).join(' '),
         source: 'email',
+        // Staff made this one; only tell the sender if they are at this organization.
+        requestedByUserId: email.matched_organization_id === input.organizationId ? email.matched_user_id : null,
       });
     } catch (err) {
       try {

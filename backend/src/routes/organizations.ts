@@ -210,6 +210,7 @@ export async function organizationRoutes(app: FastifyInstance) {
         locationId,
         registeredStudents,
         notes,
+        requestedByUserId: request.userId,
       });
       return { success: true, message: 'Course request submitted successfully', data: course };
     } catch (err) { return handleError(err, reply); }
