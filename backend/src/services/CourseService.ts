@@ -24,6 +24,7 @@ export class CourseError extends Error {
 
 /** Resend refuses a whole message if one recipient is malformed, so only well-formed addresses are used. */
 const EMAIL_SHAPE = /^[^\s@,;<>]+@[^\s@,;<>]+$/;
+const EMAILED_RECEIPTS_PER_HOUR = 5;
 
 export interface CreateCourseRequestInput {
   organizationId: number;
@@ -194,6 +195,18 @@ export class CourseService {
     if (!input.requestedByUserId) return;
     (async () => {
       const pool = getPool();
+      if (input.source === 'email') {
+        // The sender of an email is not proven, so cap the receipts one organization can be sent.
+        const [recent] = await pool.query<RowDataPacket[]>(
+          `SELECT COUNT(*) AS n FROM course_requests
+           WHERE organization_id = ? AND source = 'email' AND created_at >= NOW() - INTERVAL 1 HOUR`,
+          [input.organizationId]
+        );
+        if (Number(recent[0]?.n ?? 0) > EMAILED_RECEIPTS_PER_HOUR) {
+          logger.warn({ courseId, orgId: input.organizationId }, 'Emailed-request receipt skipped: hourly cap reached');
+          return;
+        }
+      }
       const [rows] = await pool.query<RowDataPacket[]>(
         `SELECT ct.name AS course_name, o.name AS organization_name, o.contact_email, cr.scheduled_date
          FROM course_requests cr

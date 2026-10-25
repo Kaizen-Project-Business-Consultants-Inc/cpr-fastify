@@ -177,6 +177,31 @@ describe('course request received email', () => {
     expect(sendReceipt.mock.calls[0][1]).toEqual(['office@org.test']);
   });
 
+  it('caps receipts for emailed requests at 5 per organization per hour, never for portal requests', async () => {
+    const withCount = (n: number) => poolQuery.mockImplementation(async (sql: string) => {
+      if (/COUNT\(\*\) AS n FROM course_requests/.test(sql)) return [[{ n }]];
+      if (/FROM course_requests cr\s+LEFT JOIN class_types/.test(sql)) return [[{ course_name: 'X', organization_name: 'Y' }]];
+      if (/FROM users\s+WHERE id = \?/.test(sql)) return [[{ email: 'sam@org.test', first_name: 'Sam', last_name: '', username: 'sam' }]];
+      return [[]];
+    });
+
+    withCount(5); // this request is the 5th this hour: still sent
+    await service().createRequest({ ...INPUT, requestedByUserId: 7, source: 'email' });
+    await settle();
+    expect(sendReceipt).toHaveBeenCalledTimes(1);
+
+    sendReceipt.mockClear();
+    withCount(6); // the 6th: skipped
+    await service().createRequest({ ...INPUT, requestedByUserId: 7, source: 'email' });
+    await settle();
+    expect(sendReceipt).not.toHaveBeenCalled();
+
+    withCount(50); // portal requests are never capped
+    await service().createRequest({ ...INPUT, requestedByUserId: 7, source: 'portal' });
+    await settle();
+    expect(sendReceipt).toHaveBeenCalledTimes(1);
+  });
+
   it('sends nothing when staff created the request (no requester)', async () => {
     await service().createRequest({ ...INPUT });
     await settle();

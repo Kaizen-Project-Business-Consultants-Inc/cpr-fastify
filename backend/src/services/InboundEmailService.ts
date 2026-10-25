@@ -20,8 +20,11 @@ async function matchSender(fromHeader: string): Promise<MatchedSender | null> {
 
   const pool = getPool();
   const [rows] = await pool.query<RowDataPacket[]>(
+    // Only organization logins may request by email: the From address is not proven, so a staff or
+    // instructor address must never be enough to create a request.
     `SELECT id, organization_id FROM users
-     WHERE LOWER(email) = ? AND organization_id IS NOT NULL AND status = 'active' LIMIT 1`,
+     WHERE LOWER(email) = ? AND organization_id IS NOT NULL AND role IN ('org_admin', 'organization')
+       AND status = 'active' LIMIT 1`,
     [address]
   );
   const row = rows[0];

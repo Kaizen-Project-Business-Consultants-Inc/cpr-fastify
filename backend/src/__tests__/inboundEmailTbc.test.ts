@@ -31,6 +31,13 @@ describe('an emailed request with no number of students', () => {
   });
   afterEach(() => vi.unstubAllGlobals());
 
+  it('only matches the sender to an organization login, never a staff or instructor address', async () => {
+    await service.processReceivedEmail('em_role', 'College <orguser@cpr.com>', 'Course Request');
+    const [sql, params] = mockQuery.mock.calls[0];
+    expect(sql).toContain("role IN ('org_admin', 'organization')");
+    expect(params).toEqual(['orguser@cpr.com']);
+  });
+
   it('is booked with 0 students and a note that the count is to be confirmed', async () => {
     await service.processReceivedEmail('em_tbc', 'College <orguser@cpr.com>', 'Course Request');
 
