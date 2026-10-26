@@ -27,6 +27,28 @@ describe('DataTable', () => {
     expect(screen.getByText('alice@test.com')).toBeInTheDocument();
   });
 
+  it('keeps labelled right-aligned numbers off the next column, but not an unlabelled actions column', () => {
+    const cols = [
+      { key: 'name', label: 'NAME', width: '1fr' },
+      { key: 'count', label: 'COUNT', width: '1fr', align: 'right' as const },
+      { key: 'actions', label: '', width: '1fr', align: 'right' as const },
+    ];
+    render(
+      <DataTable columns={cols}>
+        <DataTableRow columns={cols}>
+          <span>Alice</span>
+          <span>12</span>
+          <span>View</span>
+        </DataTableRow>
+      </DataTable>,
+    );
+    expect(screen.getByText('COUNT')).toHaveStyle({ paddingRight: '16px' });
+    expect(screen.getByText('NAME')).not.toHaveStyle({ paddingRight: '16px' });
+    expect(screen.getByText('12').closest('[role=cell]')).toHaveStyle({ paddingRight: '16px' });
+    expect(screen.getByText('Alice').closest('[role=cell]')).not.toHaveStyle({ paddingRight: '16px' });
+    expect(screen.getByText('View').closest('[role=cell]')).not.toHaveStyle({ paddingRight: '16px' });
+  });
+
   it('shows loading spinner when loading=true', () => {
     render(
       <DataTable columns={columns} loading>

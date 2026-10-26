@@ -2,6 +2,9 @@ import React, { ReactNode } from 'react';
 import { Card, Box, Typography, Button, CircularProgress } from '@mui/material';
 import { SIDEBAR_BG } from './tokens';
 
+/** Space after a labelled right-aligned column so its numbers do not touch the next column's text. */
+const RIGHT_COLUMN_GUTTER = '16px';
+
 interface DataTableColumn {
   key: string;
   label: string;
@@ -62,6 +65,8 @@ const DataTable: React.FC<DataTableProps> = ({
                 fontWeight: 700,
                 color: '#ffffff',
                 textAlign: col.align || 'left',
+                // keeps right-aligned numbers off the next column's text without widening the grid
+                paddingRight: col.align === 'right' && col.label ? RIGHT_COLUMN_GUTTER : 0,
               }}
             >
               {col.label}
@@ -153,7 +158,7 @@ export const DataTableRow: React.FC<{
     }}
   >
     {React.Children.map(children, (child, i) => (
-      <Box role="cell" key={columns[i]?.key || i}>{child}</Box>
+      <Box role="cell" key={columns[i]?.key || i} sx={columns[i]?.align === 'right' && columns[i]?.label ? { pr: RIGHT_COLUMN_GUTTER } : undefined}>{child}</Box>
     ))}
   </Box>
 );
