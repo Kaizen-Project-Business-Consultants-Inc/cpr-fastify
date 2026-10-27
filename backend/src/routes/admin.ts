@@ -151,14 +151,23 @@ export async function adminRoutes(app: FastifyInstance) {
     const result = await maybePaginate(
       `SELECT id, name, description, duration_minutes, course_code,
               certification_validity_months,
-              COALESCE(is_active, true) as is_active, created_at, updated_at
+              COALESCE(is_active, true) as is_active, created_at, updated_at,
+              (SELECT COUNT(*) FROM course_requests cr WHERE cr.course_type_id = class_types.id) AS request_count,
+              (SELECT COUNT(*) FROM course_pricing cp WHERE cp.course_type_id = class_types.id)
+                + (SELECT COUNT(*) FROM organization_pricing op WHERE op.class_type_id = class_types.id) AS price_count
        FROM class_types ORDER BY name`,
       'SELECT COUNT(*) as count FROM class_types',
       [],
       request.query as Record<string, string>,
     );
     // Course Management reads isActive (true/false); is_active stays 0/1 for other callers.
-    return paginatedResponse(result, (rows) => rows.map((r: RowDataPacket) => ({ ...r, isActive: Boolean(r.is_active) })));
+    // requestCount / priceCount say whether a course type is in use (it can only be deleted if neither is).
+    return paginatedResponse(result, (rows) => rows.map((r: RowDataPacket) => ({
+      ...r,
+      isActive: Boolean(r.is_active),
+      requestCount: Number(r.request_count ?? 0),
+      priceCount: Number(r.price_count ?? 0),
+    })));
   });
 
   app.post('/courses', { preHandler: adminRole }, async (request, reply) => {
@@ -211,8 +220,19 @@ export async function adminRoutes(app: FastifyInstance) {
         const [rows] = await conn.query<RowDataPacket[]>('SELECT * FROM class_types WHERE id = ?', [id]);
         return { success: true, message: `Course deactivated (${usage[0].count} course requests exist)`, data: rows[0], softDeleted: true };
       }
+      // Prices are money records: never removed silently along with the course type.
+      const [prices] = await conn.query<RowDataPacket[]>(
+        `SELECT (SELECT COUNT(*) FROM course_pricing WHERE course_type_id = ?)
+              + (SELECT COUNT(*) FROM organization_pricing WHERE class_type_id = ?) AS count`,
+        [id, id]
+      );
+      if (Number(prices[0].count) > 0) {
+        throw new TxAbort(409, { error: 'This course type has price records, so it cannot be deleted. Deactivate it instead.' });
+      }
+      const [named] = await conn.query<RowDataPacket[]>('SELECT name FROM class_types WHERE id = ?', [id]);
       const [result] = await conn.query<ResultSetHeader>('DELETE FROM class_types WHERE id = ?', [id]);
       if (result.affectedRows === 0) throw new TxAbort(404, { error: 'Course not found' });
+      await writeAudit(conn, { userId: request.userId, action: 'delete_course_type', entityType: 'class_type', entityId: parseInt(id), details: { name: named[0]?.name }, ipAddress: request.ip });
       return { success: true, message: 'Course deleted permanently', softDeleted: false };
     });
   });

@@ -291,6 +291,52 @@ describe('sysadmin screens', () => {
 
       expect(res.json().data.map((c: { isActive: boolean }) => c.isActive)).toEqual([false, true]);
     });
+
+    it('says how many requests and prices use each course type', async () => {
+      mockQuery.mockResolvedValueOnce([[{ id: 1, name: 'CPR', is_active: 0, request_count: 4, price_count: '2' }, { id: 2, name: 'BLS', is_active: 1 }]]);
+
+      const res = await app.inject({ method: 'GET', url: '/sysadmin/courses' });
+
+      const [used, fresh] = res.json().data;
+      expect([used.requestCount, used.priceCount]).toEqual([4, 2]);
+      expect([fresh.requestCount, fresh.priceCount]).toEqual([0, 0]);
+    });
+
+    it('deletes a never-used course type and records who did it', async () => {
+      mockConnQuery.mockImplementation(async (sql: string) =>
+        sql.includes('FROM course_requests') ? [[{ count: 0 }]]
+          : sql.includes('course_pricing') ? [[{ count: 0 }]]
+            : sql.includes('SELECT name') ? [[{ name: 'UAT Course' }]]
+              : sql.startsWith('DELETE') ? [{ affectedRows: 1 }] : [{}]);
+
+      const res = await app.inject({ method: 'DELETE', url: '/sysadmin/courses/9' });
+
+      expect(res.statusCode).toBe(200);
+      expect(res.json().softDeleted).toBe(false);
+      expect(sqlOf(mockConnQuery, 'DELETE FROM class_types')![1]).toEqual(['9']);
+      expect(JSON.stringify(sqlOf(mockConnQuery, 'INSERT INTO audit_logs')![1])).toContain('delete_course_type');
+    });
+
+    it('only deactivates a course type that has requests', async () => {
+      mockConnQuery.mockImplementation(async (sql: string) =>
+        sql.includes('FROM course_requests') ? [[{ count: 3 }]] : [[{ id: 9, is_active: 0 }]]);
+
+      const res = await app.inject({ method: 'DELETE', url: '/sysadmin/courses/9' });
+
+      expect(res.json().softDeleted).toBe(true);
+      expect(sqlOf(mockConnQuery, 'DELETE FROM class_types')).toBeUndefined();
+    });
+
+    it('refuses to delete a never-used course type while prices are set', async () => {
+      mockConnQuery.mockImplementation(async (sql: string) =>
+        sql.includes('FROM course_requests') ? [[{ count: 0 }]] : [[{ count: 2 }]]);
+
+      const res = await app.inject({ method: 'DELETE', url: '/sysadmin/courses/9' });
+
+      expect(res.statusCode).toBe(409);
+      expect(res.json().error).toContain('price records');
+      expect(sqlOf(mockConnQuery, 'DELETE FROM class_types')).toBeUndefined();
+    });
   });
 
   describe('Student Directory search', () => {

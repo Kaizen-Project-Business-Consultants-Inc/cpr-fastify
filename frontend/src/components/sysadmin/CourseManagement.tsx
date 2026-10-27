@@ -19,7 +19,7 @@ import { sysAdminApi } from '../../services/api';
 import logger from '../../utils/logger';
 import StatusChip from '../gtacpr/StatusChip';
 import { PrimaryButton } from '../gtacpr/Buttons';
-import { useConfirm, LinkButton } from '../gtacpr';
+import { useConfirm, LinkButton, SegmentedToggle } from '../gtacpr';
 import { getErrorMessage } from '../../utils/errorMessage';
 import type { Theme } from '@mui/material/styles';
 
@@ -31,6 +31,9 @@ interface Course {
   duration_minutes?: number;
   certification_validity_months?: number | null;
   isActive?: boolean;
+  /** How many course requests / organization prices use this course type. */
+  requestCount?: number;
+  priceCount?: number;
 }
 
 const emptyForm = {
@@ -42,6 +45,7 @@ const CourseManagement = ({ onShowSnackbar }: { onShowSnackbar?: (message: strin
   const [courses, setCourses] = useState<Course[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [view, setView] = useState<'active' | 'inactive'>('active');
   const { confirm, dialog: confirmDialog } = useConfirm();
 
   // Dialog state
@@ -122,7 +126,10 @@ const CourseManagement = ({ onShowSnackbar }: { onShowSnackbar?: (message: strin
       };
       if (editingCourse) {
         await sysAdminApi.updateCourse(Number(editingCourse.id), submitData);
-        onShowSnackbar?.('Course updated successfully', 'success');
+        const wasActive = editingCourse.isActive !== false;
+        if (wasActive && !formData.isActive) onShowSnackbar?.(`${submitData.name} moved to Inactive`, 'success');
+        else if (!wasActive && formData.isActive) onShowSnackbar?.(`${submitData.name} is active again`, 'success');
+        else onShowSnackbar?.('Course updated successfully', 'success');
       } else {
         await sysAdminApi.createCourse(submitData);
         onShowSnackbar?.('Course created successfully', 'success');
@@ -135,6 +142,61 @@ const CourseManagement = ({ onShowSnackbar }: { onShowSnackbar?: (message: strin
     } finally {
       setSaving(false);
     }
+  };
+
+  const handleReactivate = async (course: Course) => {
+    if (saving) return;
+    const ok = await confirm({
+      title: 'Reactivate course type?',
+      message: `"${course.name}" will be available for scheduling again.`,
+      confirmLabel: 'Reactivate',
+    });
+    if (!ok) return;
+    try {
+      setSaving(true);
+      await sysAdminApi.updateCourse(Number(course.id), { is_active: true });
+      onShowSnackbar?.(`${course.name} is active again`, 'success');
+      setView('active');
+      loadCourses();
+    } catch (err) {
+      logger.error('Error reactivating course:', err);
+      onShowSnackbar?.(getErrorMessage(err, 'Failed to reactivate course'), 'error');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDelete = async (course: Course) => {
+    if (saving) return;
+    const ok = await confirm({
+      title: 'Delete course type permanently?',
+      message: `"${course.name}" has never been used, so it can be removed. This cannot be undone.`,
+      confirmLabel: 'Delete',
+      danger: true,
+    });
+    if (!ok) return;
+    try {
+      setSaving(true);
+      const res = await sysAdminApi.deleteCourse(Number(course.id));
+      // A request can arrive between loading the page and the click; the server then only keeps it as Inactive.
+      if (res?.softDeleted) onShowSnackbar?.(`${course.name} was used meanwhile, so it was kept as Inactive`, 'success');
+      else onShowSnackbar?.(`${course.name} deleted`, 'success');
+      loadCourses();
+    } catch (err) {
+      logger.error('Error deleting course:', err);
+      onShowSnackbar?.(getErrorMessage(err, 'Failed to delete course'), 'error');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  /** Why a course type can or can't be deleted, in words. */
+  const usageText = (course: Course) => {
+    const requests = course.requestCount ?? 0;
+    const prices = course.priceCount ?? 0;
+    if (requests > 0) return `Used by ${requests} request${requests !== 1 ? 's' : ''}, so it is kept on record`;
+    if (prices > 0) return `Has ${prices} price record${prices !== 1 ? 's' : ''}, so it is kept on record`;
+    return 'Never used';
   };
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
@@ -150,6 +212,8 @@ const CourseManagement = ({ onShowSnackbar }: { onShowSnackbar?: (message: strin
   };
 
   const activeCourses = courses.filter(c => c.isActive !== false);
+  const inactiveCourses = courses.filter(c => c.isActive === false);
+  const shown = view === 'active' ? activeCourses : inactiveCourses;
 
   if (loading) {
     return (
@@ -172,13 +236,24 @@ const CourseManagement = ({ onShowSnackbar }: { onShowSnackbar?: (message: strin
           <Typography sx={{ fontSize: 13, fontWeight: 700, color: (theme) => theme.palette.text.secondary, textTransform: 'uppercase', letterSpacing: '0.07em' }}>
             COURSE CATALOG
           </Typography>
-          <Typography sx={{ fontSize: 12, color: (theme) => theme.palette.text.secondary }}>
-            {activeCourses.length} active course type{activeCourses.length !== 1 ? 's' : ''}
-          </Typography>
+          <SegmentedToggle
+            value={view}
+            onChange={(v) => setView(v as 'active' | 'inactive')}
+            options={[
+              { value: 'active', label: `Active (${activeCourses.length})` },
+              { value: 'inactive', label: `Inactive (${inactiveCourses.length})` },
+            ]}
+          />
         </Box>
 
+        {shown.length === 0 && (
+          <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary, py: 3 }}>
+            {view === 'active' ? 'No active course types.' : 'No inactive course types.'}
+          </Typography>
+        )}
+
         <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'repeat(2, 1fr)', md: 'repeat(4, 1fr)' }, gap: '16px' }}>
-          {courses.map(course => {
+          {shown.map(course => {
             const dMin = course.duration_minutes || 0;
             const validityMonths = course.certification_validity_months;
             return (
@@ -222,12 +297,37 @@ const CourseManagement = ({ onShowSnackbar }: { onShowSnackbar?: (message: strin
                       <Typography sx={{ fontSize: 12, fontWeight: 600, color: (theme) => theme.palette.text.primary }}>{validityMonths} months</Typography>
                     </Box>
                   )}
+                  {course.isActive === false && (
+                    <Typography sx={{ fontSize: 12, color: (theme) => theme.palette.text.secondary }}>
+                      {usageText(course)}
+                    </Typography>
+                  )}
+                  {course.isActive === false && (
+                    <LinkButton
+                      onClick={() => handleReactivate(course)}
+                      aria-label={`Reactivate ${course.name}`}
+                      sx={{
+                        mt: 'auto',
+                        display: 'block',
+                        width: '100%',
+                        textAlign: 'center',
+                        py: 1,
+                        border: (theme: Theme) => `1.5px solid ${theme.palette.divider}`,
+                        borderRadius: '8px',
+                        fontSize: 13,
+                        fontWeight: 700,
+                        '&:hover': { bgcolor: '#FFF0F0', textDecoration: 'none' },
+                      }}
+                    >
+                      Reactivate
+                    </LinkButton>
+                  )}
                   {/* Edit button */}
                   <LinkButton
                     onClick={() => handleEdit(course)}
                     aria-label={`Edit ${course.name}`}
                     sx={{
-                      mt: 'auto',
+                      mt: course.isActive === false ? 0 : 'auto',
                       display: 'block',
                       width: '100%',
                       textAlign: 'center',
@@ -241,6 +341,15 @@ const CourseManagement = ({ onShowSnackbar }: { onShowSnackbar?: (message: strin
                   >
                     Edit Course Type
                   </LinkButton>
+                  {course.isActive === false && (course.requestCount ?? 0) === 0 && (course.priceCount ?? 0) === 0 && (
+                    <LinkButton
+                      onClick={() => handleDelete(course)}
+                      aria-label={`Delete ${course.name} permanently`}
+                      sx={{ display: 'block', width: '100%', textAlign: 'center', py: 0.5, fontSize: 12, fontWeight: 700, color: 'error.main' }}
+                    >
+                      Delete permanently
+                    </LinkButton>
+                  )}
                 </Box>
               </Card>
             );
