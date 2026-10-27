@@ -12,7 +12,10 @@ const mockConn = {
 };
 const { mockSendInvoicePosted } = vi.hoisted(() => ({ mockSendInvoicePosted: vi.fn().mockResolvedValue(true) }));
 vi.mock('../services/EmailService.js', () => ({ emailService: { sendInvoicePostedEmail: mockSendInvoicePosted } }));
-vi.mock('../config/env.js', () => ({ env: { FRONTEND_URL: 'https://portal.test' } }));
+vi.mock('../config/env.js', () => ({ env: { FRONTEND_URL: 'https://portal.test', INVOICE_COPY_TO: 'ceo@gta.test, bad address' } }));
+const { mockLoadInvoice, mockGeneratePdf } = vi.hoisted(() => ({ mockLoadInvoice: vi.fn(), mockGeneratePdf: vi.fn() }));
+vi.mock('../services/invoiceDocument.js', () => ({ loadInvoiceForAccounting: mockLoadInvoice }));
+vi.mock('../services/PDFService.js', () => ({ PDFService: { generateInvoicePDF: mockGeneratePdf } }));
 vi.mock('../config/database.js', () => ({
   getPool: () => ({ query: mockQuery, getConnection: () => Promise.resolve(mockConn) }),
 }));
@@ -102,15 +105,15 @@ describe('BillingLifecycle (T-3)', () => {
       const insertCall = mockConnQuery.mock.calls[1];
       const insertParams = insertCall[1];
       // totalAmount = 5 * 80 * 1.13 = 452
-      expect(insertParams[3]).toBeCloseTo(452, 2); // totalAmount
+      expect(insertParams[4]).toBeCloseTo(452, 2); // totalAmount
       // baseCost = 5 * 80 = 400
-      expect(insertParams[4]).toBeCloseTo(400, 2); // baseCost
+      expect(insertParams[5]).toBeCloseTo(400, 2); // baseCost
       // taxAmount = 400 * 0.13 = 52
-      expect(insertParams[5]).toBeCloseTo(52, 2); // taxAmount
+      expect(insertParams[6]).toBeCloseTo(52, 2); // taxAmount
       // students_billed
-      expect(insertParams[6]).toBe(5);
-      // rate_per_student (index 11: invoiceNumber, org_id, courseId, total, base, tax, students, dueDays, typeName, location, completedAt, rate)
-      expect(insertParams[11]).toBe(80);
+      expect(insertParams[7]).toBe(5);
+      // rate_per_student (index 13: invoiceNumber, org_id, courseId, total, base, tax, students, dueDays, typeName, location, completedAt, rate)
+      expect(insertParams[13]).toBe(80);
     });
 
     it('generates invoice number via InvoiceNumberService', async () => {
@@ -176,9 +179,9 @@ describe('BillingLifecycle (T-3)', () => {
       await service.createInvoice(10);
 
       const insertParams = mockConnQuery.mock.calls[1][1];
-      expect(insertParams[3]).toBe(0); // totalAmount
-      expect(insertParams[4]).toBe(0); // baseCost
-      expect(insertParams[5]).toBe(0); // taxAmount
+      expect(insertParams[4]).toBe(0); // totalAmount
+      expect(insertParams[5]).toBe(0); // baseCost
+      expect(insertParams[6]).toBe(0); // taxAmount
     });
 
     it('rolls back transaction on INSERT failure', async () => {
@@ -191,6 +194,26 @@ describe('BillingLifecycle (T-3)', () => {
       expect(mockConn.release).toHaveBeenCalled();
     });
 
+    it("dates the invoice with Toronto's date, not the server's UTC date", async () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2026-10-22T01:57:00Z')); // 9:57 pm on Oct 21 in Toronto
+      try {
+        mockConnQuery.mockResolvedValueOnce([[makeCourseRow()]]);
+        mockConnQuery.mockResolvedValueOnce([{ insertId: 105 }]);
+        mockConnQuery.mockResolvedValueOnce([{}]);
+        vi.mocked(invoiceRepo.findById).mockResolvedValue({ id: 105 } as any);
+
+        await service.createInvoice(10);
+
+        const [sql, params] = mockConnQuery.mock.calls[1];
+        expect(sql).not.toContain('CURRENT_DATE');
+        expect(params[3]).toBe('2026-10-21'); // invoice_date
+        expect(params[8]).toBe('2026-10-21'); // due date counts from it
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
     it('sets due_date to 30 days from creation', async () => {
       const course = makeCourseRow();
       mockConnQuery.mockResolvedValueOnce([[course]]);
@@ -201,7 +224,7 @@ describe('BillingLifecycle (T-3)', () => {
       await service.createInvoice(10);
 
       const insertParams = mockConnQuery.mock.calls[1][1];
-      expect(insertParams[7]).toBe(30); // INVOICE_DUE_DAYS
+      expect(insertParams[9]).toBe(30); // INVOICE_DUE_DAYS
     });
   });
 
@@ -277,10 +300,39 @@ describe('BillingLifecycle (T-3)', () => {
       expect(mockSendInvoicePosted).toHaveBeenCalledTimes(1);
       expect(mockSendInvoicePosted).toHaveBeenCalledWith('billing@org.test', {
         invoiceNumber: 'INV-5', organizationName: 'Org <b>', amount: '$452.00', dueDate: '2026-11-20', portalUrl: 'https://portal.test',
-      });
+      }, { pdf: undefined, cc: [], bcc: ['ceo@gta.test'] });
       // Sent after the connection is released, and the time is recorded.
       expect(mockConn.release).toHaveBeenCalled();
       expect(mockQuery).toHaveBeenCalledWith('UPDATE invoices SET email_sent_at = CURRENT_TIMESTAMP WHERE id = ?', [5]);
+    });
+
+    it('attaches the PDF and copies the admins once each, leaving out bad addresses', async () => {
+      mockSendInvoicePosted.mockClear().mockResolvedValueOnce(true);
+      const pdf = Buffer.from('%PDF');
+      mockLoadInvoice.mockResolvedValueOnce({ id: 7 });
+      mockGeneratePdf.mockResolvedValueOnce(pdf);
+      mockQuery.mockResolvedValueOnce([[{ email: 'Billing@org.test' }, { email: 'boss@org.test' }, { email: 'boss@org.test' }, { email: 'not an email' }]]);
+      mockConnQuery.mockResolvedValueOnce([[{ id: 7, organization_id: 3, course_request_id: null, contact_email: 'billing@org.test', invoice_number: 'INV-7', amount: '10', due_date: null }]]);
+      mockConnQuery.mockResolvedValueOnce([{ affectedRows: 1 }]);
+      vi.mocked(invoiceRepo.findById).mockResolvedValue({ id: 7, posted_to_org: true } as any);
+
+      await service.postToOrg(7, 42);
+
+      expect(mockLoadInvoice).toHaveBeenCalledWith(7);
+      expect(mockSendInvoicePosted).toHaveBeenCalledWith('billing@org.test', expect.anything(), { pdf, cc: ['boss@org.test'], bcc: ['ceo@gta.test'] });
+    });
+
+    it('sends without the PDF when it cannot be made', async () => {
+      mockSendInvoicePosted.mockClear().mockResolvedValueOnce(true);
+      mockLoadInvoice.mockRejectedValueOnce(new Error('Pricing not configured'));
+      mockQuery.mockResolvedValueOnce([[]]);
+      mockConnQuery.mockResolvedValueOnce([[{ id: 8, organization_id: 3, course_request_id: null, contact_email: 'billing@org.test' }]]);
+      mockConnQuery.mockResolvedValueOnce([{ affectedRows: 1 }]);
+      vi.mocked(invoiceRepo.findById).mockResolvedValue({ id: 8, posted_to_org: true } as any);
+
+      await service.postToOrg(8, 42);
+
+      expect(mockSendInvoicePosted).toHaveBeenCalledWith('billing@org.test', expect.anything(), { pdf: undefined, cc: [], bcc: ['ceo@gta.test'] });
     });
 
     it('still posts when there is no contact email or the email fails', async () => {
@@ -463,6 +515,45 @@ describe('BillingLifecycle (T-3)', () => {
         expect.stringContaining("status = 'paid'"),
         [1]
       );
+    });
+  });
+
+  describe('resendInvoiceEmail', () => {
+    it('sends the email again for a posted invoice and audits it', async () => {
+      mockSendInvoicePosted.mockClear().mockResolvedValueOnce(true);
+      mockQuery.mockResolvedValueOnce([[{ id: 9, organization_id: 3, posted_to_org: 1, contact_email: 'billing@org.test', invoice_number: 'INV-9', amount: '10' }]]);
+      mockQuery.mockResolvedValueOnce([[]]); // admins
+
+      await service.resendInvoiceEmail(9, { userId: 42 });
+
+      expect(mockSendInvoicePosted).toHaveBeenCalledTimes(1);
+      expect(mockConnQuery).toHaveBeenCalledWith(expect.stringContaining('INSERT INTO audit_logs'), expect.arrayContaining(['resend_invoice_email']));
+    });
+
+    it('refuses a second send within a minute, and succeeds even if the audit row fails', async () => {
+      mockSendInvoicePosted.mockClear().mockResolvedValue(true);
+      mockQuery.mockResolvedValueOnce([[{ id: 9, posted_to_org: 1, contact_email: 'billing@org.test', email_sent_at: new Date() }]]);
+      await expect(service.resendInvoiceEmail(9)).rejects.toThrow('less than a minute');
+      expect(mockSendInvoicePosted).not.toHaveBeenCalled();
+
+      mockQuery.mockResolvedValueOnce([[{ id: 9, organization_id: 3, posted_to_org: 1, contact_email: 'billing@org.test', email_sent_at: new Date(Date.now() - 120_000) }]]);
+      mockQuery.mockResolvedValueOnce([[]]);
+      mockConnQuery.mockRejectedValueOnce(new Error('audit down'));
+      await expect(service.resendInvoiceEmail(9, { userId: 42 })).resolves.toBeUndefined();
+      expect(mockSendInvoicePosted).toHaveBeenCalledTimes(1);
+    });
+
+    it('refuses an invoice that is not posted yet', async () => {
+      mockQuery.mockResolvedValueOnce([[{ id: 9, posted_to_org: 0, contact_email: 'billing@org.test' }]]);
+      await expect(service.resendInvoiceEmail(9)).rejects.toThrow('Post the invoice');
+      expect(mockSendInvoicePosted).not.toHaveBeenCalled();
+    });
+
+    it('says so when the email could not be sent', async () => {
+      mockSendInvoicePosted.mockReset().mockResolvedValueOnce(false);
+      mockQuery.mockResolvedValueOnce([[{ id: 9, organization_id: 3, posted_to_org: 1, contact_email: 'billing@org.test' }]]);
+      mockQuery.mockResolvedValueOnce([[]]);
+      await expect(service.resendInvoiceEmail(9)).rejects.toThrow('could not be sent');
     });
   });
 });

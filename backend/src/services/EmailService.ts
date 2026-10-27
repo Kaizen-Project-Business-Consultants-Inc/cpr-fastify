@@ -138,7 +138,8 @@ export class EmailService {
     subject: string,
     html: string,
     attachments?: { filename: string; content: Buffer }[],
-    cc?: string[]
+    cc?: string[],
+    bcc?: string[]
   ): Promise<boolean> {
     if (!this.apiKey) {
       logger.info({ to, subject }, 'Email mock — no API key configured');
@@ -154,6 +155,7 @@ export class EmailService {
       };
 
       if (cc?.length) body.cc = cc;
+      if (bcc?.length) body.bcc = bcc;
 
       if (attachments?.length) {
         body.attachments = attachments.map(a => ({
@@ -292,22 +294,29 @@ export class EmailService {
     return this.sendEmail(to, n.subject(d), html);
   }
 
-  /** Tells an organization a new invoice is in its portal (sent when accounting posts it). */
+  /**
+   * Tells an organization a new invoice is in its portal (sent when accounting posts it), with a PDF
+   * copy attached when one could be made. `cc` and `bcc` are well-formed addresses only.
+   */
   async sendInvoicePostedEmail(
     to: string,
-    data: { invoiceNumber: string; organizationName: string; amount: string; dueDate: string; portalUrl: string }
+    data: { invoiceNumber: string; organizationName: string; amount: string; dueDate: string; portalUrl: string },
+    extra: { pdf?: Buffer; cc?: string[]; bcc?: string[] } = {}
   ): Promise<boolean> {
     const html = safeHtml`
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
         <h2 style="color: #007bff;">New invoice ${data.invoiceNumber}</h2>
         <p>Hello ${data.organizationName},</p>
-        <p>A new invoice is ready in your CPR Training Portal.</p>
+        <p>A new invoice is ready in your CPR Training Portal.${extra.pdf ? ' A copy is attached to this email.' : ''}</p>
         <p><strong>Amount:</strong> ${data.amount}<br><strong>Due:</strong> ${data.dueDate}</p>
         <p>Sign in and open <strong>Bills Payable</strong> to view and pay it:</p>
         <p><a href="${data.portalUrl}">${data.portalUrl}</a></p>
       </div>
     `;
-    return this.sendEmail(to, `CPR Training Portal - Invoice ${data.invoiceNumber}`, html);
+    const attachments = extra.pdf
+      ? [{ filename: `Invoice-${data.invoiceNumber.replace(/[^\w.-]+/g, '_')}.pdf`, content: extra.pdf }]
+      : undefined;
+    return this.sendEmail(to, `CPR Training Portal - Invoice ${data.invoiceNumber}`, html, attachments, extra.cc, extra.bcc);
   }
 
   async sendPasswordResetEmail(userEmail: string, username: string, resetLink: string): Promise<boolean> {

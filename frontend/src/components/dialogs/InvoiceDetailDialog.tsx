@@ -20,7 +20,7 @@ import {
   TableRow,
   Paper,
 } from '@mui/material';
-import api, { getInvoiceDetails, postInvoiceToOrganization } from '../../services/api';
+import api, { getInvoiceDetails, postInvoiceToOrganization, resendInvoiceEmail } from '../../services/api';
 import { useConfirm } from '../gtacpr';
 import { tokenService } from '../../services/tokenService';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
@@ -375,7 +375,7 @@ const InvoiceDetailDialog = ({
     if (!invoice?.id || processingPayment) return;
     const ok = await confirm({
       title: 'Post this invoice to the organization?',
-      message: `Invoice ${invoice.invoice_number || ''} will be posted to the portal of ${invoice.organization_name || 'the organization'}, where their users can see and pay it, and its billing contact is emailed. This cannot be undone.`,
+      message: `Invoice ${invoice.invoice_number || ''} will be posted to the portal of ${invoice.organization_name || 'the organization'}, where their users can see and pay it, and its billing contact is emailed a copy with the organization's admins copied. This cannot be undone.`,
       confirmLabel: 'Post Invoice',
       danger: true,
     });
@@ -394,12 +394,33 @@ const InvoiceDetailDialog = ({
     }
   };
 
+  const handleResendEmail = async () => {
+    if (!invoice?.id || processingPayment) return;
+    const ok = await confirm({
+      title: 'Email this invoice again?',
+      message: `Invoice ${invoice.invoice_number || ''} will be emailed again, with a PDF copy, to the billing contact of ${invoice.organization_name || 'the organization'} and the organization's admins.`,
+      confirmLabel: 'Send Email',
+    });
+    if (!ok) return;
+
+    setProcessingPayment(true);
+    try {
+      await resendInvoiceEmail(invoice.id);
+      if (onActionSuccess) onActionSuccess('Invoice emailed again');
+    } catch (err: unknown) {
+      logger.error('Error resending invoice email:', err);
+      if (onActionError) onActionError(getErrorMessage(err, 'Failed to email the invoice'));
+    } finally {
+      setProcessingPayment(false);
+    }
+  };
+
   const handleProcessPayment = async () => {
     if (!invoice?.id || processingPayment) return;
 
     const ok = await confirm({
       title: 'Approve and post this invoice?',
-      message: `Invoice ${invoice.invoice_number || ''} for ${invoice.organization_name || 'this organization'} will be approved and posted to the organization portal, where their users can see and pay it, and its billing contact is emailed. These steps cannot be undone.`,
+      message: `Invoice ${invoice.invoice_number || ''} for ${invoice.organization_name || 'this organization'} will be approved and posted to the organization portal, where their users can see and pay it, and its billing contact is emailed a copy with the organization's admins copied. These steps cannot be undone.`,
       confirmLabel: 'Approve & Post',
       danger: true,
     });
@@ -774,6 +795,12 @@ const InvoiceDetailDialog = ({
             startIcon={processingPayment ? <CircularProgress size={20} color='inherit' /> : undefined}
           >
             {processingPayment ? 'Posting...' : 'Post to Organization'}
+          </Button>
+        )}
+
+        {showPostToOrgButton && !!invoice?.posted_to_org && (
+          <Button onClick={handleResendEmail} disabled={processingPayment} variant='outlined'>
+            Email Again
           </Button>
         )}
 

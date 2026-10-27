@@ -29,6 +29,9 @@ const envSchema = z.object({
   RESEND_WEBHOOK_SECRET: z.string().optional(),
   ANTHROPIC_API_KEY: z.string().optional(),
 
+  // Invoice emails: optional comma-separated addresses blind-copied on every posted invoice (e.g. accounting)
+  INVOICE_COPY_TO: z.string().optional(),
+
   // Tax
   HST_RATE: z.coerce.number().min(0).max(1).optional(),
 

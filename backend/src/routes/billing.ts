@@ -217,6 +217,14 @@ export async function billingRoutes(app: FastifyInstance) {
     } catch (err) { return handleError(err, reply, request); }
   });
 
+  app.post('/invoices/:id/resend-email', { preHandler: acctRole }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    try {
+      await service.resendInvoiceEmail(parseInt(id), { userId: request.userId, ipAddress: request.ip });
+      return { success: true, message: 'Invoice email sent again' };
+    } catch (err) { return handleError(err, reply, request); }
+  });
+
   // ===== Payments =====
   app.get('/invoices/:id/payments', { preHandler: acctRole }, async (request) => {
     const { id } = request.params as { id: string };

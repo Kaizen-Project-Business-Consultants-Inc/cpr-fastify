@@ -12,8 +12,14 @@ import { verifiedPayment } from '../utils/paymentSql.js';
 import { emailService } from './EmailService.js';
 import { env } from '../config/env.js';
 import { completedClassDate } from '../utils/classDateSql.js';
+import { torontoToday } from '../utils/torontoDate.js';
+import { loadInvoiceForAccounting } from './invoiceDocument.js';
+
+/** Resend refuses a whole message if one recipient is malformed, so only well-formed addresses are used. */
+const EMAIL_SHAPE = /^[^\s@,;<>]+@[^\s@,;<>]+$/;
 
 const INVOICE_DUE_DAYS = 30;
+const RESEND_COOLDOWN_MS = 60_000;
 // A safety cap only: far above the number of invoices the business makes.
 const EXPORT_MAX_ROWS = 100000;
 
@@ -118,6 +124,8 @@ export class BillingService {
       const taxAmount = baseCost * getHSTRate();
       const totalAmount = baseCost + taxAmount;
       const invoiceNumber = await this.invoiceNumberService.allocate(course.organization_id, conn);
+      // Toronto's date: CURRENT_DATE is UTC and moves to tomorrow at 8 pm Toronto time.
+      const today = torontoToday();
 
       // invoices.date_completed is a record only: the screens and PDF compute the
       // class date from course_requests (utils/classDateSql.ts).
@@ -127,10 +135,10 @@ export class BillingService {
            amount, base_cost, tax_amount, students_billed, status, due_date,
            posted_to_org, course_type_name, location, date_completed,
            rate_per_student, approval_status
-         ) VALUES (?, ?, ?, CURRENT_DATE, ?, ?, ?, ?, 'pending',
-           CURRENT_DATE + INTERVAL ? DAY, FALSE, ?, ?, ?, ?, 'pending')`,
-        [invoiceNumber, course.organization_id, courseId, totalAmount, baseCost, taxAmount,
-         course.students_attended, INVOICE_DUE_DAYS, course.course_type_name,
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending',
+           DATE_ADD(?, INTERVAL ? DAY), FALSE, ?, ?, ?, ?, 'pending')`,
+        [invoiceNumber, course.organization_id, courseId, today, totalAmount, baseCost, taxAmount,
+         course.students_attended, today, INVOICE_DUE_DAYS, course.course_type_name,
          course.location, course.completed_on, course.price_per_student]
       );
 
@@ -293,23 +301,96 @@ export class BillingService {
     return (await this.invoiceRepo.findById(id))!;
   }
 
-  /** Emails the organization's contact; a failed email never undoes the posting. */
-  private async notifyInvoicePosted(id: number, invoice: RowDataPacket): Promise<void> {
-    if (!invoice.contact_email) {
+  /**
+   * Emails the organization's contact, with the organization's admins copied and a PDF copy attached.
+   * Returns whether it was sent. A failed email never undoes the posting, and a PDF that can't be made
+   * is left off rather than blocking the email.
+   */
+  private async notifyInvoicePosted(id: number, invoice: RowDataPacket): Promise<boolean> {
+    const contact = String(invoice.contact_email ?? '').trim();
+    if (!contact) {
       logger.warn({ invoiceId: id }, 'Invoice posted, but the organization has no contact email');
-      return;
+      return false;
     }
     try {
-      const sent = await emailService.sendInvoicePostedEmail(invoice.contact_email, {
+      const seen = new Set<string>([contact.toLowerCase()]);
+      const keep = (addresses: string[]) => addresses.map((e) => e.trim()).filter((e) => {
+        const key = e.toLowerCase();
+        if (!EMAIL_SHAPE.test(e) || seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+      // Admins are a courtesy copy: a failed lookup must not stop the contact getting the invoice.
+      const admins = await this.orgAdminEmails(invoice.organization_id).catch((err) => {
+        logger.warn({ invoiceId: id, err: err instanceof Error ? err.message : err }, 'Organization admins not copied on invoice email');
+        return [] as string[];
+      });
+      const cc = keep(admins);
+      const bcc = keep((env.INVOICE_COPY_TO ?? '').split(','));
+      const pdf = await this.invoicePdf(id);
+      const sent = await emailService.sendInvoicePostedEmail(contact, {
         invoiceNumber: String(invoice.invoice_number ?? id),
         organizationName: String(invoice.organization_name ?? ''),
         amount: `$${Number(invoice.amount ?? 0).toFixed(2)}`,
         dueDate: invoice.due_date ? new Date(invoice.due_date).toISOString().slice(0, 10) : 'on receipt',
         portalUrl: env.FRONTEND_URL,
-      });
+      }, { pdf, cc, bcc });
       if (sent) await getPool().query('UPDATE invoices SET email_sent_at = CURRENT_TIMESTAMP WHERE id = ?', [id]);
+      return !!sent;
     } catch (err) {
       logger.error({ invoiceId: id, err: err instanceof Error ? err.message : err }, 'Invoice email failed');
+      return false;
+    }
+  }
+
+  private async orgAdminEmails(organizationId: number): Promise<string[]> {
+    const [rows] = await getPool().query<RowDataPacket[]>(
+      `SELECT email FROM users
+       WHERE organization_id = ? AND role IN ('org_admin', 'organization') AND status = 'active'
+         AND email IS NOT NULL AND email != ''`,
+      [organizationId]
+    );
+    return rows.map((r) => String(r.email));
+  }
+
+  /** The invoice's PDF, or undefined when it can't be made (the email then goes without it). */
+  private async invoicePdf(id: number): Promise<Buffer | undefined> {
+    try {
+      const data = await loadInvoiceForAccounting(id);
+      if (!data) return undefined;
+      const { PDFService } = await import('./PDFService.js');
+      return await PDFService.generateInvoicePDF(data);
+    } catch (err) {
+      logger.warn({ invoiceId: id, err: err instanceof Error ? err.message : err }, 'Invoice PDF not attached');
+      return undefined;
+    }
+  }
+
+  /** Sends a posted invoice's email again (a bounce, or a changed contact). Accounting only. */
+  async resendInvoiceEmail(id: number, actor?: AuditActor): Promise<void> {
+    const [rows] = await getPool().query<RowDataPacket[]>(
+      `SELECT i.*, o.name as organization_name, o.contact_email
+       FROM invoices i JOIN organizations o ON i.organization_id = o.id WHERE i.id = ?`,
+      [id]
+    );
+    if (rows.length === 0) throw new BillingError('Invoice not found', 404);
+    if (!rows[0].posted_to_org) throw new BillingError('Post the invoice to the organization first', 409);
+    if (!String(rows[0].contact_email ?? '').trim()) {
+      throw new BillingError('Organization has no billing contact email. Please add one first.', 422);
+    }
+    // A double click or a second accountant must not mail everyone twice.
+    const lastSent = rows[0].email_sent_at ? new Date(rows[0].email_sent_at).getTime() : 0;
+    if (Date.now() - lastSent < RESEND_COOLDOWN_MS) throw new BillingError('This invoice was emailed less than a minute ago.', 429);
+    if (!(await this.notifyInvoicePosted(id, rows[0]))) throw new BillingError('The email could not be sent. Try again shortly.', 502);
+    // The email is out, so a failed audit row must not turn this into an error (a retry would mail again).
+    if (actor) {
+      try {
+        const conn = await getPool().getConnection();
+        try { await writeAudit(conn, { ...actor, action: 'resend_invoice_email', entityType: 'invoice', entityId: id, details: { invoiceNumber: rows[0].invoice_number } }); }
+        finally { conn.release(); }
+      } catch (err) {
+        logger.error({ invoiceId: id, err: err instanceof Error ? err.message : err }, 'Audit entry for invoice email resend failed');
+      }
     }
   }
 
