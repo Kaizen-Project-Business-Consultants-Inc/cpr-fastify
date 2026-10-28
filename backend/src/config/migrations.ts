@@ -569,6 +569,17 @@ export const migrations: Migration[] = [
       logger.info({ numbered: todo.length }, 'Existing certificates numbered');
     },
   },
+  {
+    version: 32,
+    name: 'class_reminders',
+    // When each reminder went out, and when the instructor said they were ready.
+    // A reminder is claimed by setting its column, so it is never sent twice.
+    up: async (pool: Pool) => {
+      for (const col of ['reminder_day_before_at', 'reminder_soon_at', 'instructor_ready_at', 'ready_alert_at']) {
+        await addColumnIfMissing(pool, 'course_requests', col, 'DATETIME DEFAULT NULL');
+      }
+    },
+  },
 ];
 
 const MIGRATION_LOCK = 'cpr_migrations';

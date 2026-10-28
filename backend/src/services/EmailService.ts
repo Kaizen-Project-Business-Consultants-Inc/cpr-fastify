@@ -413,6 +413,71 @@ export class EmailService {
     return this.sendEmail(studentEmail, subject, html);
   }
 
+  /** Tells an instructor about a class: the day before, or 15 minutes ahead with a one-tap "I'm ready" link. */
+  async sendClassReminderEmail(
+    to: string,
+    data: {
+      kind: 'day_before' | 'soon'; instructorName: string; courseName: string; organizationName: string;
+      date: string; startTime: string; location: string; readyUrl?: string;
+    }
+  ): Promise<boolean> {
+    const soon = data.kind === 'soon';
+    const subject = soon
+      ? `Starting soon: ${data.courseName} at ${formatClockTime(data.startTime)}`
+      : `Reminder: ${data.courseName} tomorrow at ${formatClockTime(data.startTime)}`;
+    const button = soon && data.readyUrl
+      ? safeHtml`<p style="text-align:center;margin:28px 0;"><a href="${data.readyUrl}" style="background:#CC1F1F;color:#fff;padding:14px 28px;text-decoration:none;border-radius:6px;font-weight:bold;">I'm ready</a></p>
+         <p>Please tap the button when you are at the class and set up. If we do not hear from you, the course admin will be alerted.</p>`
+      : raw('');
+    const html = safeHtml`
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+        <div style="background: #CC1F1F; padding: 20px; text-align: center;">
+          <h1 style="color: #fff; margin: 0; font-size: 22px;">${soon ? 'Your class starts soon' : 'Your class is tomorrow'}</h1>
+        </div>
+        <div style="padding: 30px; background: #f9f9f9;">
+          <p>Hi ${data.instructorName},</p>
+          <p><strong>Course:</strong> ${data.courseName}</p>
+          <p><strong>Organization:</strong> ${data.organizationName}</p>
+          <p><strong>Date:</strong> ${formatDate(data.date)}</p>
+          <p><strong>Start time:</strong> ${formatClockTime(data.startTime)}</p>
+          <p><strong>Location:</strong> ${data.location}</p>
+          ${button}
+          <p style="margin-top: 30px; color: #666; font-size: 13px;">— GTACPR Training Management</p>
+        </div>
+      </div>
+    `;
+    return this.sendEmail(to, subject, html);
+  }
+
+  /** Tells the course admin that an instructor has not confirmed they are ready for a class about to start. */
+  async sendInstructorNotReadyAlert(
+    to: string,
+    data: {
+      instructorName: string; instructorPhone: string | null; courseName: string; organizationName: string;
+      date: string; startTime: string; location: string; minutesToStart: number;
+    }
+  ): Promise<boolean> {
+    const when = data.minutesToStart > 0 ? `starts in ${data.minutesToStart} min` : 'has started';
+    const subject = `Instructor not confirmed: ${data.courseName} ${when}`;
+    const html = safeHtml`
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+        <div style="background: #CC1F1F; padding: 20px; text-align: center;">
+          <h1 style="color: #fff; margin: 0; font-size: 22px;">Instructor has not confirmed</h1>
+        </div>
+        <div style="padding: 30px; background: #f9f9f9;">
+          <p><strong>${data.instructorName}</strong> has not confirmed they are ready, and the class ${when}.</p>
+          <p><strong>Instructor phone:</strong> ${data.instructorPhone || 'not on file'}</p>
+          <p><strong>Course:</strong> ${data.courseName}</p>
+          <p><strong>Organization:</strong> ${data.organizationName}</p>
+          <p><strong>Date and time:</strong> ${formatDate(data.date)} at ${formatClockTime(data.startTime)}</p>
+          <p><strong>Location:</strong> ${data.location}</p>
+          <p style="margin-top: 30px; color: #666; font-size: 13px;">— GTACPR Training Management</p>
+        </div>
+      </div>
+    `;
+    return this.sendEmail(to, subject, html);
+  }
+
 }
 
 export const emailService = EmailService.getInstance();

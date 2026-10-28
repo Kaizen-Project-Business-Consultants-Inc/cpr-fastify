@@ -5,6 +5,7 @@ import { connectDatabase, closeDatabaseConnections, getPool } from './config/dat
 import { runMigrations } from './config/migrations.js';
 import { initTaxConfig } from './utils/taxConfig.js';
 import { CertReminderService } from './services/CertReminderService.js';
+import { ClassReminderService } from './services/ClassReminderService.js';
 import { RetentionService } from './services/RetentionService.js';
 import { InboundEmailRepository } from './repositories/InboundEmailRepository.js';
 
@@ -23,7 +24,8 @@ if (env.SENTRY_DSN) {
   }
 }
 
-const HOUR = 60 * 60 * 1000;
+const MINUTE = 60 * 1000;
+const HOUR = 60 * MINUTE;
 
 /** Run a job on a timer without holding the process open on shutdown. */
 function schedule(name: string, fn: () => Promise<unknown>, intervalMs: number, initialDelayMs: number) {
@@ -47,6 +49,11 @@ async function start() {
   // takes a MySQL named lock and claims each reminder before sending.
   const certReminders = new CertReminderService();
   schedule('cert-reminders', () => certReminders.sendReminders(), 24 * HOUR, 60_000);
+
+  // Instructor class reminders (day before, 15 minutes before) and the course admin alert.
+  // Every 5 minutes while the server is awake; a named lock and claimed rows keep workers from repeating them.
+  const classReminders = new ClassReminderService();
+  schedule('class-reminders', () => classReminders.run(), 5 * MINUTE, 90_000);
 
   // PIPEDA data retention: anonymise PII on accounts closed more than 2 years ago.
   // Dry run (logs only) unless RETENTION_ENFORCE=true. First run 15 minutes after

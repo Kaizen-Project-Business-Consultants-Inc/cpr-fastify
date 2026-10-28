@@ -360,6 +360,8 @@ export class CourseService {
         `UPDATE course_requests
          SET instructor_id = ?, status = 'confirmed',
              confirmed_date = ?, confirmed_start_time = ?, confirmed_end_time = ?,
+             -- a new instructor or time starts the class reminders over
+             reminder_day_before_at = NULL, reminder_soon_at = NULL, instructor_ready_at = NULL, ready_alert_at = NULL,
              updated_at = CURRENT_TIMESTAMP
          WHERE id = ?`,
         [input.instructorId, course.scheduled_date, startTimeFormatted, endTimeFormatted, input.courseId]
@@ -511,7 +513,9 @@ export class CourseService {
       // Build dynamic update
       // Move scheduled_date too: Course Scheduling and the organization's view
       // show it, so a rescheduled course kept showing its old date.
-      const sets: string[] = ['confirmed_date = ?', 'scheduled_date = ?', 'updated_at = CURRENT_TIMESTAMP'];
+      // A new date, time or instructor starts the class reminders over.
+      const sets: string[] = ['confirmed_date = ?', 'scheduled_date = ?', 'updated_at = CURRENT_TIMESTAMP',
+        'reminder_day_before_at = NULL', 'reminder_soon_at = NULL', 'instructor_ready_at = NULL', 'ready_alert_at = NULL'];
       const params: unknown[] = [input.scheduledDate, input.scheduledDate];
 
       if (input.startTime) { sets.push('confirmed_start_time = ?'); params.push(`${input.startTime}:00`); }
