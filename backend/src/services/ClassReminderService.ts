@@ -33,7 +33,7 @@ export function resetVenueCache(): void {
 }
 
 export type ReadyOutcome =
-  | { ok: true; courseName: string; date: string; startTime: string }
+  | { ok: true; courseName: string; date: string; startTime: string; readyAt: string; distance: number | null }
   | { ok: false; reason: 'invalid' }
   | { ok: false; reason: 'location_required' }
   | { ok: false; reason: 'venue_unknown' }
@@ -180,27 +180,50 @@ export class ClassReminderService {
     return results.some(Boolean);
   }
 
-  /**
-   * The instructor taps "I'm ready" in the email. It is accepted only when their phone shares a
-   * precise location within the check-in radius of the class address. A wrong link and an
-   * unknown class get the same answer. The distance and accuracy are kept, not the coordinates.
-   */
+  /** The instructor taps "I'm ready" in the email link: the signed link proves which class it is for. */
   async confirmReady(
     classId: string, token: string, where?: { lat: number; lng: number; accuracy?: number },
   ): Promise<ReadyOutcome> {
     if (!/^\d+$/.test(classId) || !tokenMatches(classId, token)) return { ok: false, reason: 'invalid' };
+    return this.checkIn(classId, where);
+  }
+
+  /** A signed-in instructor checks in to one of their own classes. Anyone else's class answers "invalid". */
+  async checkInOwn(
+    classId: string, instructorId: number, where?: { lat: number; lng: number; accuracy?: number },
+  ): Promise<ReadyOutcome> {
+    return this.checkIn(classId, where, instructorId);
+  }
+
+  /**
+   * Checks an instructor in as ready. It is accepted only when their phone shares a precise
+   * location within the check-in radius of the class address. An unknown class (or, when
+   * `instructorId` is given, one that is not theirs) gets the same answer as a bad link. The
+   * distance and accuracy are kept, not the coordinates. Callers go through `confirmReady`
+   * (signed link) or `checkInOwn` (signed in), so who is allowed is always decided first.
+   */
+  private async checkIn(
+    classId: string, where?: { lat: number; lng: number; accuracy?: number }, instructorId?: number,
+  ): Promise<ReadyOutcome> {
     const pool = getPool();
     const [classRows] = await pool.query<RowDataPacket[]>(
-      `SELECT cr.location, cr.instructor_ready_at, ct.name AS course_name, DATE_FORMAT(cr.confirmed_date, '%Y-%m-%d') AS day,
+      `SELECT cr.location, cr.instructor_ready_at, cr.instructor_ready_distance_m, ct.name AS course_name, DATE_FORMAT(cr.confirmed_date, '%Y-%m-%d') AS day,
               TIME_FORMAT(cr.confirmed_start_time, '%H:%i') AS start_time
        FROM course_requests cr JOIN class_types ct ON ct.id = cr.course_type_id
-       WHERE cr.id = ? AND cr.status = 'confirmed'`, [classId]);
+       WHERE cr.id = ? AND cr.status = 'confirmed'${instructorId === undefined ? '' : ' AND cr.instructor_id = ?'}`,
+      instructorId === undefined ? [classId] : [classId, instructorId]);
     const c = classRows[0];
     if (!c) return { ok: false, reason: 'invalid' };
-    const done = { ok: true, courseName: c.course_name, date: c.day, startTime: c.start_time } as const;
+    const base = { ok: true, courseName: c.course_name, date: c.day, startTime: c.start_time } as const;
 
-    // Already checked in: reopening the link from somewhere else must not turn that into a refusal
-    if (c.instructor_ready_at) return done;
+    // Already checked in: reopening the link or screen from somewhere else must not turn that into a
+    // refusal, and shows the original time and distance
+    if (c.instructor_ready_at) {
+      return {
+        ...base, readyAt: new Date(c.instructor_ready_at).toISOString(),
+        distance: c.instructor_ready_distance_m == null ? null : Number(c.instructor_ready_distance_m),
+      };
+    }
     if (c.start_time && torontoWallTimeToMs(c.day, c.start_time) - Date.now() > CHECKIN_OPENS_MINUTES * MINUTE) {
       return { ok: false, reason: 'too_early', opensMinutes: CHECKIN_OPENS_MINUTES };
     }
@@ -220,7 +243,7 @@ export class ClassReminderService {
          instructor_ready_accuracy_m = COALESCE(instructor_ready_accuracy_m, ?),
          instructor_ready_distance_m = COALESCE(instructor_ready_distance_m, ?)
        WHERE id = ?`, [Math.round(where.accuracy), distance, classId]);
-    return done;
+    return { ...base, readyAt: new Date().toISOString(), distance };
   }
 
   /** The class address as a map point. Remembered (an hour; 5 minutes if not found) so repeated taps do not repeat the lookup. */
@@ -233,5 +256,23 @@ export class ClassReminderService {
     // A failed lookup is remembered briefly too, so taps do not keep hitting the address service
     venueCache.set(key, { point, until: Date.now() + (point ? HOUR : NOT_FOUND_HOLD) });
     return point;
+  }
+}
+
+const metres = (m: number) => (m >= 1000 ? `${(m / 1000).toFixed(1)} km` : `${m} m`);
+
+/** What an instructor is told when the check-in is not accepted. */
+export function readyRefusalMessage(r: Exclude<ReadyOutcome, { ok: true } | { reason: 'invalid' }>): string {
+  switch (r.reason) {
+    case 'location_required':
+      return 'Location is needed to check in. Allow location access for this page, then tap the button again.';
+    case 'imprecise':
+      return "Your phone's location is not precise enough to check you in. Turn on GPS (precise location), move outside if you can, and try again.";
+    case 'venue_unknown':
+      return 'We could not find the class address on the map, so we cannot check you in automatically. Please call the course admin.';
+    case 'too_early':
+      return `Check-in opens ${r.opensMinutes} minutes before the class starts. Please tap the button again closer to the start time.`;
+    case 'too_far':
+      return `You are about ${metres(r.distance)} from the venue. You can check in once you are within ${metres(r.radius)}.`;
   }
 }

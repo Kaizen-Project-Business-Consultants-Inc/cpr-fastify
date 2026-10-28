@@ -9,7 +9,17 @@ import { maybePaginate, paginatedResponse } from '../utils/pagination.js';
 import { torontoToday } from '../utils/torontoDate.js';
 import { ISSUE_CERTIFICATES_SQL } from '../utils/classDateSql.js';
 import { assignCertificateNumbers, emailCertificates, emailClassCertificateSheet } from '../services/CertificateService.js';
+import { ClassReminderService, readyRefusalMessage } from '../services/ClassReminderService.js';
 import type { RowDataPacket, ResultSetHeader } from 'mysql2/promise';
+
+// The phone's position when the instructor taps "I'm ready" (check-in needs it)
+const readySchema = z.object({
+  location: z.object({
+    lat: z.number().min(-90).max(90),
+    lng: z.number().min(-180).max(180),
+    accuracy: z.number().min(0).max(1_000_000).optional(),
+  }).optional(),
+});
 
 const addStudentSchema = z.object({
   firstName: z.string().min(1),
@@ -71,6 +81,7 @@ const CLASS_QUERY_BASE = `
     cr.id as courseId, ct.name as name,
     cr.confirmed_start_time as startTime, cr.confirmed_end_time as endTime,
     cr.status, cr.location, cr.registered_students as max_students,
+    cr.instructor_ready_at as instructorReadyAt, cr.instructor_ready_distance_m as instructorReadyDistanceM,
     CASE WHEN cr.status = 'completed' THEN true ELSE false END as completed,
     cr.created_at, cr.updated_at, cr.completed_at as completedAt,
     ct.name as course_name, ct.name as coursetypename,
@@ -393,6 +404,23 @@ export async function instructorRoutes(app: FastifyInstance) {
         attendance: r.attended || false, attendanceMarked: r.attendance_marked || false,
       },
     };
+  });
+
+  // ===== Check in: "I'm ready" for a class =====
+  // Same rules as the link in the reminder email (precise location, within the check-in radius,
+  // opens an hour before the start), but the instructor is signed in, so it is checked against
+  // their own class instead of a signed link.
+  const classReminders = new ClassReminderService();
+  app.post('/classes/:classId/ready', { preHandler: role }, async (request, reply) => {
+    const { classId } = request.params as { classId: string };
+    const body = readySchema.safeParse(request.body ?? {});
+    if (!body.success) return reply.status(400).send({ error: 'Invalid location' });
+    if (!/^\d+$/.test(classId)) return reply.status(404).send({ error: 'Class not found' });
+
+    const r = await classReminders.checkInOwn(classId, request.userId!, body.data.location);
+    if (r.ok) return { success: true, data: { courseName: r.courseName, date: r.date, startTime: r.startTime, readyAt: r.readyAt, distanceMeters: r.distance } };
+    if (r.reason === 'invalid') return reply.status(404).send({ error: 'Class not found' });
+    return reply.status(422).send({ error: readyRefusalMessage(r), code: r.reason });
   });
 
   // ===== Complete class =====

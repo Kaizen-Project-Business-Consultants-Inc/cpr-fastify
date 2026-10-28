@@ -296,6 +296,8 @@ export const instructorApi = {
     api.put(`/instructor/classes/${courseId}/students/${studentId}/attendance`, { attended }),
   addStudent: (courseId: number, studentData: StudentData) =>
     api.post(`/instructor/classes/${courseId}/students`, studentData),
+  markReady: (courseId: number, location: { lat: number; lng: number; accuracy: number }) =>
+    api.post(`/instructor/classes/${courseId}/ready`, { location }),
 
   // Availability management
   removeAvailability: (date: string) => api.delete(`/instructor/availability/${date}`),

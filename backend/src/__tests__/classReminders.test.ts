@@ -206,7 +206,8 @@ describe('check-in: only accepted at the venue, with the location shared', () =>
 
   it('accepts a phone at the venue and keeps the distance and accuracy, never the coordinates', async () => {
     const r = await confirm(NEAR);
-    expect(r).toEqual({ ok: true, courseName: 'CPR Advanced', date: '2026-10-28', startTime: '09:00' });
+    expect(r).toMatchObject({ ok: true, courseName: 'CPR Advanced', date: '2026-10-28', startTime: '09:00' });
+    expect((r as { distance: number }).distance).toBeGreaterThan(30);
     const [sql, params] = saved()!;
     expect(flat(sql)).not.toMatch(/lat|lng/);
     expect(params[0]).toBe(18);

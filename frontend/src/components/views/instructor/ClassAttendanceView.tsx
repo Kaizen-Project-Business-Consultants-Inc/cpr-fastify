@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Box,
   Typography,
@@ -22,6 +22,8 @@ import { useRefreshInstructorData } from '../../../services/instructorService';
 import DataTable, { DataTableRow } from '../../gtacpr/DataTable';
 import StatusChip from '../../gtacpr/StatusChip';
 import { PrimaryButton, GhostButton } from '../../gtacpr/Buttons';
+import { currentPosition } from '../../../utils/currentPosition';
+import { readySummary } from '../../../utils/readySummary';
 
 interface Student {
   studentid: string;
@@ -44,6 +46,9 @@ interface ClassData {
   studentcount: number;
   studentsattendance: number;
   date: string;
+  /** When they checked in as ready, and how far from the venue they were. */
+  instructorReadyAt?: string | null;
+  instructorReadyDistanceM?: number | null;
 }
 
 const studentColumns = [
@@ -63,6 +68,10 @@ const ClassAttendanceView: React.FC = () => {
   const [addStudentDialog, setAddStudentDialog] = useState(false);
   const [completeDialog, setCompleteDialog] = useState(false);
   const [completing, setCompleting] = useState(false);
+  // Which class is being checked in (one at a time), and how to stop its wait for a location
+  const [checkInClassId, setCheckInClassId] = useState<number | null>(null);
+  const stopLocation = useRef<() => void>(() => {});
+  const mounted = useRef(true);
   const [addingStudent, setAddingStudent] = useState(false);
   const [markingStudentId, setMarkingStudentId] = useState<string | null>(null);
   const [newStudent, setNewStudent] = useState({
@@ -134,13 +143,23 @@ const ClassAttendanceView: React.FC = () => {
     loadColleges();
   }, []);
 
-  // Fetch this class's roster whenever the selected class changes.
+  // Leaving the screen while it is still finding the location stops the GPS and the check-in.
   useEffect(() => {
-    if (selectedClass) {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      stopLocation.current();
+    };
+  }, []);
+
+  // Fetch this class's roster whenever a different class is selected (not when its check-in status changes).
+  const selectedClassId = selectedClass?.courseId;
+  useEffect(() => {
+    if (selectedClassId !== undefined) {
       // eslint-disable-next-line react-hooks/set-state-in-effect
-      loadStudents(selectedClass.courseId);
+      loadStudents(selectedClassId);
     }
-  }, [selectedClass]);
+  }, [selectedClassId]);
 
   const handleClassChange = (event: { target: { value: unknown } }) => {
     const classId = event.target.value as number;
@@ -184,6 +203,47 @@ const ClassAttendanceView: React.FC = () => {
       setError(errorMessage);
     } finally {
       setAddingStudent(false);
+    }
+  };
+
+  /** "I'm ready": asks the phone for its location and checks in. The server accepts it only at the venue. */
+  const handleCheckIn = async () => {
+    if (!selectedClass || checkInClassId !== null) return;
+    const { courseId: classId, name } = selectedClass;
+    setCheckInClassId(classId);
+    setError('');
+    try {
+      const lookup = currentPosition();
+      stopLocation.current = lookup.cancel;
+      const found = await lookup.promise;
+      if (!found || !mounted.current) return; // the screen was left while waiting
+      if ('problem' in found) {
+        setError(found.problem);
+        return;
+      }
+      const response = await instructorApi.markReady(classId, found.position);
+      if (!mounted.current) return;
+      // The time and distance the server recorded, not this device's clock
+      const readyFields = {
+        instructorReadyAt: response.data?.data?.readyAt ?? new Date().toISOString(),
+        instructorReadyDistanceM: response.data?.data?.distanceMeters ?? null,
+      };
+      setTodaysClasses(prev => prev.map(c => (c.courseId === classId ? { ...c, ...readyFields } : c)));
+      setSelectedClass(prev => (prev && prev.courseId === classId ? { ...prev, ...readyFields } : prev));
+      setSuccessMessage(`You're checked in as ready for ${name}.`);
+    } catch (error: unknown) {
+      if (!mounted.current) return;
+      // 422 and 404 carry a plain explanation (too far, too early, location needed, class not found...)
+      const axiosErr = error as { response?: { status?: number; data?: { error?: string } } };
+      const status = axiosErr.response?.status;
+      if ((status === 422 || status === 404) && axiosErr.response?.data?.error) {
+        setError(axiosErr.response.data.error);
+      } else {
+        handleError(error, { component: 'ClassAttendanceView', action: 'check in' });
+        setError('We could not check you in right now. Please try again in a moment.');
+      }
+    } finally {
+      if (mounted.current) setCheckInClassId(null);
     }
   };
 
@@ -277,6 +337,27 @@ const ClassAttendanceView: React.FC = () => {
                   <GhostButton onClick={() => setAddStudentDialog(true)}>+ Add Student</GhostButton>
                   <PrimaryButton onClick={() => setCompleteDialog(true)} disabled={stats.notMarked > 0}>Complete Class</PrimaryButton>
                 </Box>
+              </Box>
+
+              {/* Check-in: "I'm ready" at the venue */}
+              <Box sx={{ mb: 2, p: 2, bgcolor: (theme) => theme.palette.background.default, borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2, flexWrap: 'wrap' }}>
+                <Box>
+                  <Typography sx={{ fontSize: 14, fontWeight: 600, color: (theme) => theme.palette.text.primary }}>
+                    {selectedClass.instructorReadyAt ? 'Checked in' : 'Check in when you are at the class'}
+                  </Typography>
+                  <Typography sx={{ fontSize: 12.5, color: (theme) => theme.palette.text.secondary }} role="status" aria-live="polite">
+                    {selectedClass.instructorReadyAt
+                      ? readySummary({ instructor_ready_at: selectedClass.instructorReadyAt, instructor_ready_distance_m: selectedClass.instructorReadyDistanceM })
+                      : checkInClassId === selectedClass.courseId
+                        ? 'Finding your location…'
+                        : 'Your phone will ask to share its location. It must be at the venue. Only the distance is kept.'}
+                  </Typography>
+                </Box>
+                {!selectedClass.instructorReadyAt && (
+                  <PrimaryButton onClick={handleCheckIn} disabled={checkInClassId !== null}>
+                    {checkInClassId === selectedClass.courseId ? 'Checking in…' : "I'm ready"}
+                  </PrimaryButton>
+                )}
               </Box>
 
               {/* Class Info */}

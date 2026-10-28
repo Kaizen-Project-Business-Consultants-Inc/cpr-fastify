@@ -1,6 +1,6 @@
 import { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { ClassReminderService, type ReadyOutcome } from '../services/ClassReminderService.js';
+import { ClassReminderService, readyRefusalMessage } from '../services/ClassReminderService.js';
 
 const readyBody = z.object({
   classId: z.coerce.string(),
@@ -28,24 +28,6 @@ export async function classReminderRoutes(app: FastifyInstance) {
       : ({ ok: false, reason: 'invalid' } as const);
     if (r.ok) return { success: true, data: { courseName: r.courseName, date: r.date, startTime: r.startTime } };
     if (r.reason === 'invalid') return reply.status(404).send({ error: 'This link is not valid' });
-    return reply.status(422).send({ error: refusalMessage(r), code: r.reason });
+    return reply.status(422).send({ error: readyRefusalMessage(r), code: r.reason });
   });
-}
-
-const metres = (m: number) => (m >= 1000 ? `${(m / 1000).toFixed(1)} km` : `${m} m`);
-
-/** What the instructor is told when the check-in is not accepted. */
-function refusalMessage(r: Exclude<ReadyOutcome, { ok: true } | { reason: 'invalid' }>): string {
-  switch (r.reason) {
-    case 'location_required':
-      return 'Location is needed to check in. Allow location access for this page, then tap the button again.';
-    case 'imprecise':
-      return "Your phone's location is not precise enough to check you in. Turn on GPS (precise location), move outside if you can, and try again.";
-    case 'venue_unknown':
-      return 'We could not find the class address on the map, so we cannot check you in automatically. Please call the course admin.';
-    case 'too_early':
-      return `Check-in opens ${r.opensMinutes} minutes before the class starts. Please tap the button again closer to the start time.`;
-    case 'too_far':
-      return `You are about ${metres(r.distance)} from the venue. You can check in once you are within ${metres(r.radius)}.`;
-  }
 }
