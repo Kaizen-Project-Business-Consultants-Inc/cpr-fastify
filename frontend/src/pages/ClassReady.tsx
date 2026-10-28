@@ -17,11 +17,21 @@ const clock = (value: string) => {
   return `${h % 12 || 12}:${m[2]} ${h < 12 ? 'AM' : 'PM'}`;
 };
 
-/**
- * Public page behind the "I'm ready" button in the instructor's reminder email.
- * The click is a button here, not automatic on load, so an email scanner that
- * opens the link cannot mark the instructor ready.
- */
+/** The phone's position, or null if the person says no, it is unavailable, or it takes too long. */
+function currentPosition(): Promise<{ lat: number; lng: number; accuracy: number } | null> {
+  if (!('geolocation' in navigator)) return Promise.resolve(null);
+  // Browsers start the geolocation timeout only after the permission question is answered,
+  // so a question left unanswered would wait forever. Our own timer lets the tap go through.
+  const lookup = new Promise<{ lat: number; lng: number; accuracy: number } | null>((resolve) => {
+    navigator.geolocation.getCurrentPosition(
+      (p) => resolve({ lat: p.coords.latitude, lng: p.coords.longitude, accuracy: p.coords.accuracy }),
+      () => resolve(null),
+      { enableHighAccuracy: true, timeout: 8000, maximumAge: 60_000 },
+    );
+  });
+  return Promise.race([lookup, new Promise<null>((resolve) => setTimeout(() => resolve(null), 10_000))]);
+}
+
 const ClassReady: React.FC = () => {
   const { classId, token } = useParams<{ classId: string; token: string }>();
   const [loading, setLoading] = useState(false);
@@ -32,7 +42,9 @@ const ClassReady: React.FC = () => {
     setLoading(true);
     setError(null);
     try {
-      const res = await api.post('/class-reminders/ready', { classId, token });
+      // Location is a record for the course admin; confirming works without it
+      const location = await currentPosition();
+      const res = await api.post('/class-reminders/ready', { classId, token, ...(location ? { location } : {}) });
       setResult(res.data.data);
     } catch (err) {
       setError((err as { response?: { status?: number } })?.response?.status === 404
@@ -55,6 +67,9 @@ const ClassReady: React.FC = () => {
           <>
             <Typography variant="body1" color="text.secondary" sx={{ mb: 3 }}>
               Tap the button once you are at the class and set up.
+            </Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+              Your phone may ask to share your location. It is saved with your confirmation so the course admin can see how far you are from the venue (it is reported by your phone). You can still confirm if you say no.
             </Typography>
             {error && <Alert severity="warning" sx={{ mb: 2, textAlign: 'left' }}>{error}</Alert>}
             <Box>

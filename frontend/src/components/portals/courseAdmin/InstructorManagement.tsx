@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { readySummary } from '../../../utils/readySummary';
 import {
   Box,
   Dialog,
@@ -141,6 +142,11 @@ interface Course {
   instructorName?: string;
   status?: string;
   readyForBilling?: boolean;
+  /** Set when the instructor taps "I'm ready" in the reminder email; the rest is where they were. */
+  instructor_ready_at?: string | null;
+  instructor_ready_distance_m?: number | null;
+  instructor_ready_accuracy_m?: number | null;
+  instructor_ready_located?: number | boolean | null;
   [key: string]: unknown;
 }
 
@@ -1289,6 +1295,14 @@ The course status has been updated to "Confirmed" and moved to the confirmed cou
                 </Typography>
                 <Typography sx={{ fontSize: 13.5, fontWeight: 600, color: (theme) => theme.palette.text.primary }}>
                   {course.instructorName || 'Not Assigned'}
+                  {(() => {
+                    const ready = readySummary(course);
+                    return ready && (
+                      <Typography component="span" sx={{ display: 'block', fontSize: 11.5, fontWeight: 400, color: (theme) => (ready.warn ? theme.palette.warning.main : theme.palette.text.secondary) }}>
+                        {ready.text}
+                      </Typography>
+                    );
+                  })()}
                 </Typography>
                 <StatusChip kind="active" label={course.status || ''} />
                 <Box sx={{ display: 'flex', gap: 1.5 }}>

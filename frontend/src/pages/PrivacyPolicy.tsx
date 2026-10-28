@@ -179,6 +179,11 @@ const PrivacyPolicy = () => {
           </Box>
           <Box component="li" sx={{ mb: 1 }}>
             <Typography variant="body1">
+              <strong>OpenStreetMap (Nominatim)</strong> — when an instructor confirms they are ready for a class and shares their phone's location, the class address is sent to OpenStreetMap's address search to work out how far the instructor is from the venue. Only the address is sent, not the instructor's location. We keep the resulting distance, not the instructor's coordinates, so the course administrator can see it.
+            </Typography>
+          </Box>
+          <Box component="li" sx={{ mb: 1 }}>
+            <Typography variant="body1">
               <strong>Sentry (Functional Software Inc.)</strong> (United States) â€” used for application error monitoring. Error reports may include technical context such as usernames or request data; personal information captured in error logs is minimized and used solely for diagnosing application issues.
             </Typography>
           </Box>

@@ -164,6 +164,12 @@ export class OrganizationRepository extends BaseRepository<Organization> {
       [orgId, options.archived, ...dateParams]
     );
 
+    // cr.* also carries the instructor's reminder and check-in record; the organization does not see it
+    const INTERNAL = /^(reminder_|instructor_ready_|ready_alert_)/;
+    for (const row of rows) {
+      for (const key of Object.keys(row)) if (INTERNAL.test(key)) delete (row as Record<string, unknown>)[key];
+    }
+
     return { rows, total };
   }
 }

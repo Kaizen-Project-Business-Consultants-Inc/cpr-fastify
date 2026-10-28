@@ -3,6 +3,8 @@ import { getPool } from '../config/database.js';
 import { env } from '../config/env.js';
 import { logger } from '../config/logger.js';
 import { torontoToday, torontoWallTimeToMs } from '../utils/torontoDate.js';
+import { distanceMeters } from '../utils/geo.js';
+import { geocodeVenue } from './GeocodeService.js';
 import { emailService } from './EmailService.js';
 import type { RowDataPacket, ResultSetHeader } from 'mysql2/promise';
 
@@ -145,18 +147,44 @@ export class ClassReminderService {
     return results.some(Boolean);
   }
 
-  /** The instructor taps "I'm ready" in the email. Same answer for a wrong link and an unknown class. */
-  async confirmReady(classId: string, token: string): Promise<{ courseName: string; date: string; startTime: string } | null> {
+  /**
+   * The instructor taps "I'm ready" in the email. Same answer for a wrong link and an unknown class.
+   * If their phone shared its location, the distance to the class address is saved (not the coordinates).
+   * That is a record for the course admin: the tap counts with or without it.
+   */
+  async confirmReady(
+    classId: string, token: string, where?: { lat: number; lng: number; accuracy?: number },
+  ): Promise<{ courseName: string; date: string; startTime: string } | null> {
     if (!/^\d+$/.test(classId) || !tokenMatches(classId, token)) return null;
     const pool = getPool();
-    await pool.query(
+    const [done] = await pool.query<ResultSetHeader>(
       `UPDATE course_requests SET instructor_ready_at = COALESCE(instructor_ready_at, NOW())
        WHERE id = ? AND status = 'confirmed'`, [classId]);
+    if (!done.affectedRows) return null;
+
+    if (where) {
+      try {
+        // The first tap's location is the record; a later tap from somewhere else does not replace it
+        const [venue] = await pool.query<RowDataPacket[]>(
+          'SELECT location, instructor_ready_located FROM course_requests WHERE id = ?', [classId]);
+        if (venue[0] && venue[0].instructor_ready_located == null) {
+          const point = await geocodeVenue(String(venue[0].location ?? ''));
+          const distance = point ? distanceMeters(where.lat, where.lng, point.lat, point.lng) : null;
+          await pool.query(
+            `UPDATE course_requests SET instructor_ready_located = 1, instructor_ready_accuracy_m = ?,
+               instructor_ready_distance_m = ? WHERE id = ? AND instructor_ready_located IS NULL`,
+            [where.accuracy == null ? null : Math.round(where.accuracy), distance, classId]);
+        }
+      } catch (err) {
+        logger.error({ err, classId }, 'Could not save the instructor check-in location');
+      }
+    }
+
     const [rows] = await pool.query<RowDataPacket[]>(
       `SELECT ct.name AS course_name, DATE_FORMAT(cr.confirmed_date, '%Y-%m-%d') AS day,
               TIME_FORMAT(cr.confirmed_start_time, '%H:%i') AS start_time
        FROM course_requests cr JOIN class_types ct ON ct.id = cr.course_type_id
-       WHERE cr.id = ? AND cr.instructor_ready_at IS NOT NULL`, [classId]);
+       WHERE cr.id = ?`, [classId]);
     if (!rows.length) return null;
     return { courseName: rows[0].course_name, date: rows[0].day, startTime: rows[0].start_time };
   }

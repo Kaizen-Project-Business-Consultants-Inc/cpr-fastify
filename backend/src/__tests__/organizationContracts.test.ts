@@ -187,6 +187,19 @@ describe('OrganizationRepository.getOrgCourses', () => {
     expect(sqlOf(0).match(/cs\.attended = true AND cs\.deleted_at IS NULL/g)).toHaveLength(2);
   });
 
+  it('does not hand the organization the instructor reminder or check-in record', async () => {
+    mockQuery
+      .mockResolvedValueOnce([[{
+        id: 8, location: 'markham', instructor: 'Coujoe', reminder_soon_at: 'x', reminder_day_before_at: 'x',
+        instructor_ready_at: 'x', instructor_ready_located: 1, instructor_ready_accuracy_m: 20, instructor_ready_distance_m: 40, ready_alert_at: 'x',
+      }]])
+      .mockResolvedValueOnce([[{ total: 1 }]]);
+
+    const { rows } = await new OrganizationRepository().getOrgCourses(3, { archived: false, limit: 10, offset: 0 });
+
+    expect(rows[0]).toEqual({ id: 8, location: 'markham', instructor: 'Coujoe' });
+  });
+
   it('the count query has the cr alias the date filter uses', async () => {
     mockQuery.mockResolvedValueOnce([[]]).mockResolvedValueOnce([[{ total: 0 }]]);
 

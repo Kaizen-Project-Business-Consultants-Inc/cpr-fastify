@@ -580,6 +580,18 @@ export const migrations: Migration[] = [
       }
     },
   },
+  {
+    version: 33,
+    name: 'instructor_ready_location',
+    // How far the instructor's phone was from the class address when they tapped
+    // "I'm ready". Only the distance is kept, not the coordinates. A record for the
+    // course admin, never a block. NULL located = not recorded yet (first tap wins).
+    up: async (pool: Pool) => {
+      await addColumnIfMissing(pool, 'course_requests', 'instructor_ready_located', 'TINYINT(1) DEFAULT NULL');
+      await addColumnIfMissing(pool, 'course_requests', 'instructor_ready_accuracy_m', 'INT DEFAULT NULL');
+      await addColumnIfMissing(pool, 'course_requests', 'instructor_ready_distance_m', 'INT DEFAULT NULL');
+    },
+  },
 ];
 
 const MIGRATION_LOCK = 'cpr_migrations';
