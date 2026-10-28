@@ -583,13 +583,21 @@ export const migrations: Migration[] = [
   {
     version: 33,
     name: 'instructor_ready_location',
-    // How far the instructor's phone was from the class address when they tapped
-    // "I'm ready". Only the distance is kept, not the coordinates. A record for the
-    // course admin, never a block. NULL located = not recorded yet (first tap wins).
+    // "I'm ready" is only accepted when the instructor's phone is within a set distance of
+    // the class address. The distance and the phone's accuracy at that tap are kept (never
+    // the coordinates) for the course admin. The radius is a system setting.
     up: async (pool: Pool) => {
-      await addColumnIfMissing(pool, 'course_requests', 'instructor_ready_located', 'TINYINT(1) DEFAULT NULL');
       await addColumnIfMissing(pool, 'course_requests', 'instructor_ready_accuracy_m', 'INT DEFAULT NULL');
       await addColumnIfMissing(pool, 'course_requests', 'instructor_ready_distance_m', 'INT DEFAULT NULL');
+      try {
+        await pool.query(
+          `INSERT IGNORE INTO system_configurations (config_key, config_value, description, category)
+           VALUES ('checkin_radius_meters', '300',
+                   'How close (in metres) an instructor must be to the class address to check in with the I''m ready button', 'general')`);
+      } catch (err) {
+        // The class check-in falls back to 300 m without the row
+        logger.warn({ err }, 'Could not add the check-in radius setting');
+      }
     },
   },
 ];

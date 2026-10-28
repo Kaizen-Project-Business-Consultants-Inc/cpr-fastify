@@ -16,7 +16,7 @@ vi.mock('../services/EmailService.js', () => ({ emailService: mockEmail }));
 const { mockGeocode } = vi.hoisted(() => ({ mockGeocode: vi.fn() }));
 vi.mock('../services/GeocodeService.js', () => ({ geocodeVenue: mockGeocode }));
 
-import { ClassReminderService, readyToken } from '../services/ClassReminderService.js';
+import { ClassReminderService, checkInRadius, readyToken, resetVenueCache } from '../services/ClassReminderService.js';
 import { classReminderRoutes } from '../routes/classReminders.js';
 import { torontoWallTimeToMs } from '../utils/torontoDate.js';
 import { distanceMeters } from '../utils/geo.js';
@@ -174,10 +174,149 @@ describe('ClassReminderService.run', () => {
   });
 });
 
-describe('POST /class-reminders/ready', () => {
+describe('check-in: only accepted at the venue, with the location shared', () => {
+  const VENUE = { lat: 43.8561, lng: -79.337 };
+  /** About 45 m west of the venue. */
+  const NEAR = { lat: 43.8561, lng: -79.3375, accuracy: 18.4 };
+  let radiusSetting: string | undefined;
+  let classRows: unknown[];
+
   beforeEach(() => {
-    mockQuery.mockReset().mockImplementation(async (sql: string) =>
-      flat(sql).startsWith('UPDATE') ? [{ affectedRows: 1 }] : [[{ course_name: 'CPR Advanced', day: '2026-10-28', start_time: '09:00' }]]);
+    resetVenueCache();
+    radiusSetting = undefined;
+    classRows = [{ location: '100 Main St, Markham', course_name: 'CPR Advanced', day: '2026-10-28', start_time: '09:00' }];
+    mockGeocode.mockReset().mockResolvedValue(VENUE);
+    mockQuery.mockReset().mockImplementation(async (sql: string) => {
+      const s = flat(sql);
+      if (s.includes('FROM system_configurations')) return [radiusSetting === undefined ? [] : [{ config_value: radiusSetting }]];
+      if (s.includes('FROM course_requests cr JOIN class_types')) return [classRows];
+      return [{ affectedRows: 1 }];
+    });
+  });
+  const saved = () => mockQuery.mock.calls.find(([sql]) => flat(sql).includes('SET instructor_ready_at'));
+  const confirm = (where?: { lat: number; lng: number; accuracy?: number }, id = 8, token = readyToken(8)) =>
+    new ClassReminderService().confirmReady(String(id), token, where);
+
+  it('measures the distance in metres', () => {
+    expect(distanceMeters(43.8561, -79.337, 43.8561, -79.337)).toBe(0);
+    const d = distanceMeters(43.8561, -79.337, 43.8651, -79.337); // 0.009 degrees of latitude
+    expect(d).toBeGreaterThan(990);
+    expect(d).toBeLessThan(1010);
+  });
+
+  it('accepts a phone at the venue and keeps the distance and accuracy, never the coordinates', async () => {
+    const r = await confirm(NEAR);
+    expect(r).toEqual({ ok: true, courseName: 'CPR Advanced', date: '2026-10-28', startTime: '09:00' });
+    const [sql, params] = saved()!;
+    expect(flat(sql)).not.toMatch(/lat|lng/);
+    expect(params[0]).toBe(18);
+    expect(params[1]).toBeGreaterThan(30);
+    expect(params[1]).toBeLessThan(70);
+    expect(params).not.toContain(NEAR.lat);
+  });
+
+  it('refuses without a location, and does not look the venue up', async () => {
+    expect(await confirm(undefined)).toEqual({ ok: false, reason: 'location_required' });
+    expect(mockGeocode).not.toHaveBeenCalled();
+    expect(saved()).toBeUndefined();
+  });
+
+  it('refuses a phone that is outside the radius, saying how far', async () => {
+    const r = await confirm({ lat: 43.8651, lng: -79.337, accuracy: 20 }); // about 1 km north
+    expect(r).toMatchObject({ ok: false, reason: 'too_far', radius: 300 });
+    expect((r as { distance: number }).distance).toBeGreaterThan(900);
+    expect(saved()).toBeUndefined();
+  });
+
+  it('refuses a reading too imprecise to trust (or with no accuracy)', async () => {
+    expect(await confirm({ ...NEAR, accuracy: 4000 })).toEqual({ ok: false, reason: 'imprecise', radius: 300 });
+    expect(await confirm({ lat: NEAR.lat, lng: NEAR.lng })).toEqual({ ok: false, reason: 'imprecise', radius: 300 });
+    expect(saved()).toBeUndefined();
+  });
+
+  it('refuses, and says to call, when the class address cannot be placed on the map', async () => {
+    mockGeocode.mockResolvedValue(null);
+    expect(await confirm(NEAR)).toEqual({ ok: false, reason: 'venue_unknown' });
+    expect(saved()).toBeUndefined();
+  });
+
+  it('uses the radius set in System Configuration', async () => {
+    const lat = 43.8561 + 0.0027; // about 300 m north
+    radiusSetting = '500';
+    expect((await confirm({ lat, lng: VENUE.lng, accuracy: 20 })).ok).toBe(true);
+    radiusSetting = '150';
+    expect(await confirm({ lat, lng: VENUE.lng, accuracy: 20 })).toMatchObject({ ok: false, reason: 'too_far', radius: 150 });
+  });
+
+  it('falls back to 300 m when the setting is missing or nonsense', async () => {
+    for (const bad of [undefined, 'abc', '0', '-5', '999999']) {
+      radiusSetting = bad;
+      expect(await confirm({ lat: 43.8651, lng: -79.337, accuracy: 20 })).toMatchObject({ reason: 'too_far', radius: 300 });
+    }
+  });
+
+  it('a wrong link, an unknown class or a class that is not confirmed gets the same answer, with nothing looked up', async () => {
+    expect(await confirm(NEAR, 9, readyToken(8))).toEqual({ ok: false, reason: 'invalid' });
+    expect(await confirm(NEAR, 8, 'nope')).toEqual({ ok: false, reason: 'invalid' });
+    classRows = []; // cancelled, completed, or not there
+    expect(await confirm(NEAR)).toEqual({ ok: false, reason: 'invalid' });
+    expect(mockGeocode).not.toHaveBeenCalled();
+    expect(saved()).toBeUndefined();
+  });
+
+  it('remembers the venue for an hour, so repeated taps do not repeat the address lookup', async () => {
+    await confirm(NEAR);
+    await confirm(NEAR);
+    expect(mockGeocode).toHaveBeenCalledTimes(1);
+  });
+
+  it('also remembers, briefly, an address that could not be found', async () => {
+    mockGeocode.mockResolvedValue(null);
+    await confirm(NEAR);
+    await confirm(NEAR);
+    expect(mockGeocode).toHaveBeenCalledTimes(1);
+  });
+
+  it('is not open until an hour before the start, and not looked up before then', async () => {
+    classRows = [{ location: 'Far Future 1', course_name: 'CPR Advanced', day: '2099-01-01', start_time: '09:00' }];
+    expect(await confirm(NEAR)).toEqual({ ok: false, reason: 'too_early', opensMinutes: 60 });
+    expect(mockGeocode).not.toHaveBeenCalled();
+    expect(saved()).toBeUndefined();
+  });
+
+  it('opens an hour before the start', async () => {
+    const soon = new Date(Date.now() + 30 * 60_000);
+    const parts = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Toronto', hourCycle: 'h23', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }).formatToParts(soon);
+    const get = (t: string) => parts.find((p) => p.type === t)!.value;
+    classRows = [{ location: 'Soon Venue 2', course_name: 'CPR Advanced', day: `${get('year')}-${get('month')}-${get('day')}`, start_time: `${get('hour')}:${get('minute')}` }];
+    expect((await confirm(NEAR)).ok).toBe(true);
+  });
+
+  it('an instructor who already checked in is not refused when reopening the link from elsewhere', async () => {
+    classRows = [{ location: 'Anywhere', instructor_ready_at: new Date(), course_name: 'CPR Advanced', day: '2026-10-28', start_time: '09:00' }];
+    const r = await confirm({ lat: 10, lng: 10, accuracy: 10 });
+    expect(r.ok).toBe(true);
+    expect(mockGeocode).not.toHaveBeenCalled();
+    expect(saved()).toBeUndefined();
+  });
+
+  it('the radius still defaults to 300 m when reading the setting fails', async () => {
+    mockQuery.mockImplementation(async () => { throw new Error('db down'); });
+    expect(await checkInRadius()).toBe(300);
+  });
+});
+
+describe('POST /class-reminders/ready', () => {
+  const VENUE = { lat: 43.8561, lng: -79.337 };
+  beforeEach(() => {
+    resetVenueCache();
+    mockGeocode.mockReset().mockResolvedValue(VENUE);
+    mockQuery.mockReset().mockImplementation(async (sql: string) => {
+      const s = flat(sql);
+      if (s.includes('FROM system_configurations')) return [[]];
+      if (s.includes('FROM course_requests cr JOIN class_types')) return [[{ location: 'Route Venue 1', course_name: 'CPR Advanced', day: '2026-10-28', start_time: '09:00' }]];
+      return [{ affectedRows: 1 }];
+    });
   });
 
   const post = async (payload: unknown) => {
@@ -189,101 +328,53 @@ describe('POST /class-reminders/ready', () => {
     return res;
   };
 
-  it('marks the instructor ready for a valid link', async () => {
-    const res = await post({ classId: 8, token: readyToken(8) });
+  it('checks the instructor in at the venue', async () => {
+    const res = await post({ classId: 8, token: readyToken(8), location: { lat: 43.8561, lng: -79.3375, accuracy: 15 } });
     expect(res.statusCode).toBe(200);
     expect(res.json().data).toEqual({ courseName: 'CPR Advanced', date: '2026-10-28', startTime: '09:00' });
-    expect(mockQuery.mock.calls.some(([sql]) => flat(sql).includes('instructor_ready_at = COALESCE'))).toBe(true);
   });
 
-  it('refuses a link signed for another class, or a bad body, without touching the database', async () => {
+  it('answers 422 with a plain message when the instructor is too far away', async () => {
+    const res = await post({ classId: 8, token: readyToken(8), location: { lat: 43.8651, lng: -79.337, accuracy: 15 } });
+    expect(res.statusCode).toBe(422);
+    expect(res.json().code).toBe('too_far');
+    expect(res.json().error).toMatch(/about 1\.\d km from the venue.*within 300 m/);
+  });
+
+  it('says what to do when the phone is too imprecise, the venue is unknown, or it is too early', async () => {
+    const imprecise = await post({ classId: 8, token: readyToken(8), location: { lat: 43.8561, lng: -79.337, accuracy: 5000 } });
+    expect(imprecise.statusCode).toBe(422);
+    expect(imprecise.json().code).toBe('imprecise');
+    expect(imprecise.json().error).toMatch(/not precise enough/);
+
+    resetVenueCache();
+    mockGeocode.mockResolvedValue(null);
+    const unknown = await post({ classId: 8, token: readyToken(8), location: { lat: 43.8561, lng: -79.337, accuracy: 15 } });
+    expect(unknown.json().code).toBe('venue_unknown');
+    expect(unknown.json().error).toMatch(/call the course admin/);
+
+    mockQuery.mockImplementation(async (sql: string) =>
+      flat(sql).includes('FROM course_requests cr JOIN class_types')
+        ? [[{ location: 'Far Future 3', course_name: 'CPR Advanced', day: '2099-01-01', start_time: '09:00' }]]
+        : [[]]);
+    const early = await post({ classId: 8, token: readyToken(8), location: { lat: 43.8561, lng: -79.337, accuracy: 15 } });
+    expect(early.json().code).toBe('too_early');
+    expect(early.json().error).toMatch(/opens 60 minutes before/);
+  });
+
+  it('answers 422 asking for the location when none is sent', async () => {
+    const res = await post({ classId: 8, token: readyToken(8) });
+    expect(res.statusCode).toBe(422);
+    expect(res.json().code).toBe('location_required');
+    expect(res.json().error).toMatch(/Location is needed/);
+  });
+
+  it('refuses a link signed for another class, or a bad body, with a 404 and no database use', async () => {
+    mockQuery.mockClear();
     expect((await post({ classId: 9, token: readyToken(8) })).statusCode).toBe(404);
     expect((await post({ classId: 8, token: 'nope' })).statusCode).toBe(404);
     expect((await post({})).statusCode).toBe(404);
-    expect(mockQuery).not.toHaveBeenCalled();
-  });
-});
-
-describe('the check-in location record', () => {
-  let located: number | null;
-  beforeEach(() => {
-    located = null;
-    mockGeocode.mockReset();
-    mockQuery.mockReset().mockImplementation(async (sql: string) => {
-      const s = flat(sql);
-      if (s.startsWith('UPDATE')) return [{ affectedRows: 1 }];
-      if (s.includes('SELECT location')) return [[{ location: '100 Main St, Markham', instructor_ready_located: located }]];
-      return [[{ course_name: 'CPR Advanced', day: '2026-10-28', start_time: '09:00' }]];
-    });
-  });
-  const savedLocation = () => mockQuery.mock.calls.find(([sql]) => flat(sql).includes('instructor_ready_located = 1'));
-
-  it('measures the distance in metres', () => {
-    expect(distanceMeters(43.8561, -79.337, 43.8561, -79.337)).toBe(0);
-    const d = distanceMeters(43.8561, -79.337, 43.8651, -79.337); // 0.009 degrees of latitude
-    expect(d).toBeGreaterThan(990);
-    expect(d).toBeLessThan(1010);
-  });
-
-  it('saves the distance and accuracy, never the coordinates', async () => {
-    mockGeocode.mockResolvedValue({ lat: 43.8561, lng: -79.337 });
-    await new ClassReminderService().confirmReady('8', readyToken(8), { lat: 43.8561, lng: -79.3375, accuracy: 18.4 });
-    const [sql, params] = savedLocation()!;
-    expect(flat(sql)).not.toMatch(/lat|lng/);
-    expect(params[0]).toBe(18);
-    expect(params[1]).toBeGreaterThan(30);
-    expect(params[1]).toBeLessThan(60);
-    expect(params).not.toContain(43.8561);
-    expect(flat(sql)).toContain('AND instructor_ready_located IS NULL');
-  });
-
-  it('keeps the first tap location: a second tap from elsewhere changes nothing and looks nothing up', async () => {
-    located = 1;
-    const r = await new ClassReminderService().confirmReady('8', readyToken(8), { lat: 10, lng: 10 });
-    expect(r).not.toBeNull();
-    expect(mockGeocode).not.toHaveBeenCalled();
-    expect(savedLocation()).toBeUndefined();
-  });
-
-  it('still confirms, with no distance, when the venue address cannot be placed', async () => {
-    mockGeocode.mockResolvedValue(null);
-    const r = await new ClassReminderService().confirmReady('8', readyToken(8), { lat: 43.8, lng: -79.3 });
-    expect(r).not.toBeNull();
-    expect(savedLocation()![1][1]).toBeNull();
-  });
-
-  it('confirms without any lookup when no location was shared', async () => {
-    const r = await new ClassReminderService().confirmReady('8', readyToken(8));
-    expect(r).not.toBeNull();
-    expect(mockGeocode).not.toHaveBeenCalled();
-    expect(savedLocation()).toBeUndefined();
-  });
-
-  it('a failure saving the location does not undo the confirmation', async () => {
-    mockGeocode.mockResolvedValue({ lat: 43.8, lng: -79.3 });
-    mockQuery.mockImplementation(async (sql: string) => {
-      const s = flat(sql);
-      if (s.includes('instructor_ready_located = 1')) throw new Error('db down');
-      if (s.startsWith('UPDATE')) return [{ affectedRows: 1 }];
-      if (s.includes('SELECT location')) return [[{ location: '100 Main St', instructor_ready_located: null }]];
-      return [[{ course_name: 'CPR Advanced', day: '2026-10-28', start_time: '09:00' }]];
-    });
-    const r = await new ClassReminderService().confirmReady('8', readyToken(8), { lat: 43.8, lng: -79.3 });
-    expect(r).not.toBeNull();
-  });
-
-  it('answers not-valid when the class is not confirmed (cancelled or completed)', async () => {
-    mockQuery.mockImplementation(async () => [{ affectedRows: 0 }]);
-    expect(await new ClassReminderService().confirmReady('8', readyToken(8))).toBeNull();
-  });
-
-  it('refuses an out-of-range position in the request body, touching nothing', async () => {
-    const app = Fastify();
-    await app.register(classReminderRoutes);
-    await app.ready();
-    const res = await app.inject({ method: 'POST', url: '/ready', payload: { classId: 8, token: readyToken(8), location: { lat: 123, lng: 0 } } });
-    await app.close();
-    expect(res.statusCode).toBe(404);
+    expect((await post({ classId: 8, token: readyToken(8), location: { lat: 123, lng: 0 } })).statusCode).toBe(404);
     expect(mockQuery).not.toHaveBeenCalled();
     expect(mockGeocode).not.toHaveBeenCalled();
   });

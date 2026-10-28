@@ -4,7 +4,7 @@ import { env } from '../config/env.js';
 import { logger } from '../config/logger.js';
 import { torontoToday, torontoWallTimeToMs } from '../utils/torontoDate.js';
 import { distanceMeters } from '../utils/geo.js';
-import { geocodeVenue } from './GeocodeService.js';
+import { geocodeVenue, type VenuePoint } from './GeocodeService.js';
 import { emailService } from './EmailService.js';
 import type { RowDataPacket, ResultSetHeader } from 'mysql2/promise';
 
@@ -18,6 +18,39 @@ export const ALERT_MINUTES_BEFORE_START = 5;
 const RUN_LOCK = 'cpr_class_reminders';
 const MINUTE = 60_000;
 const DAY = 86_400_000;
+const HOUR = 3_600_000;
+
+/** How close an instructor must be to check in, if the system setting is missing. */
+export const DEFAULT_CHECKIN_RADIUS_METERS = 300;
+/** Check-in opens this long before the start, so someone at the venue the day before cannot silence the alert. */
+export const CHECKIN_OPENS_MINUTES = 60;
+const NOT_FOUND_HOLD = 5 * MINUTE;
+const venueCache = new Map<string, { point: VenuePoint | null; until: number }>();
+
+/** For tests: forget every remembered venue. */
+export function resetVenueCache(): void {
+  venueCache.clear();
+}
+
+export type ReadyOutcome =
+  | { ok: true; courseName: string; date: string; startTime: string }
+  | { ok: false; reason: 'invalid' }
+  | { ok: false; reason: 'location_required' }
+  | { ok: false; reason: 'venue_unknown' }
+  | { ok: false; reason: 'too_early'; opensMinutes: number }
+  | { ok: false; reason: 'imprecise'; radius: number }
+  | { ok: false; reason: 'too_far'; distance: number; radius: number };
+
+/** The check-in radius in metres: the sysadmin's setting (System Configuration), else 300. */
+export async function checkInRadius(): Promise<number> {
+  try {
+    const [rows] = await getPool().query<RowDataPacket[]>(
+      `SELECT config_value FROM system_configurations WHERE config_key = 'checkin_radius_meters'`);
+    const n = Number(rows[0]?.config_value);
+    if (Number.isFinite(n) && n >= 25 && n <= 50_000) return Math.round(n);
+  } catch { /* table or row missing: use the default */ }
+  return DEFAULT_CHECKIN_RADIUS_METERS;
+}
 
 type ReminderColumn = 'reminder_day_before_at' | 'reminder_soon_at' | 'ready_alert_at';
 
@@ -148,44 +181,57 @@ export class ClassReminderService {
   }
 
   /**
-   * The instructor taps "I'm ready" in the email. Same answer for a wrong link and an unknown class.
-   * If their phone shared its location, the distance to the class address is saved (not the coordinates).
-   * That is a record for the course admin: the tap counts with or without it.
+   * The instructor taps "I'm ready" in the email. It is accepted only when their phone shares a
+   * precise location within the check-in radius of the class address. A wrong link and an
+   * unknown class get the same answer. The distance and accuracy are kept, not the coordinates.
    */
   async confirmReady(
     classId: string, token: string, where?: { lat: number; lng: number; accuracy?: number },
-  ): Promise<{ courseName: string; date: string; startTime: string } | null> {
-    if (!/^\d+$/.test(classId) || !tokenMatches(classId, token)) return null;
+  ): Promise<ReadyOutcome> {
+    if (!/^\d+$/.test(classId) || !tokenMatches(classId, token)) return { ok: false, reason: 'invalid' };
     const pool = getPool();
-    const [done] = await pool.query<ResultSetHeader>(
-      `UPDATE course_requests SET instructor_ready_at = COALESCE(instructor_ready_at, NOW())
-       WHERE id = ? AND status = 'confirmed'`, [classId]);
-    if (!done.affectedRows) return null;
-
-    if (where) {
-      try {
-        // The first tap's location is the record; a later tap from somewhere else does not replace it
-        const [venue] = await pool.query<RowDataPacket[]>(
-          'SELECT location, instructor_ready_located FROM course_requests WHERE id = ?', [classId]);
-        if (venue[0] && venue[0].instructor_ready_located == null) {
-          const point = await geocodeVenue(String(venue[0].location ?? ''));
-          const distance = point ? distanceMeters(where.lat, where.lng, point.lat, point.lng) : null;
-          await pool.query(
-            `UPDATE course_requests SET instructor_ready_located = 1, instructor_ready_accuracy_m = ?,
-               instructor_ready_distance_m = ? WHERE id = ? AND instructor_ready_located IS NULL`,
-            [where.accuracy == null ? null : Math.round(where.accuracy), distance, classId]);
-        }
-      } catch (err) {
-        logger.error({ err, classId }, 'Could not save the instructor check-in location');
-      }
-    }
-
-    const [rows] = await pool.query<RowDataPacket[]>(
-      `SELECT ct.name AS course_name, DATE_FORMAT(cr.confirmed_date, '%Y-%m-%d') AS day,
+    const [classRows] = await pool.query<RowDataPacket[]>(
+      `SELECT cr.location, cr.instructor_ready_at, ct.name AS course_name, DATE_FORMAT(cr.confirmed_date, '%Y-%m-%d') AS day,
               TIME_FORMAT(cr.confirmed_start_time, '%H:%i') AS start_time
        FROM course_requests cr JOIN class_types ct ON ct.id = cr.course_type_id
-       WHERE cr.id = ?`, [classId]);
-    if (!rows.length) return null;
-    return { courseName: rows[0].course_name, date: rows[0].day, startTime: rows[0].start_time };
+       WHERE cr.id = ? AND cr.status = 'confirmed'`, [classId]);
+    const c = classRows[0];
+    if (!c) return { ok: false, reason: 'invalid' };
+    const done = { ok: true, courseName: c.course_name, date: c.day, startTime: c.start_time } as const;
+
+    // Already checked in: reopening the link from somewhere else must not turn that into a refusal
+    if (c.instructor_ready_at) return done;
+    if (c.start_time && torontoWallTimeToMs(c.day, c.start_time) - Date.now() > CHECKIN_OPENS_MINUTES * MINUTE) {
+      return { ok: false, reason: 'too_early', opensMinutes: CHECKIN_OPENS_MINUTES };
+    }
+
+    if (!where) return { ok: false, reason: 'location_required' };
+    const radius = await checkInRadius();
+    // A reading that could be off by more than the radius says nothing about where the phone is
+    if (where.accuracy == null || where.accuracy > radius) return { ok: false, reason: 'imprecise', radius };
+
+    const point = await this.venuePoint(String(c.location ?? ''));
+    if (!point) return { ok: false, reason: 'venue_unknown' };
+    const distance = distanceMeters(where.lat, where.lng, point.lat, point.lng);
+    if (distance > radius) return { ok: false, reason: 'too_far', distance, radius };
+
+    await pool.query(
+      `UPDATE course_requests SET instructor_ready_at = COALESCE(instructor_ready_at, NOW()),
+         instructor_ready_accuracy_m = COALESCE(instructor_ready_accuracy_m, ?),
+         instructor_ready_distance_m = COALESCE(instructor_ready_distance_m, ?)
+       WHERE id = ?`, [Math.round(where.accuracy), distance, classId]);
+    return done;
+  }
+
+  /** The class address as a map point. Remembered (an hour; 5 minutes if not found) so repeated taps do not repeat the lookup. */
+  private async venuePoint(address: string): Promise<VenuePoint | null> {
+    const key = address.trim().toLowerCase();
+    const hit = venueCache.get(key);
+    if (hit && hit.until > Date.now()) return hit.point;
+    const point = await geocodeVenue(address);
+    if (venueCache.size >= 500) venueCache.clear();
+    // A failed lookup is remembered briefly too, so taps do not keep hitting the address service
+    venueCache.set(key, { point, until: Date.now() + (point ? HOUR : NOT_FOUND_HOLD) });
+    return point;
   }
 }

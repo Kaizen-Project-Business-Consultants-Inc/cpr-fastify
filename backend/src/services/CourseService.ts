@@ -362,7 +362,7 @@ export class CourseService {
              confirmed_date = ?, confirmed_start_time = ?, confirmed_end_time = ?,
              -- a new instructor or time starts the class reminders over
              reminder_day_before_at = NULL, reminder_soon_at = NULL, instructor_ready_at = NULL, ready_alert_at = NULL,
-             instructor_ready_located = NULL, instructor_ready_accuracy_m = NULL, instructor_ready_distance_m = NULL,
+             instructor_ready_accuracy_m = NULL, instructor_ready_distance_m = NULL,
              updated_at = CURRENT_TIMESTAMP
          WHERE id = ?`,
         [input.instructorId, course.scheduled_date, startTimeFormatted, endTimeFormatted, input.courseId]
@@ -517,7 +517,7 @@ export class CourseService {
       // A new date, time or instructor starts the class reminders over.
       const sets: string[] = ['confirmed_date = ?', 'scheduled_date = ?', 'updated_at = CURRENT_TIMESTAMP',
         'reminder_day_before_at = NULL', 'reminder_soon_at = NULL', 'instructor_ready_at = NULL', 'ready_alert_at = NULL',
-        'instructor_ready_located = NULL', 'instructor_ready_accuracy_m = NULL', 'instructor_ready_distance_m = NULL'];
+        'instructor_ready_accuracy_m = NULL', 'instructor_ready_distance_m = NULL'];
       const params: unknown[] = [input.scheduledDate, input.scheduledDate];
 
       if (input.startTime) { sets.push('confirmed_start_time = ?'); params.push(`${input.startTime}:00`); }

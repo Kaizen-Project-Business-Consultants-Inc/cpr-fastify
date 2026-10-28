@@ -179,7 +179,7 @@ const PrivacyPolicy = () => {
           </Box>
           <Box component="li" sx={{ mb: 1 }}>
             <Typography variant="body1">
-              <strong>OpenStreetMap (Nominatim)</strong> — when an instructor confirms they are ready for a class and shares their phone's location, the class address is sent to OpenStreetMap's address search to work out how far the instructor is from the venue. Only the address is sent, not the instructor's location. We keep the resulting distance, not the instructor's coordinates, so the course administrator can see it.
+              <strong>OpenStreetMap (Nominatim)</strong> â€” when an instructor checks in for a class, the class address is sent to OpenStreetMap's address search to find the venue on a map. Only the address is sent. The instructor's phone must share its location to check in: it is compared with the venue on our server and only the distance is kept (for the course administrator), not the instructor's coordinates.
             </Typography>
           </Box>
           <Box component="li" sx={{ mb: 1 }}>

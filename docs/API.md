@@ -83,7 +83,7 @@ Authentication — login, refresh, logout, password change
 
 | Method | Path | Auth | Notes |
 |---|---|---|---|
-| POST | `/class-reminders/ready` | Bearer | Instructor confirms they are ready for a class. No authentication required. |
+| POST | `/class-reminders/ready` | Bearer | Instructor checks in as ready for a class. Needs the phone location, within the check-in radius. No authentication required. |
 
 ## Client Errors
 

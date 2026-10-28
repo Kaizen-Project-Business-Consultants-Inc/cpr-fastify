@@ -17,21 +17,30 @@ const clock = (value: string) => {
   return `${h % 12 || 12}:${m[2]} ${h < 12 ? 'AM' : 'PM'}`;
 };
 
-/** The phone's position, or null if the person says no, it is unavailable, or it takes too long. */
-function currentPosition(): Promise<{ lat: number; lng: number; accuracy: number } | null> {
-  if (!('geolocation' in navigator)) return Promise.resolve(null);
+/** Why the phone could not give its position, in words for the instructor. */
+type PositionResult = { position: { lat: number; lng: number; accuracy: number } } | { problem: string };
+
+const LOCATION_HELP = 'Location is needed to check in. Allow location access for this page in your browser or phone settings, then tap the button again.';
+
+function currentPosition(): Promise<PositionResult> {
+  if (!('geolocation' in navigator)) return Promise.resolve({ problem: 'This device cannot share its location, so it cannot be used to check in. Please call the course admin.' });
   // Browsers start the geolocation timeout only after the permission question is answered,
-  // so a question left unanswered would wait forever. Our own timer lets the tap go through.
-  const lookup = new Promise<{ lat: number; lng: number; accuracy: number } | null>((resolve) => {
+  // so a question left unanswered would wait forever. Our own timer ends the wait.
+  const lookup = new Promise<PositionResult>((resolve) => {
     navigator.geolocation.getCurrentPosition(
-      (p) => resolve({ lat: p.coords.latitude, lng: p.coords.longitude, accuracy: p.coords.accuracy }),
-      () => resolve(null),
-      { enableHighAccuracy: true, timeout: 8000, maximumAge: 60_000 },
+      (p) => resolve({ position: { lat: p.coords.latitude, lng: p.coords.longitude, accuracy: p.coords.accuracy } }),
+      () => resolve({ problem: LOCATION_HELP }),
+      { enableHighAccuracy: true, timeout: 10_000, maximumAge: 0 },
     );
   });
-  return Promise.race([lookup, new Promise<null>((resolve) => setTimeout(() => resolve(null), 10_000))]);
+  return Promise.race([lookup, new Promise<PositionResult>((resolve) => setTimeout(() => resolve({ problem: LOCATION_HELP }), 15_000))]);
 }
 
+/**
+ * Public page behind the "I'm ready" button in the instructor's reminder email.
+ * The click is a button here, not automatic on load, so an email scanner that
+ * opens the link cannot check the instructor in.
+ */
 const ClassReady: React.FC = () => {
   const { classId, token } = useParams<{ classId: string; token: string }>();
   const [loading, setLoading] = useState(false);
@@ -42,14 +51,20 @@ const ClassReady: React.FC = () => {
     setLoading(true);
     setError(null);
     try {
-      // Location is a record for the course admin; confirming works without it
-      const location = await currentPosition();
-      const res = await api.post('/class-reminders/ready', { classId, token, ...(location ? { location } : {}) });
+      const found = await currentPosition();
+      if ('problem' in found) {
+        setError(found.problem);
+        return;
+      }
+      const res = await api.post('/class-reminders/ready', { classId, token, location: found.position });
       setResult(res.data.data);
     } catch (err) {
-      setError((err as { response?: { status?: number } })?.response?.status === 404
+      const response = (err as { response?: { status?: number; data?: { error?: string } } })?.response;
+      setError(response?.status === 404
         ? 'This link is not valid. Please sign in to the instructor portal, or contact the course admin.'
-        : 'We could not confirm this right now. Please try again in a moment.');
+        : response?.status === 422 && response.data?.error
+          ? response.data.error
+          : 'We could not confirm this right now. Please try again in a moment.');
     } finally {
       setLoading(false);
     }
@@ -69,7 +84,7 @@ const ClassReady: React.FC = () => {
               Tap the button once you are at the class and set up.
             </Typography>
             <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-              Your phone may ask to share your location. It is saved with your confirmation so the course admin can see how far you are from the venue (it is reported by your phone). You can still confirm if you say no.
+              You must be at the venue to check in. Your phone will ask to share its location: please allow it. We only check how far you are from the class address and keep that distance, not your location.
             </Typography>
             {error && <Alert severity="warning" sx={{ mb: 2, textAlign: 'left' }}>{error}</Alert>}
             <Box>
