@@ -26,6 +26,7 @@ const ForgotPassword = React.lazy(() => import('./pages/ForgotPassword'));
 const ResetPassword = React.lazy(() => import('./pages/ResetPassword'));
 const PrivacyPolicy = React.lazy(() => import('./pages/PrivacyPolicy'));
 const TermsOfService = React.lazy(() => import('./pages/TermsOfService'));
+const VerifyCertificate = React.lazy(() => import('./pages/VerifyCertificate'));
 
 const LazyFallback = () => (
   <Box display="flex" justifyContent="center" alignItems="center" minHeight="60vh">
@@ -52,6 +53,8 @@ function App() {
                 <Route path='/reset-password' element={<ResetPassword />} />
                 <Route path='/privacy' element={<PrivacyPolicy />} />
                 <Route path='/terms' element={<TermsOfService />} />
+                <Route path='/verify' element={<VerifyCertificate />} />
+                <Route path='/verify/:number' element={<VerifyCertificate />} />
                 <Route path='/' element={<RoleBasedRouter />} />
 
                 {/* Protected routes */}

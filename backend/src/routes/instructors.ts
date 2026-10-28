@@ -8,6 +8,7 @@ import { emailService } from '../services/EmailService.js';
 import { maybePaginate, paginatedResponse } from '../utils/pagination.js';
 import { torontoToday } from '../utils/torontoDate.js';
 import { ISSUE_CERTIFICATES_SQL } from '../utils/classDateSql.js';
+import { assignCertificateNumbers, emailCertificates, emailClassCertificateSheet } from '../services/CertificateService.js';
 import type { RowDataPacket, ResultSetHeader } from 'mysql2/promise';
 
 const addStudentSchema = z.object({
@@ -305,7 +306,22 @@ export async function instructorRoutes(app: FastifyInstance) {
     );
     if (result.affectedRows === 0) return reply.status(404).send({ error: 'Student not found' });
     if (attended) {
-      await pool.query(`${ISSUE_CERTIFICATES_SQL} AND cs.id = ? AND cs.course_request_id = ?`, [studentId, classId]);
+      // A late correction on a class that is already completed: the dates are set
+      // here, so a student who has none yet gets a number and the certificate email.
+      // Attendance is already saved, so a certificate problem is logged, not an error for the instructor.
+      try {
+        const certConn = await pool.getConnection();
+        let newCertificates!: number[];
+        try {
+          await certConn.beginTransaction();
+          await certConn.query(`${ISSUE_CERTIFICATES_SQL} AND cs.id = ? AND cs.course_request_id = ?`, [studentId, classId]);
+          newCertificates = await assignCertificateNumbers(certConn, { studentId });
+          await certConn.commit();
+        } catch (err) { await certConn.rollback(); throw err; } finally { certConn.release(); }
+        void emailCertificates(newCertificates);
+      } catch (err) {
+        logger.error({ err, classId, studentId }, 'Certificate not issued after marking attendance');
+      }
     }
 
     const [rows] = await pool.query<RowDataPacket[]>(
@@ -393,6 +409,7 @@ export async function instructorRoutes(app: FastifyInstance) {
 
     // course_requests and classes must flip to 'completed' together.
     const completeConn = await pool.getConnection();
+    let newCertificates: number[] = [];
     try {
       await completeConn.beginTransaction();
       await completeConn.query(
@@ -405,6 +422,15 @@ export async function instructorRoutes(app: FastifyInstance) {
       // Attendance is marked before the class is completed, so this is where
       // the attended students' certificates get their dates.
       await completeConn.query(`${ISSUE_CERTIFICATES_SQL} AND cs.course_request_id = ?`, [classId]);
+      // Completing the class never fails over a certificate number: a student left without one is
+      // numbered the next time their attendance is saved, and staff can still see the dates.
+      try {
+        newCertificates = await assignCertificateNumbers(completeConn, { classId });
+      } catch (err) {
+        // A deadlock has already rolled the whole transaction back, so that one must not look like success.
+        if ((err as { code?: string }).code === 'ER_LOCK_DEADLOCK') throw err;
+        logger.error({ err, classId }, 'Certificate numbers not assigned while completing the class');
+      }
       await completeConn.query(
         `UPDATE classes SET status = 'completed', updated_at = CURRENT_TIMESTAMP
          WHERE instructor_id = ? AND DATE(start_time) = (SELECT DATE(confirmed_date) FROM course_requests WHERE id = ?)`,
@@ -414,6 +440,12 @@ export async function instructorRoutes(app: FastifyInstance) {
     } catch (err) { await completeConn.rollback(); throw err; } finally { completeConn.release(); }
 
     logger.info({ courseId: classId, instructorId: request.userId }, 'Course completed');
+
+    // Fire-and-forget: email each newly certified student their certificate,
+    // and the organization one PDF copy of them all (six to a page)
+    if (newCertificates.length > 0) {
+      void emailCertificates(newCertificates).then(() => emailClassCertificateSheet(classId));
+    }
 
     // Fire-and-forget: send course completed email to org admins
     (async () => {

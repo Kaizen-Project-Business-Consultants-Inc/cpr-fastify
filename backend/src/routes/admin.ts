@@ -1013,7 +1013,7 @@ export async function adminRoutes(app: FastifyInstance) {
               o.name as organization_name,
               ct.name as course_type_name, ct.certification_validity_months,
               cs.certificate_issued_at, cs.certificate_expires_at,
-              cs.certificate_number,
+              cs.certificate_number, cs.id as certificate_id,
               DATEDIFF(cs.certificate_expires_at, ${torontoTodaySql()}) as days_until_expiry
        ${baseFrom}
        ORDER BY cs.certificate_expires_at ASC`,
@@ -1041,7 +1041,7 @@ export async function adminRoutes(app: FastifyInstance) {
               o.name as organization_name,
               ct.name as course_type_name,
               cs.certificate_issued_at, cs.certificate_expires_at,
-              cs.certificate_number,
+              cs.certificate_number, cs.id as certificate_id,
               DATEDIFF(${torontoTodaySql()}, cs.certificate_expires_at) as days_expired
        ${baseFrom}
        ORDER BY cs.certificate_expires_at DESC`,

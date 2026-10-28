@@ -26,6 +26,7 @@ import LinkButton from '../../../gtacpr/LinkButton';
 import { GhostButton } from '../../../gtacpr/Buttons';
 import { useConfirm } from '../../../gtacpr/ConfirmDialog';
 import { getErrorMessage } from '../../../../utils/errorMessage';
+import { downloadCertificate, downloadClassCertificates } from '../../../../utils/downloadCertificate';
 
 interface Course {
   id: string | number;
@@ -49,6 +50,7 @@ interface Student {
   email: string;
   attended?: boolean;
   attendanceMarked?: boolean;
+  certificateNumber?: string | null;
 }
 
 interface OrganizationCoursesProps {
@@ -374,6 +376,14 @@ const OrganizationCourses: React.FC<OrganizationCoursesProps> = ({
                     <Typography sx={{ fontSize: 12, color: (theme) => theme.palette.text.secondary }}>—</Typography>
                   )}
                   <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>
+                    {student.certificateNumber && (
+                      <LinkButton
+                      onClick={async () => { if (!(await downloadCertificate(student.id, student.certificateNumber))) setStudentError('Could not download the certificate'); }}
+                      aria-label={`Download certificate for ${student.firstName} ${student.lastName}`}
+                    >
+                      Download
+                    </LinkButton>
+                    )}
                     {canEditRoster(selectedCourse?.status) && (
                       <LinkButton
                         tone="neutral"
@@ -391,6 +401,13 @@ const OrganizationCourses: React.FC<OrganizationCoursesProps> = ({
           )}
         </DialogContent>
         <DialogActions sx={{ p: 2 }}>
+          {students.some((s) => s.certificateNumber) && selectedCourse && (
+            <GhostButton
+              onClick={async () => { if (!(await downloadClassCertificates(selectedCourse.id))) setStudentError('Could not download the certificates'); }}
+            >
+              Download all certificates (PDF)
+            </GhostButton>
+          )}
           <GhostButton onClick={handleCloseStudentDialog}>Close</GhostButton>
         </DialogActions>
       </Dialog>

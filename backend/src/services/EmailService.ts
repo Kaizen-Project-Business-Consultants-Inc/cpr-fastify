@@ -319,6 +319,53 @@ export class EmailService {
     return this.sendEmail(to, `CPR Training Portal - Invoice ${data.invoiceNumber}`, html, attachments, extra.cc, extra.bcc);
   }
 
+  /** Sends an organization one PDF with every certificate from a completed class, six to a page. `cc` is well-formed addresses only. */
+  async sendCertificateSheetEmail(
+    to: string,
+    data: { organizationName: string; courseName: string; classDate: string; count: number; portalUrl: string },
+    pdf: Buffer,
+    cc: string[] = []
+  ): Promise<boolean> {
+    const html = safeHtml`
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+        <h2 style="color: #007bff;">Certificates: ${data.courseName}</h2>
+        <p>Hello ${data.organizationName},</p>
+        <p>The class on <strong>${data.classDate}</strong> is complete. Attached is a PDF copy of the ${data.count} certificate${data.count === 1 ? '' : 's'} issued, six to a page, for your records. Each student has also been emailed their own.</p>
+        <p>You can download them again, or any single certificate, under <strong>Archive</strong> in your portal: <a href="${data.portalUrl}">${data.portalUrl}</a></p>
+      </div>
+    `;
+    return this.sendEmail(
+      to,
+      `Certificates issued: ${data.courseName}, ${data.classDate}`,
+      html,
+      [{ filename: `Certificates-${data.classDate}.pdf`, content: pdf }],
+      cc.length ? cc : undefined
+    );
+  }
+
+  /** Sends a student their certificate of completion as a PDF attachment. */
+  async sendCertificateEmail(
+    to: string,
+    data: { studentName: string; courseName: string; certificateNumber: string; expiresOn: string | null; verifyUrl: string },
+    pdf: Buffer
+  ): Promise<boolean> {
+    const html = safeHtml`
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+        <h2 style="color: #007bff;">Your certificate of completion</h2>
+        <p>Hello ${data.studentName},</p>
+        <p>Congratulations on completing <strong>${data.courseName}</strong>. Your certificate is attached to this email as a PDF.</p>
+        <p><strong>Certificate number:</strong> ${data.certificateNumber}${data.expiresOn ? raw(safeHtml`<br><strong>Valid until:</strong> ${data.expiresOn}`) : ''}</p>
+        <p>Anyone can confirm it is genuine at <a href="${data.verifyUrl}">${data.verifyUrl}</a></p>
+      </div>
+    `;
+    return this.sendEmail(
+      to,
+      `Your certificate: ${data.courseName}`,
+      html,
+      [{ filename: `Certificate-${data.certificateNumber}.pdf`, content: pdf }]
+    );
+  }
+
   async sendPasswordResetEmail(userEmail: string, username: string, resetLink: string): Promise<boolean> {
     const html = safeHtml`
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">

@@ -540,6 +540,35 @@ export const migrations: Migration[] = [
       logger.info({ updated: result.affectedRows }, 'Certificate dates set from the class day');
     },
   },
+  {
+    version: 31,
+    name: 'certificate_numbers',
+    // Every issued certificate gets a number (GTACPR-<year of issue>-<6 digits>).
+    // The counter table hands them out one at a time; existing certificates are
+    // numbered oldest first. Written out (not the shared helper) so this
+    // migration never changes.
+    up: async (pool: Pool) => {
+      await pool.query(`CREATE TABLE IF NOT EXISTS certificate_counter (
+        id TINYINT NOT NULL PRIMARY KEY,
+        last_number INT NOT NULL DEFAULT 0
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+      await pool.query('INSERT IGNORE INTO certificate_counter (id, last_number) VALUES (1, 0)');
+      await addColumnIfMissing(pool, 'course_students', 'certificate_emailed_at', 'DATETIME DEFAULT NULL');
+
+      const [todo] = await pool.query<RowDataPacket[]>(
+        `SELECT id, YEAR(certificate_issued_at) AS yr FROM course_students
+         WHERE certificate_issued_at IS NOT NULL AND certificate_number IS NULL
+         ORDER BY certificate_issued_at, id`);
+      for (const row of todo) {
+        await pool.query('UPDATE certificate_counter SET last_number = LAST_INSERT_ID(last_number + 1) WHERE id = 1');
+        const [seq] = await pool.query<RowDataPacket[]>('SELECT LAST_INSERT_ID() AS n');
+        await pool.query('UPDATE course_students SET certificate_number = ? WHERE id = ?',
+          [`GTACPR-${row.yr}-${String(seq[0].n).padStart(6, '0')}`, row.id]);
+      }
+      await addIndexIfMissing(pool, 'course_students', 'uq_cs_certificate_number', ['certificate_number'], { unique: true });
+      logger.info({ numbered: todo.length }, 'Existing certificates numbered');
+    },
+  },
 ];
 
 const MIGRATION_LOCK = 'cpr_migrations';

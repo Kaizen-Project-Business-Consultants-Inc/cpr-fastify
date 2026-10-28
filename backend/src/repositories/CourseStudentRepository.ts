@@ -32,7 +32,8 @@ export class CourseStudentRepository extends BaseRepository<CourseStudent> {
       // which read firstName/lastName/attendanceMarked/createdAt; the
       // snake_case names stay for Bills Payable's attendance panel.
       `SELECT id, course_request_id, student_id, first_name, last_name, email,
-              attended, attendance_marked, created_at,
+              attended, attendance_marked, created_at, certificate_number,
+              certificate_number AS certificateNumber,
               first_name AS firstName, last_name AS lastName,
               attendance_marked AS attendanceMarked, created_at AS createdAt
        FROM course_students

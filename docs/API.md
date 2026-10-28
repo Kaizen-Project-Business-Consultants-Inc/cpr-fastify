@@ -5,7 +5,7 @@ _Generated from the route table by `npm run docs:api` (backend/scripts/generate-
 Base URL: `/api/v1` (except the two root-level health/metrics endpoints).
 Auth: send the access token as `Authorization: Bearer <token>`. Role guards are enforced per route (`requireRole`); see the route file for the exact roles.
 
-**210 endpoints across 24 groups.**
+**213 endpoints across 25 groups.**
 
 ## Accounting
 
@@ -70,6 +70,14 @@ Authentication — login, refresh, logout, password change
 | GET | `/auth/my-data` | Bearer |  |
 | POST | `/auth/refresh` | No |  |
 | POST | `/auth/reset-password` | No |  |
+
+## Certificates
+
+| Method | Path | Auth | Notes |
+|---|---|---|---|
+| GET | `/certificates/{courseStudentId}/pdf` | Bearer |  |
+| GET | `/certificates/class/{classId}/sheet` | Bearer |  |
+| GET | `/certificates/verify/{number}` | Bearer | Check a certificate number. No authentication required. |
 
 ## Client Errors
 

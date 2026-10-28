@@ -11,6 +11,8 @@ import { GhostButton } from '../gtacpr/Buttons';
 import { useServerPagination } from '../../hooks/useServerPagination';
 import type { Theme } from '@mui/material/styles';
 import { formatDisplayDate } from '../../utils/formatters';
+import { downloadCertificate } from '../../utils/downloadCertificate';
+import LinkButton from '../gtacpr/LinkButton';
 
 interface CertificationTrackingProps {
   onShowSnackbar: (message: string, severity: 'success' | 'error' | 'warning' | 'info') => void;
@@ -25,6 +27,7 @@ interface CertificationStats {
 
 interface CertificationRow {
   student_id: number | string;
+  certificate_id?: number | string;
   certificate_issued_at?: string;
   first_name?: string;
   last_name?: string;
@@ -46,7 +49,7 @@ const windowOptions = [
 const columns = [
   { key: 'student', label: 'STUDENT', width: '1.6fr' },
   { key: 'course', label: 'COURSE', width: '1.7fr' },
-  { key: 'cert', label: 'CERT #', width: '1fr' },
+  { key: 'cert', label: 'CERT #', width: '1.5fr' },
   { key: 'expires', label: 'EXPIRES', width: '1fr' },
   { key: 'status', label: 'STATUS', width: '1fr', align: 'right' as const },
 ];
@@ -213,9 +216,21 @@ const CertificationTracking = ({ onShowSnackbar }: CertificationTrackingProps) =
                 {cert.course_type_name}
               </Typography>
               {/* CERT # */}
-              <Typography sx={{ fontSize: 12.5, fontFamily: 'monospace', color: (theme) => theme.palette.text.secondary }}>
-                {cert.certificate_number || '—'}
-              </Typography>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                <Typography sx={{ fontSize: 12.5, fontFamily: 'monospace', color: (theme) => theme.palette.text.secondary }}>
+                  {cert.certificate_number || '—'}
+                </Typography>
+                {cert.certificate_number && cert.certificate_id != null && (
+                  <LinkButton
+                    onClick={async () => {
+                      if (!(await downloadCertificate(cert.certificate_id!, cert.certificate_number))) onShowSnackbar('Could not download the certificate', 'error');
+                    }}
+                    aria-label={`Download certificate ${cert.certificate_number}`}
+                  >
+                    PDF
+                  </LinkButton>
+                )}
+              </Box>
               {/* EXPIRES */}
               <Typography sx={{ fontSize: 13, fontWeight: 500, color: (theme) => theme.palette.text.primary }}>
                 {cert.certificate_expires_at

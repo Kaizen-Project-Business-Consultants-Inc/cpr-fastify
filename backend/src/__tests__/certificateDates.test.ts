@@ -68,14 +68,58 @@ describe('certificate dates', () => {
     expect(certIdx).toBeGreaterThan(completeIdx);
     expect(calls[certIdx][0]).toContain('AND cs.course_request_id = ?');
     expect(calls[certIdx][1]).toEqual(['9']);
+    // Numbers are handed out in the same transaction, right after the dates
+    const numberIdx = calls.findIndex(([sql]) => (sql as string).includes('certificate_number IS NULL'));
+    expect(numberIdx).toBeGreaterThan(certIdx);
     expect(mockConn.commit).toHaveBeenCalledTimes(1);
+  });
+
+  it('Complete Class still succeeds when numbering the certificates fails', async () => {
+    mockQuery
+      .mockResolvedValueOnce([[{ id: 9, status: 'confirmed' }]])
+      .mockResolvedValue([[{ id: 9, status: 'completed' }]]);
+    mockConn.query
+      .mockResolvedValueOnce([{ affectedRows: 1 }]) // course_requests
+      .mockResolvedValueOnce([{ affectedRows: 1 }]) // certificate dates
+      .mockRejectedValueOnce(new Error('counter row missing')); // numbering
+
+    const res = await app.inject({ method: 'POST', url: '/classes/9/complete', payload: {} });
+
+    expect(res.statusCode).toBe(200);
+    expect(mockConn.commit).toHaveBeenCalledTimes(1);
+    expect(mockConn.rollback).not.toHaveBeenCalled();
+  });
+
+  it('Complete Class does fail on a deadlock, which has already undone the transaction', async () => {
+    mockQuery.mockResolvedValueOnce([[{ id: 9, status: 'confirmed' }]]);
+    mockConn.query
+      .mockResolvedValueOnce([{ affectedRows: 1 }])
+      .mockResolvedValueOnce([{ affectedRows: 1 }])
+      .mockRejectedValueOnce(Object.assign(new Error('deadlock'), { code: 'ER_LOCK_DEADLOCK' }));
+
+    const res = await app.inject({ method: 'POST', url: '/classes/9/complete', payload: {} });
+
+    expect(res.statusCode).toBe(500);
+    expect(mockConn.commit).not.toHaveBeenCalled();
+  });
+
+  it('a certificate failure after marking attendance does not fail the attendance', async () => {
+    mockQuery
+      .mockResolvedValueOnce([[{ id: 9 }]])
+      .mockResolvedValueOnce([{ affectedRows: 1 }])
+      .mockResolvedValueOnce([[{ id: 3, first_name: 'Ava', last_name: 'Lee', attended: 1, attendance_marked: 1 }]]);
+    mockConn.query.mockRejectedValueOnce(new Error('boom'));
+
+    const res = await app.inject({ method: 'PUT', url: '/classes/9/students/3/attendance', payload: { attended: true } });
+
+    expect(res.statusCode).toBe(200);
+    expect(mockConn.rollback).toHaveBeenCalledTimes(1);
   });
 
   it('marking a student present sets them only through the completed-class rule', async () => {
     mockQuery
       .mockResolvedValueOnce([[{ id: 9 }]]) // ownership check
       .mockResolvedValueOnce([{ affectedRows: 1 }]) // attendance update
-      .mockResolvedValueOnce([{ affectedRows: 0 }]) // certificates (class not completed yet)
       .mockResolvedValueOnce([[{ id: 3, first_name: 'Ava', last_name: 'Lee', attended: 1, attendance_marked: 1 }]]);
 
     const res = await app.inject({ method: 'PUT', url: '/classes/9/students/3/attendance', payload: { attended: true } });
@@ -84,10 +128,13 @@ describe('certificate dates', () => {
     const [updateSql, updateParams] = mockQuery.mock.calls[1];
     expect(flat(updateSql)).not.toContain('certificate_issued_at');
     expect(updateParams).toEqual([true, '3', '9']);
-    const [certSql, certParams] = mockQuery.mock.calls[2];
+    // The dates (class not completed yet: no rows) and any new number are set in one transaction
+    const [certSql, certParams] = mockConn.query.mock.calls[0];
     expect(flat(certSql)).toContain('UPDATE course_students cs');
     expect(flat(certSql)).toContain('AND cs.id = ? AND cs.course_request_id = ?');
     expect(certParams).toEqual(['3', '9']);
+    expect(flat(mockConn.query.mock.calls[1][0])).toContain('certificate_number IS NULL');
+    expect(mockConn.commit).toHaveBeenCalledTimes(1);
   });
 
   it('marking a student absent clears them', async () => {

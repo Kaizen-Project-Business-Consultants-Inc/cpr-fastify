@@ -16,6 +16,7 @@ import {
 } from '@mui/material';
 import { api } from '../../../../services/api';
 import { getErrorMessage } from '../../../../utils/errorMessage';
+import { downloadCertificate, downloadClassCertificates } from '../../../../utils/downloadCertificate';
 import { formatDisplayDate, getTodayDate } from '../../../../utils/formatters';
 import useServerPagination from '../../../../hooks/useServerPagination';
 import useDebounce from '../../../../hooks/useDebounce';
@@ -47,6 +48,7 @@ interface Student {
   email: string;
   attended?: boolean;
   attendanceMarked?: boolean;
+  certificateNumber?: string | null;
 }
 
 interface OrganizationArchiveProps {
@@ -74,6 +76,7 @@ const studentColumns = [
   { key: 'name', label: 'NAME', width: '1.2fr' },
   { key: 'email', label: 'EMAIL', width: '1.2fr' },
   { key: 'status', label: 'STATUS', width: '0.6fr' },
+  { key: 'certificate', label: 'CERTIFICATE', width: '0.7fr', align: 'right' as const },
 ];
 
 const getStatusKind = (status: string): 'success' | 'danger' | 'warning' => {
@@ -296,12 +299,31 @@ const OrganizationArchive: React.FC<OrganizationArchiveProps> = ({ courses }) =>
                     kind={student.attended ? 'success' : student.attendanceMarked ? 'danger' : 'neutral'}
                     label={student.attended ? 'Attended' : student.attendanceMarked ? 'No Show' : 'Not marked'}
                   />
+                  <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>
+                    {student.certificateNumber ? (
+                      <LinkButton
+                      onClick={async () => { if (!(await downloadCertificate(student.id, student.certificateNumber))) setStudentError('Could not download the certificate'); }}
+                      aria-label={`Download certificate for ${student.firstName} ${student.lastName}`}
+                    >
+                      Download
+                    </LinkButton>
+                    ) : (
+                      <Typography sx={{ fontSize: 12, color: (theme) => theme.palette.text.secondary }}>—</Typography>
+                    )}
+                  </Box>
                 </DataTableRow>
               ))}
             </DataTable>
           )}
         </DialogContent>
         <DialogActions sx={{ p: 2 }}>
+          {students.some((s) => s.certificateNumber) && selectedCourse && (
+            <GhostButton
+              onClick={async () => { if (!(await downloadClassCertificates(selectedCourse.id))) setStudentError('Could not download the certificates'); }}
+            >
+              Download all certificates (PDF)
+            </GhostButton>
+          )}
           <GhostButton onClick={handleCloseStudentDialog}>Close</GhostButton>
         </DialogActions>
       </Dialog>
