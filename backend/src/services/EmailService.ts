@@ -426,8 +426,8 @@ export class EmailService {
       ? `Starting soon: ${data.courseName} at ${formatClockTime(data.startTime)}`
       : `Reminder: ${data.courseName} tomorrow at ${formatClockTime(data.startTime)}`;
     const button = soon && data.readyUrl
-      ? safeHtml`<p style="text-align:center;margin:28px 0;"><a href="${data.readyUrl}" style="background:#CC1F1F;color:#fff;padding:14px 28px;text-decoration:none;border-radius:6px;font-weight:bold;">I'm ready</a></p>
-         <p>Please tap the button when you are at the class and set up. If we do not hear from you, the course admin will be alerted.</p>`
+      ? raw(safeHtml`<p style="text-align:center;margin:28px 0;"><a href="${data.readyUrl}" style="background:#CC1F1F;color:#fff;padding:14px 28px;text-decoration:none;border-radius:6px;font-weight:bold;">I'm ready</a></p>
+         <p>Please tap the button when you are at the class and set up. If we do not hear from you, the course admin will be alerted.</p>`)
       : raw('');
     const html = safeHtml`
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
