@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, within, waitFor, fireEvent } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { MemoryRouter } from 'react-router-dom';
 
 const mockGetClassesToday = vi.fn();
 const mockGetClassStudents = vi.fn();
@@ -23,16 +24,22 @@ vi.mock('../../../../contexts/AuthContext', () => ({ useAuth: () => ({ user: { i
 
 import ClassAttendanceView from '../ClassAttendanceView';
 
-function renderView() {
+/** `classId` is what the dashboard's Take Attendance button passes along. */
+function renderView(classId?: number) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const invalidate = vi.spyOn(queryClient, 'invalidateQueries');
-  render(<QueryClientProvider client={queryClient}><ClassAttendanceView /></QueryClientProvider>);
+  const entry = classId === undefined ? '/instructor/class-attendance' : { pathname: '/instructor/class-attendance', state: { classId } };
+  render(
+    <QueryClientProvider client={queryClient}>
+      <MemoryRouter initialEntries={[entry]}><ClassAttendanceView /></MemoryRouter>
+    </QueryClientProvider>
+  );
   return { invalidate };
 }
 
 function renderViewWithUnmount() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  return render(<QueryClientProvider client={queryClient}><ClassAttendanceView /></QueryClientProvider>);
+  return render(<QueryClientProvider client={queryClient}><MemoryRouter><ClassAttendanceView /></MemoryRouter></QueryClientProvider>);
 }
 
 describe('ClassAttendanceView', () => {
@@ -195,12 +202,14 @@ describe("ClassAttendanceView check-in (I'm ready)", () => {
   it('uses the time and distance the server recorded and names the class', async () => {
     stubPhone();
     mockMarkReady.mockResolvedValue({ data: { data: { readyAt: '2026-10-28T20:45:42.000Z', distanceMeters: 21 } } });
-    renderView();
+    const { invalidate } = renderView();
 
     fireEvent.click(await screen.findByRole('button', { name: "I'm ready" }));
 
     expect(await screen.findByText(/, 21 m from venue$/)).toBeInTheDocument();
     expect(screen.getByText("You're checked in as ready for CPR Basic.")).toBeInTheDocument();
+    // so the dashboard cards do not keep saying "Not checked in yet"
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ['instructor'] });
   });
 
   it('does not reload the roster when the check-in status changes', async () => {
@@ -212,5 +221,31 @@ describe("ClassAttendanceView check-in (I'm ready)", () => {
     await screen.findByText('Checked in');
 
     expect(mockGetClassStudents).toHaveBeenCalledTimes(1);
+  });
+
+  it('opens the class chosen on the dashboard when there are several today', async () => {
+    mockGetClassesToday.mockResolvedValue({
+      data: { data: [CLASS, { ...CLASS, courseId: 9, name: 'CPR Advanced', startTime: '14:00:00', endTime: '17:00:00' }] },
+    });
+    renderView(9);
+
+    expect(await screen.findByRole('button', { name: "I'm ready" })).toBeInTheDocument();
+    await waitFor(() => expect(mockGetClassStudents).toHaveBeenCalledWith(9));
+  });
+
+  it('falls back to picking when the class id from the dashboard is not one of today classes', async () => {
+    mockGetClassesToday.mockResolvedValue({ data: { data: [CLASS, { ...CLASS, courseId: 9 }] } });
+    renderView(999);
+
+    await screen.findByText('Select Class for Attendance');
+    expect(screen.queryByRole('button', { name: "I'm ready" })).toBeNull();
+  });
+
+  it('opens nothing until one is picked when there are several classes and none was chosen', async () => {
+    mockGetClassesToday.mockResolvedValue({ data: { data: [CLASS, { ...CLASS, courseId: 9 }] } });
+    renderView();
+
+    await screen.findByText('Select Class for Attendance');
+    expect(screen.queryByRole('button', { name: "I'm ready" })).toBeNull();
   });
 });

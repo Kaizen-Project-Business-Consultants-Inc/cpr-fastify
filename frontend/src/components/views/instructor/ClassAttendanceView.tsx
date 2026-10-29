@@ -16,6 +16,7 @@ import {
   Snackbar,
   ButtonBase,
 } from '@mui/material';
+import { useLocation } from 'react-router-dom';
 import { instructorApi, collegesApi } from '../../../services/api';
 import { handleError } from '../../../services/errorHandler';
 import { useRefreshInstructorData } from '../../../services/instructorService';
@@ -61,6 +62,7 @@ const studentColumns = [
 const ClassAttendanceView: React.FC = () => {
   const [todaysClasses, setTodaysClasses] = useState<ClassData[]>([]);
   const [selectedClass, setSelectedClass] = useState<ClassData | null>(null);
+  const openClassId = (useLocation().state as { classId?: number } | null)?.classId;
   const [students, setStudents] = useState<Student[]>([]);
   const [loading, setLoading] = useState(false);
   const [studentsLoading, setStudentsLoading] = useState(false);
@@ -103,7 +105,11 @@ const ClassAttendanceView: React.FC = () => {
       const response = await instructorApi.getClassesToday();
       const classes = response.data?.data || response.data || [];
       setTodaysClasses(classes);
-      if (classes && classes.length === 1) {
+      // The class whose card was tapped on the dashboard, or the only class today
+      const wanted = (classes as ClassData[]).find(c => c.courseId === openClassId);
+      if (wanted) {
+        setSelectedClass(wanted);
+      } else if (classes && classes.length === 1) {
         setSelectedClass(classes[0]);
       }
       setError('');
@@ -141,6 +147,7 @@ const ClassAttendanceView: React.FC = () => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     loadTodaysClasses();
     loadColleges();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- on mount only; openClassId never changes while mounted
   }, []);
 
   // Leaving the screen while it is still finding the location stops the GPS and the check-in.
@@ -231,6 +238,7 @@ const ClassAttendanceView: React.FC = () => {
       setTodaysClasses(prev => prev.map(c => (c.courseId === classId ? { ...c, ...readyFields } : c)));
       setSelectedClass(prev => (prev && prev.courseId === classId ? { ...prev, ...readyFields } : prev));
       setSuccessMessage(`You're checked in as ready for ${name}.`);
+      refreshInstructorData(); // the dashboard cards show this too
     } catch (error: unknown) {
       if (!mounted.current) return;
       // 422 and 404 carry a plain explanation (too far, too early, location needed, class not found...)

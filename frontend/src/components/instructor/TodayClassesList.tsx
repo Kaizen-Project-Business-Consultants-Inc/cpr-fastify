@@ -17,6 +17,7 @@ import {
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import { formatDisplayDate } from '../../utils/dateUtils';
+import { readySummary } from '../../utils/readySummary';
 
 interface ClassData {
   id: number;
@@ -25,6 +26,9 @@ interface ClassData {
   location: string;
   date: string;
   studentcount: number;
+  /** When they checked in as ready, and how far from the venue they were. */
+  instructorReadyAt?: string | null;
+  instructorReadyDistanceM?: number | null;
 }
 
 interface TodayClassesListProps {
@@ -68,6 +72,11 @@ const TodayClassesList: React.FC<TodayClassesListProps> = ({ classes = [] }) => 
                             {cls.studentcount} Students
                           </Typography>
                         </span>
+                        <Typography variant="body2" component="span" color={cls.instructorReadyAt ? 'success.main' : 'text.secondary'}>
+                          {cls.instructorReadyAt
+                            ? `Checked in: ${readySummary({ instructor_ready_at: cls.instructorReadyAt, instructor_ready_distance_m: cls.instructorReadyDistanceM })}`
+                            : 'Not checked in yet'}
+                        </Typography>
                       </span>
                     }
                     primaryTypographyProps={{ component: 'div' }}
@@ -78,7 +87,7 @@ const TodayClassesList: React.FC<TodayClassesListProps> = ({ classes = [] }) => 
                       variant="contained"
                       size="small"
                       fullWidth
-                      onClick={() => navigate('/instructor/class-attendance')}
+                      onClick={() => navigate('/instructor/class-attendance', { state: { classId: cls.id } })}
                     >
                       Take Attendance
                     </Button>
@@ -87,7 +96,7 @@ const TodayClassesList: React.FC<TodayClassesListProps> = ({ classes = [] }) => 
                     <Button
                       variant="contained"
                       size="small"
-                      onClick={() => navigate('/instructor/class-attendance')}
+                      onClick={() => navigate('/instructor/class-attendance', { state: { classId: cls.id } })}
                     >
                       Take Attendance
                     </Button>
