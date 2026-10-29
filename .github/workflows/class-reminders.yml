@@ -1,0 +1,42 @@
+name: Class reminders
+
+# The app sends class reminders (day before, 15 minutes before, and the admin alert) from a timer
+# inside the server, but the hosting puts an idle app to sleep and the timer sleeps with it.
+# This asks each app to run the reminder check every 5 minutes, which also wakes it.
+# Needs secrets CRON_SECRET_STAGING and CRON_SECRET_PRODUCTION, each matching the CRON_SECRET
+# set in that app's .htaccess (24+ characters). A site whose secret is not set here is skipped with a notice.
+# Each site has its own job, so a staging problem never stops production reminders.
+# GitHub may start a scheduled run a few minutes late, and it turns scheduled workflows off after
+# 60 days with no repository activity. A failed run emails the repository owner.
+
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  run:
+    name: Run reminder check (${{ matrix.site }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - site: staging
+            url: https://stagecprapp.kpbc.ca/api/v1/class-reminders/run
+          - site: production
+            url: https://cpr.kpbc.ca/api/v1/class-reminders/run
+    concurrency:
+      group: class-reminders-${{ matrix.site }}
+      cancel-in-progress: false
+    steps:
+      - name: Call the app
+        env:
+          CRON_SECRET: ${{ matrix.site == 'staging' && secrets.CRON_SECRET_STAGING || secrets.CRON_SECRET_PRODUCTION }}
+          URL: ${{ matrix.url }}
+        run: |
+          if [ -z "$CRON_SECRET" ]; then echo "::notice::The ${{ matrix.site }} secret is not set; skipping"; exit 0; fi
+          curl -fsS --max-time 60 --retry 1 -X POST -H "x-cron-secret: $CRON_SECRET" "$URL"

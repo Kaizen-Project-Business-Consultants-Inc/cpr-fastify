@@ -29,6 +29,11 @@ const envSchema = z.object({
   RESEND_WEBHOOK_SECRET: z.string().optional(),
   ANTHROPIC_API_KEY: z.string().optional(),
 
+  // Lets an outside timer (the GitHub Actions schedule) run the class reminders while the app is idle.
+  // Optional: the run endpoint answers 503 until it is set, or while it is shorter than 24 characters
+  // (kept out of the schema so a typo cannot stop the whole app from starting).
+  CRON_SECRET: z.string().optional(),
+
   // Invoice emails: optional comma-separated addresses blind-copied on every posted invoice (e.g. accounting)
   INVOICE_COPY_TO: z.string().optional(),
 

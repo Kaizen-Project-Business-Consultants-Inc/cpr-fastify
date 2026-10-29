@@ -5,7 +5,7 @@ _Generated from the route table by `npm run docs:api` (backend/scripts/generate-
 Base URL: `/api/v1` (except the two root-level health/metrics endpoints).
 Auth: send the access token as `Authorization: Bearer <token>`. Role guards are enforced per route (`requireRole`); see the route file for the exact roles.
 
-**215 endpoints across 26 groups.**
+**216 endpoints across 26 groups.**
 
 ## Accounting
 
@@ -84,6 +84,7 @@ Authentication — login, refresh, logout, password change
 | Method | Path | Auth | Notes |
 |---|---|---|---|
 | POST | `/class-reminders/ready` | Bearer | Instructor checks in as ready for a class. Needs the phone location, within the check-in radius. No authentication required. |
+| POST | `/class-reminders/run` | Bearer | Runs the class reminder check now. Needs the shared cron secret in the x-cron-secret header. |
 
 ## Client Errors
 
