@@ -7,6 +7,10 @@ import type { RowDataPacket, ResultSetHeader } from 'mysql2/promise';
 const REMINDER_WINDOWS = [30, 60, 90]; // days before expiry
 const RUN_LOCK = 'cpr_cert_reminders';
 
+/**
+ * Emails students whose certificate expires in 30, 60 or 90 days. Each student
+ * gets each reminder once. Expiry is counted in Toronto days.
+ */
 export class CertReminderService {
   private emailService: EmailService;
 

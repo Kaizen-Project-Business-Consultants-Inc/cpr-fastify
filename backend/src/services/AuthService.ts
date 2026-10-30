@@ -21,9 +21,22 @@ const MAX_FAILED_ATTEMPTS = 5;
 const LOCKOUT_WINDOW_MINUTES = 15;
 const LOCKOUT_DURATION_MINUTES = 15;
 
+/**
+ * Signing in and the session tokens. Access and refresh tokens are JWTs; refresh
+ * tokens are also recorded (as a hash) in `refresh_tokens` so they can be
+ * rotated and revoked. Failed logins are counted per username in
+ * `login_attempts`, so a lockout survives a server restart.
+ */
 export class AuthService {
   constructor(private userRepo: UserRepository) {}
 
+  /**
+   * Checks the username and password and returns the user (without the password
+   * hash) and a token pair. A wrong username, an inactive or deleted account and
+   * a wrong password all give the same "Invalid username or password" (401), so
+   * the error doesn't reveal which accounts exist. Throws 429 while locked out.
+   * A successful login clears the failed-attempt count.
+   */
   async login(username: string, password: string): Promise<LoginResult> {
     const key = username.toLowerCase();
 
@@ -199,6 +212,7 @@ export class AuthService {
     return (tokenIssuedAt * 1000) <= invalidatedAtMs;
   }
 
+  /** Returns the access-token payload, or throws AuthError (401) if it is invalid or expired. */
   verifyAccessToken(token: string): jwt.JwtPayload {
     try {
       return jwt.verify(token, env.JWT_ACCESS_SECRET) as jwt.JwtPayload;
@@ -229,6 +243,7 @@ function hashToken(token: string): string {
   return createHash('sha256').update(token).digest('hex');
 }
 
+/** A sign-in or token failure. `statusCode` is the HTTP status to answer with: 401 by default, 429 for a lockout. */
 export class AuthError extends Error {
   public statusCode: number;
   constructor(message: string, statusCode: number = 401) {

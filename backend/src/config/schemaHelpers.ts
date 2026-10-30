@@ -7,6 +7,7 @@
  */
 import type { Pool, RowDataPacket } from 'mysql2/promise';
 
+/** True when `table` exists in the current database. */
 export async function tableExists(pool: Pool, table: string): Promise<boolean> {
   const [rows] = await pool.query<RowDataPacket[]>(
     `SELECT 1 FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? LIMIT 1`,
@@ -15,6 +16,7 @@ export async function tableExists(pool: Pool, table: string): Promise<boolean> {
   return rows.length > 0;
 }
 
+/** True when `table` has a column named `column`. */
 export async function columnExists(pool: Pool, table: string, column: string): Promise<boolean> {
   const [rows] = await pool.query<RowDataPacket[]>(
     `SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
@@ -24,6 +26,7 @@ export async function columnExists(pool: Pool, table: string, column: string): P
   return rows.length > 0;
 }
 
+/** True when `table` has an index named `index`. */
 export async function indexExists(pool: Pool, table: string, index: string): Promise<boolean> {
   const [rows] = await pool.query<RowDataPacket[]>(
     `SELECT 1 FROM INFORMATION_SCHEMA.STATISTICS
@@ -33,6 +36,7 @@ export async function indexExists(pool: Pool, table: string, index: string): Pro
   return rows.length > 0;
 }
 
+/** True when `table` has a constraint (key, unique or foreign key) named `constraint`. */
 export async function constraintExists(pool: Pool, table: string, constraint: string): Promise<boolean> {
   const [rows] = await pool.query<RowDataPacket[]>(
     `SELECT 1 FROM INFORMATION_SCHEMA.TABLE_CONSTRAINTS
@@ -78,6 +82,11 @@ export async function dropIndexIfExists(pool: Pool, table: string, index: string
   return true;
 }
 
+/**
+ * Adds a foreign key unless one with that name exists. Does nothing, and
+ * returns false, if the column or the referenced table isn't there. Returns true
+ * only when it added the key. `onDelete` is an SQL rule such as CASCADE or RESTRICT.
+ */
 export async function addForeignKeyIfMissing(
   pool: Pool,
   table: string,

@@ -3,6 +3,7 @@ import { torontoTodaySql } from '../utils/torontoDate.js';
 import type { RowDataPacket } from 'mysql2/promise';
 import { completedClassDate } from '../utils/classDateSql.js';
 
+/** An HR request that can't be done. `statusCode` is the HTTP status to answer with (400 by default). */
 export class HRError extends Error {
   constructor(message: string, public statusCode: number = 400) {
     super(message);
@@ -10,6 +11,11 @@ export class HRError extends Error {
   }
 }
 
+/**
+ * What the HR screens read: dashboard counts, the instructor list, a user's
+ * profile, and the payment requests that were returned for a decision
+ * (override-approve or final reject). Throws HRError.
+ */
 export class HRService {
   async getDashboardStats() {
     const pool = getPool();

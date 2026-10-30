@@ -1,5 +1,6 @@
 import { OrganizationRepository, Organization, OrganizationProfileStats } from '../repositories/OrganizationRepository.js';
 
+/** An organization request that can't be done. `statusCode` is the HTTP status to answer with (400 by default). */
 export class OrgError extends Error {
   constructor(message: string, public statusCode: number = 400) {
     super(message);
@@ -7,6 +8,7 @@ export class OrgError extends Error {
   }
 }
 
+/** An organization's own profile and course lists, and the organization list for admins. Throws OrgError. */
 export class OrganizationService {
   constructor(private orgRepo: OrganizationRepository) {}
 
