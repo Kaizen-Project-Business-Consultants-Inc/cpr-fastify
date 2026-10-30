@@ -35,6 +35,7 @@ function credentials() {
   return keyId && appKey && bucket ? { keyId, appKey, bucket } : null;
 }
 
+/** Backblaze B2 copy of uploaded files. Every method does nothing (false or null) when B2 isn't configured, so callers must cope with that. */
 export class ObjectStorage {
   private static auth: AuthContext | null = null;
 

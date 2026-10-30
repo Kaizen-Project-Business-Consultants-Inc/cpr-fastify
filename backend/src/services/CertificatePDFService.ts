@@ -22,6 +22,7 @@ function longDate(day: string): string {
   return d.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric', timeZone: 'UTC' });
 }
 
+/** Builds certificate PDFs: one full certificate, or a sheet of small copies for filing. */
 export class CertificatePDFService {
   /**
    * One landscape A4 page. The look is a placeholder until the owner's template
@@ -117,6 +118,7 @@ export class CertificatePDFService {
     });
   }
 
+  /** Draws one small certificate inside the box at (x, y) of size w by h on the sheet. */
   private static drawMini(doc: PDFKit.PDFDocument, c: CertificatePDFData, x: number, y: number, w: number, h: number): void {
     const pad = 12;
     const inner = w - pad * 2;

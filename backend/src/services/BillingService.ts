@@ -23,6 +23,7 @@ const RESEND_COOLDOWN_MS = 60_000;
 // A safety cap only: far above the number of invoices the business makes.
 const EXPORT_MAX_ROWS = 100000;
 
+/** An invoice or pricing request that can't be done. `statusCode` is the HTTP status to answer with (400 by default). */
 export class BillingError extends Error {
   constructor(message: string, public statusCode: number = 400) {
     super(message);
@@ -30,6 +31,11 @@ export class BillingError extends Error {
   }
 }
 
+/**
+ * Course prices, invoices (create, approve or reject, post to the organization)
+ * and payments. An invoice is created pending, approved by an admin, then posted
+ * to the organization, which emails it and archives the course. Throws BillingError.
+ */
 export class BillingService {
   private invoiceNumberService = new InvoiceNumberService();
 
@@ -40,20 +46,24 @@ export class BillingService {
 
   // --- Dashboard ---
 
+  /** Totals for the accounting dashboard. */
   async getDashboard(): Promise<DashboardData> {
     return this.invoiceRepo.getDashboard();
   }
 
   // --- Pricing ---
 
+  /** Every active price, for all organizations. */
   async getAllPricing(): Promise<CoursePricing[]> {
     return this.pricingRepo.findAllActive();
   }
 
+  /** One organization's prices. */
   async getOrgPricing(orgId: number): Promise<CoursePricing[]> {
     return this.pricingRepo.findByOrg(orgId);
   }
 
+  /** Sets an organization's price per student for a course type, adding it or replacing the existing one. All fields are required and the price must be above 0. */
   async upsertPricing(orgId: number, courseTypeId: number, pricePerStudent: number): Promise<CoursePricing> {
     if (!orgId || !courseTypeId || !pricePerStudent || pricePerStudent <= 0) {
       throw new BillingError('All fields are required and price must be greater than 0');
@@ -61,6 +71,7 @@ export class BillingService {
     return this.pricingRepo.upsert(orgId, courseTypeId, pricePerStudent);
   }
 
+  /** Changes the price on one record. The price must be above 0; 404 if the record doesn't exist. */
   async updatePricing(id: number, pricePerStudent: number): Promise<CoursePricing> {
     if (!pricePerStudent || pricePerStudent <= 0) {
       throw new BillingError('Valid price per student is required');
@@ -70,6 +81,7 @@ export class BillingService {
     return updated;
   }
 
+  /** Removes one price record; 404 if it doesn't exist. */
   async deletePricing(id: number): Promise<void> {
     const deleted = await this.pricingRepo.remove(id);
     if (!deleted) throw new BillingError('Course pricing not found', 404);
@@ -77,12 +89,21 @@ export class BillingService {
 
   // --- Billing queue ---
 
+  /** Courses sent to billing: attended students, the rate and the estimated total, ready for accounting to invoice. */
   async getBillingQueue(): Promise<BillingQueueRow[]> {
     return this.invoiceRepo.getBillingQueue();
   }
 
   // --- Invoice creation ---
 
+  /**
+   * Creates a pending invoice for a course that is marked ready for billing and
+   * has a price set. The amount is the students who attended times the price,
+   * plus HST at today's rate. The invoice is due in 30 days and numbered per
+   * organization, and the course is marked invoiced. All of it happens in one
+   * transaction. 404 if the course isn't ready or has no price; 422 if the
+   * organization has no contact email.
+   */
   async createInvoice(courseId: number, actor?: AuditActor): Promise<Invoice> {
     if (!courseId) throw new BillingError('Course ID is required');
 
@@ -166,6 +187,7 @@ export class BillingService {
 
   // --- Invoice queries ---
 
+  /** Every invoice with its details, paged when a page is asked for. */
   async getAllInvoices(pg?: PaginationParams) {
     return this.invoiceRepo.findAllWithDetails(pg);
   }
@@ -176,22 +198,26 @@ export class BillingService {
     return Array.isArray(rows) ? rows : rows.data;
   }
 
+  /** One invoice with its details; 404 if it doesn't exist. */
   async getInvoiceById(id: number): Promise<InvoiceWithDetails> {
     const invoice = await this.invoiceRepo.findByIdWithDetails(id);
     if (!invoice) throw new BillingError('Invoice not found', 404);
     return invoice;
   }
 
+  /** Invoices waiting for an admin to approve or reject them. */
   async getPendingApproval(pg?: PaginationParams) {
     return this.invoiceRepo.findPendingApproval(pg);
   }
 
+  /** Invoices an admin rejected and that still need fixing. */
   async getRejected(pg?: PaginationParams) {
     return this.invoiceRepo.findRejected(pg);
   }
 
   // --- Approval workflow ---
 
+  /** Approves a pending invoice. Anything already approved or rejected is refused. */
   async approve(id: number, approvedBy: number): Promise<Invoice> {
     const invoice = await this.invoiceRepo.findById(id);
     if (!invoice) throw new BillingError('Invoice not found', 404);
@@ -207,6 +233,7 @@ export class BillingService {
     return (await this.invoiceRepo.findById(id))!;
   }
 
+  /** Rejects a pending invoice. A reason is required; anything already approved or rejected is refused. */
   async reject(id: number, reason: string, rejectedBy: number): Promise<Invoice> {
     if (!reason?.trim()) throw new BillingError('Rejection reason is required');
 
@@ -225,6 +252,7 @@ export class BillingService {
     return (await this.invoiceRepo.findById(id))!;
   }
 
+  /** Puts a rejected invoice back to pending and clears the rejection. Only rejected invoices can be resubmitted. */
   async resubmit(id: number): Promise<Invoice> {
     const invoice = await this.invoiceRepo.findById(id);
     if (!invoice) throw new BillingError('Invoice not found', 404);
@@ -243,6 +271,13 @@ export class BillingService {
 
   // --- Post to org ---
 
+  /**
+   * Makes an invoice visible to its organization, archives the completed course,
+   * then emails the organization (see notifyInvoicePosted). The invoice is claimed
+   * with a conditional update, so two people posting at once can't both succeed
+   * (the second gets 404 "already posted"). The email is sent after the
+   * transaction, and a failed email doesn't undo the posting.
+   */
   async postToOrg(id: number, postedBy: number, actor?: AuditActor): Promise<Invoice> {
     const pool = getPool();
     const conn = await pool.getConnection();
@@ -343,6 +378,7 @@ export class BillingService {
     }
   }
 
+  /** Emails of the organization's active admin logins, to be copied on the invoice. */
   private async orgAdminEmails(organizationId: number): Promise<string[]> {
     const [rows] = await getPool().query<RowDataPacket[]>(
       `SELECT email FROM users
@@ -396,10 +432,18 @@ export class BillingService {
 
   // --- Payments ---
 
+  /** The payments recorded against one invoice. */
   async getPayments(invoiceId: number): Promise<PaymentRow[]> {
     return this.invoiceRepo.getPayments(invoiceId);
   }
 
+  /**
+   * Records a verified payment against an invoice. The invoice row is locked
+   * first, so two payments at the same moment can't together overpay it. Refused
+   * if the invoice is already fully paid or the amount is more than what is left
+   * (a one-cent rounding allowance). When the verified payments reach the
+   * invoice amount the invoice becomes `paid`.
+   */
   async recordPayment(
     invoiceId: number,
     amount: number,

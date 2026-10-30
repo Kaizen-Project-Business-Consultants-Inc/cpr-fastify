@@ -108,6 +108,12 @@ const EMAIL_TEMPLATES = {
   }),
 };
 
+/**
+ * Sends the app's emails through Resend. Use `EmailService.getInstance()`. Each
+ * send returns true or false and never throws, so a failed email can't break the
+ * action that triggered it. Without `RESEND_API_KEY` nothing is sent (mock
+ * mode: it logs and returns false).
+ */
 export class EmailService {
   private apiKey: string | null;
   private fromAddress: string;
@@ -126,6 +132,7 @@ export class EmailService {
     }
   }
 
+  /** The one shared instance. */
   public static getInstance(): EmailService {
     if (!EmailService.instance) {
       EmailService.instance = new EmailService();
@@ -193,6 +200,7 @@ export class EmailService {
     }
   }
 
+  /** True when an API key is configured. It doesn't call Resend. */
   async verifyConnection(): Promise<boolean> {
     if (!this.apiKey) return false;
     logger.info('Email service: Resend client ready');
@@ -366,6 +374,7 @@ export class EmailService {
     );
   }
 
+  /** Emails the password-reset link, with a line telling the person who to contact if they didn't ask for it. */
   async sendPasswordResetEmail(userEmail: string, username: string, resetLink: string): Promise<boolean> {
     const html = safeHtml`
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">

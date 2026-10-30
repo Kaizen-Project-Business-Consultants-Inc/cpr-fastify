@@ -13,6 +13,7 @@ import type { RowDataPacket } from 'mysql2/promise';
 /** The roster can change only before the class is taught: attendance and the invoice use it. */
 const ROSTER_OPEN_STATUSES = ['pending', 'past_due', 'confirmed'];
 
+/** A course request that can't be done. `statusCode` is the HTTP status to answer with (400 by default). */
 export class CourseError extends Error {
   constructor(message: string, public statusCode: number = 400) {
     super(message);
@@ -68,6 +69,12 @@ export interface BillingValidation {
 
 // --- Service ---
 
+/**
+ * The life of a course request: made by an organization (or from an email),
+ * given an instructor and time (confirmed), rescheduled or cancelled, then
+ * completed and sent to billing. Also the student roster of a course. Changes
+ * that touch several tables run in one transaction. Throws CourseError.
+ */
 export class CourseService {
   constructor(
     private courseRepo: CourseRequestRepository,
@@ -254,6 +261,11 @@ export class CourseService {
 
   // --- Course request creation (org users) ---
 
+  /**
+   * Creates a pending request for an organization. Refused if the same
+   * organization already has a request for that location on that date. Emails
+   * the organization's admins to say it was received.
+   */
   async createRequest(input: CreateCourseRequestInput): Promise<CourseRequest> {
     // Check for duplicates
     const existing = await this.courseRepo.forOrg(input.organizationId)
@@ -290,24 +302,35 @@ export class CourseService {
 
   // --- Course listing (admin) ---
 
+  /** Requests waiting for an instructor, including past-due ones. */
   async getPending(): Promise<CourseWithDetails[]> {
     return this.courseRepo.findPending();
   }
 
+  /** Requests that have an instructor and a time. */
   async getConfirmed(): Promise<CourseWithDetails[]> {
     return this.courseRepo.findConfirmed();
   }
 
+  /** Courses that were taught, including ones already invoiced. */
   async getCompleted(): Promise<CourseWithDetails[]> {
     return this.courseRepo.findCompleted();
   }
 
+  /** Cancelled requests. */
   async getCancelled(): Promise<CourseWithDetails[]> {
     return this.courseRepo.findCancelled();
   }
 
   // --- Assign instructor (admin) ---
 
+  /**
+   * Confirms a request: gives it an instructor and a start and end time on its
+   * scheduled date, adds the class to the schedule, and removes that day from
+   * the instructor's availability. Refused if the instructor already has a
+   * confirmed course overlapping that time. Restarts the class reminders and
+   * emails the instructor and the organization's admins.
+   */
   async assignInstructor(input: AssignInstructorInput): Promise<CourseRequest> {
     const pool = getPool();
     const conn = await pool.getConnection();
@@ -416,6 +439,11 @@ export class CourseService {
 
   // --- Cancel course (admin) ---
 
+  /**
+   * Cancels a course; a reason is required. If an instructor was assigned, their
+   * class is removed and that day goes back to available. Invoices that are still
+   * pending or overdue are cancelled too.
+   */
   async cancel(courseId: number, reason: string): Promise<CourseRequest> {
     if (!reason?.trim()) throw new CourseError('Cancellation reason is required');
 
@@ -496,6 +524,13 @@ export class CourseService {
 
   // --- Reschedule course (admin) ---
 
+  /**
+   * Moves a course to a new date, and optionally a new time or instructor. The
+   * old class is removed and the old instructor's day goes back to available;
+   * the new class is added and the new day is taken out of availability. Restarts
+   * the class reminders. Instructors are emailed only when something they need to
+   * know changed.
+   */
   async reschedule(input: RescheduleInput): Promise<CourseRequest> {
     const pool = getPool();
     const conn = await pool.getConnection();
@@ -603,6 +638,12 @@ export class CourseService {
 
   // --- Billing readiness ---
 
+  /**
+   * Checks whether a course can be sent to billing, without changing anything.
+   * It must be completed, not already invoiced or marked ready, have a price, at
+   * least one student marked attended, and an organization contact email. Every
+   * problem found is listed in `errors`.
+   */
   async validateBillingReadiness(courseId: number): Promise<BillingValidation> {
     const course = await this.courseRepo.findWithBillingDetails(courseId);
     if (!course) throw new CourseError('Course not found', 404);
@@ -642,6 +683,7 @@ export class CourseService {
     };
   }
 
+  /** Sends a course to billing once `validateBillingReadiness` finds no problems; otherwise throws with the problems listed. */
   async markReadyForBilling(courseId: number): Promise<CourseRequest> {
     const validation = await this.validateBillingReadiness(courseId);
     if (!validation.isValid) {
@@ -657,6 +699,7 @@ export class CourseService {
 
   // --- Students ---
 
+  /** A course's roster. When `orgId` is given, the course must belong to that organization (404 otherwise). */
   async getStudents(courseId: number, orgId?: number): Promise<CourseStudent[]> {
     // If orgId provided, verify course belongs to that org
     if (orgId) {
@@ -667,6 +710,10 @@ export class CourseService {
     return this.studentRepo.findByCourse(courseId);
   }
 
+  /**
+   * Adds students to an organization's course roster, then updates the course's
+   * registered count to match. Only allowed before the class is completed.
+   */
   async addStudents(
     courseId: number,
     orgId: number,
@@ -684,6 +731,7 @@ export class CourseService {
     return result;
   }
 
+  /** Removes one student from the roster and updates the registered count. Only allowed before the class is completed. */
   async removeStudent(courseId: number, orgId: number, courseStudentId: number): Promise<void> {
     // Verify course belongs to org
     const course = await this.courseRepo.forOrg(orgId).findById(courseId);

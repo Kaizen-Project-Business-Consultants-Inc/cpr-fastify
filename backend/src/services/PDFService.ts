@@ -68,7 +68,9 @@ function formatCurrency(amount: number): string {
   return `$${amount.toFixed(2)}`;
 }
 
+/** Builds invoice and payment-receipt documents (A4 PDFs, plus an HTML preview of the invoice). */
 export class PDFService {
+  /** The invoice as PDF bytes: organization, course, rate, tax and the attendance list. */
   static async generateInvoicePDF(invoice: InvoicePDFData): Promise<Buffer> {
     return new Promise((resolve, reject) => {
       try {
@@ -213,6 +215,7 @@ export class PDFService {
     });
   }
 
+  /** The invoice as an HTML page for on-screen preview. */
   static getInvoicePreviewHTML(invoice: InvoicePDFData): string {
     const invoiceDate = formatDate(invoice.invoice_date);
     const dueDate = formatDate(invoice.due_date);
@@ -243,6 +246,7 @@ ${raw(attendanceSection)}
 </body></html>`;
   }
 
+  /** A payment receipt as PDF bytes. */
   static async generatePaymentReceipt(payment: PaymentPDFData): Promise<Buffer> {
     return new Promise((resolve, reject) => {
       try {
