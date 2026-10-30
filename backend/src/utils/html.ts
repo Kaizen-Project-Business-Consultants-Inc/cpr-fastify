@@ -14,6 +14,7 @@ const ESCAPE_MAP: Record<string, string> = {
   "'": '&#39;',
 };
 
+/** Escapes `& < > " '` so a value is safe inside HTML. Null and undefined become an empty string. */
 export function escapeHtml(value: unknown): string {
   if (value === null || value === undefined) return '';
   return String(value).replace(/[&<>"']/g, (ch) => ESCAPE_MAP[ch]);
@@ -25,6 +26,7 @@ export class RawHtml {
   toString(): string { return this.html; }
 }
 
+/** Marks HTML as already safe so `safeHtml` inserts it unescaped. Use only for markup you built yourself. */
 export function raw(html: string | RawHtml): RawHtml {
   return html instanceof RawHtml ? html : new RawHtml(html);
 }

@@ -44,6 +44,13 @@ function normalize(text: string): string {
   return text.toLowerCase().replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
 }
 
+/**
+ * Picks the active course type that best matches the course name in an email.
+ * An exact name (after normalizing) scores 1, one name containing the other
+ * 0.85, otherwise the share of words in common. Returns the highest score, so
+ * a weak match still comes back: the caller decides whether the confidence is
+ * high enough. Null only when the text is empty or there are no course types.
+ */
 export function resolveCourseType(text: string, classTypes: { id: number; name: string }[]): CourseTypeMatch | null {
   const target = normalize(text);
   if (!target) return null;
@@ -93,6 +100,11 @@ function pad(n: number): string {
   return String(n).padStart(2, '0');
 }
 
+/**
+ * Turns a date written in an email into YYYY-MM-DD. Accepts `2026-11-15`,
+ * `11/15/2026` (month first) and `Nov 15, 2026` / `November 15 2026`.
+ * Returns null for anything else or for a day that doesn't exist (Feb 30).
+ */
 export function normalizeDateText(text: string): string | null {
   const t = text.trim();
 
@@ -129,6 +141,11 @@ interface ExtractedFields {
   registeredStudents: number | null;
 }
 
+/**
+ * Reads the fixed "Course: / Date: / Location: / Students:" email format.
+ * Course, date and location are required (null if any is missing); students is
+ * optional because colleges often don't know the count yet.
+ */
 export function parseTemplate(body: string): ExtractedFields | null {
   const get = (label: string): string | null => {
     const re = new RegExp(`^\\s*${label}\\s*:\\s*(.+)$`, 'im');
@@ -234,6 +251,11 @@ ${body.slice(0, 4000)}
 
 // --- Webhook signature verification (Standard Webhooks / Svix scheme) ---
 
+/**
+ * Checks that a webhook really came from Resend (Svix signature: HMAC-SHA256
+ * over `id.timestamp.body`). False when the secret is not configured, a header
+ * is missing, the timestamp is more than 5 minutes old, or no signature matches.
+ */
 export function verifyResendSignature(
   rawBody: string,
   headers: { 'svix-id'?: string; 'svix-timestamp'?: string; 'svix-signature'?: string }
@@ -333,6 +355,12 @@ export function findReviewReasons(
 
 // --- Orchestration ---
 
+/**
+ * Turns an inbound email into a course request when it safely can, otherwise
+ * files it for a person to review. Every email is saved as an `inbound_emails`
+ * row with a status: `created_request`, `needs_review` (with the reason),
+ * or `unmatched_sender` (the sender is not an organization login).
+ */
 export class InboundEmailService {
   constructor(
     private repo: InboundEmailRepository,

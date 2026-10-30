@@ -4,7 +4,9 @@ import { env } from '../config/env.js';
 import { logger } from '../config/logger.js';
 import { emailService } from './EmailService.js';
 
+/** How long a reset link works. */
 export const RESET_TOKEN_TTL_MS = 60 * 60 * 1000; // 1 hour
+/** SHA-256 hex of a reset token. Only this hash is stored (`password_resets.token_hash`), never the token emailed to the user. */
 export const hashToken = (token: string) => createHash('sha256').update(token).digest('hex');
 
 export interface ResetTarget {

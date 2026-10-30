@@ -50,6 +50,7 @@ async function loadInvoice(id: number, scope: { scoped: false } | { scoped: true
   return invoice;
 }
 
+/** Replies with the invoice as a PDF download named `Invoice-<number>.pdf`. */
 export async function sendInvoicePdf(reply: FastifyReply, invoice: InvoicePDFData) {
   const { PDFService } = await import('./PDFService.js');
   const pdfBuffer = await PDFService.generateInvoicePDF(invoice);
@@ -59,6 +60,7 @@ export async function sendInvoicePdf(reply: FastifyReply, invoice: InvoicePDFDat
   return reply.send(pdfBuffer);
 }
 
+/** Replies with the invoice as an HTML page, the same layout as the PDF. */
 export async function sendInvoicePreview(reply: FastifyReply, invoice: InvoicePDFData) {
   const { PDFService } = await import('./PDFService.js');
   reply.header('Content-Type', 'text/html');

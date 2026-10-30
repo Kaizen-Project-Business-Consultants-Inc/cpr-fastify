@@ -51,6 +51,7 @@ export async function requireAuth(request: FastifyRequest, reply: FastifyReply) 
   request.userOrgId = payload.orgId ?? null;
 }
 
+/** Route guard: signs the request in, then answers 403 unless the user's role is one of `roles`. */
 export function requireRole(...roles: string[]) {
   return async (request: FastifyRequest, reply: FastifyReply) => {
     await requireAuth(request, reply);

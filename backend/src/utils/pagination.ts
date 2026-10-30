@@ -16,7 +16,9 @@ export interface PaginatedResult<T> {
   };
 }
 
+/** The most rows one page may ask for; larger requests are capped. */
 export const MAX_LIMIT = 200;
+/** Page size when the caller doesn't send `limit`. */
 export const DEFAULT_LIMIT = 25;
 
 /**

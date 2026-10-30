@@ -10,6 +10,7 @@ import { torontoTodaySql } from '../utils/torontoDate.js';
 const EMAIL_SHAPE = /^[^\s@,;<>]+@[^\s@,;<>]+\.[^\s@,;<>]+$/;
 const NUMBER_SHAPE = /^GTACPR-\d{4}-\d{6,}$/;
 
+/** Certificate number as printed: `GTACPR-<year>-<sequence padded to 6 digits>`. */
 export const formatCertificateNumber = (year: number, sequence: number) =>
   `GTACPR-${year}-${String(sequence).padStart(6, '0')}`;
 
@@ -160,6 +161,7 @@ export async function emailClassCertificateSheet(classId: number | string): Prom
   }
 }
 
+/** The certificate PDF for a course student plus the data it was built from, or null if there is no such certificate. */
 export async function generateCertificatePdf(courseStudentId: number | string): Promise<{ pdf: Buffer; certificate: LoadedCertificate } | null> {
   const certificate = await loadCertificate(courseStudentId);
   if (!certificate) return null;

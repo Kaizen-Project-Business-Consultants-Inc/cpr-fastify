@@ -14,10 +14,12 @@ import type { RowDataPacket } from 'mysql2/promise';
 
 let _rate: number = env.HST_RATE ?? 0.13;
 
+/** The current tax rate as a fraction (0.13 = 13%). Reflects the database value once `initTaxConfig()` has run. */
 export function getHSTRate(): number {
   return _rate;
 }
 
+/** The rate as shown on invoices, e.g. `HST (13%)`. */
 export function getHSTLabel(): string {
   const pct = _rate * 100;
   return `HST (${pct % 1 === 0 ? pct.toFixed(0) : pct}%)`;

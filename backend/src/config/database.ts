@@ -25,6 +25,7 @@ function createPool(): mysql.Pool {
   });
 }
 
+/** Opens the connection pool and checks that one connection works. Call once at startup. */
 export async function connectDatabase() {
   pool = createPool();
 
@@ -43,6 +44,7 @@ export function initPoolForTooling() {
   pool = createPool();
 }
 
+/** Closes the pool. Safe to call when it was never opened. */
 export async function closeDatabaseConnections() {
   if (pool) {
     await pool.end();
@@ -50,6 +52,7 @@ export async function closeDatabaseConnections() {
   }
 }
 
+/** The shared pool. Throws if `connectDatabase()` hasn't run yet. */
 export function getPool(): mysql.Pool {
   if (!pool) throw new Error('Database not initialized — call connectDatabase() first');
   return pool;
