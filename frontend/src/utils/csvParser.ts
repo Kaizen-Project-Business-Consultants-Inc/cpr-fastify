@@ -17,6 +17,13 @@ export interface ParsedCSVResult {
   invalidRows: number;
 }
 
+/**
+ * Reads a student list from CSV text. The first line is the header, and the
+ * `first_name` and `last_name` columns are required; `email` and `phone` are
+ * optional. Rows that can't be used (for example the wrong number of columns) are
+ * reported in `errors` with their row number. `courseRequestId` and
+ * `organizationId` are copied onto every student.
+ */
 export const parseCSV = (csvContent: string, courseRequestId?: number, organizationId?: number): ParsedCSVResult => {
   
   const lines = csvContent.split('\n').filter(line => line.trim());

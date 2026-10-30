@@ -8,10 +8,12 @@ type ShowToast = (toast: Omit<Toast, 'id' | 'timestamp'>) => string;
 
 let handler: ShowToast | null = null;
 
+/** Called by the ToastProvider when it mounts (and with null when it unmounts) so `emitToast` has somewhere to send toasts. */
 export function registerToastHandler(fn: ShowToast | null): void {
   handler = fn;
 }
 
+/** Shows a toast from code that isn't a React component. Does nothing if no ToastProvider is mounted, as in tests. */
 export function emitToast(
   type: Toast['type'],
   message: string,

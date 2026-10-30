@@ -322,6 +322,7 @@ export const getCoursePricing = async () => {
   return response.data.data || [];
 };
 
+/** PUT /accounting/course-pricing/:id: changes one course price. */
 export const updateCoursePrice = async (pricingId: number, data: PricingData) => {
   const response = await api.put(
     `/accounting/course-pricing/${pricingId}`,
@@ -330,16 +331,19 @@ export const updateCoursePrice = async (pricingId: number, data: PricingData) =>
   return response.data;
 };
 
+/** POST /accounting/course-pricing: adds a course price. */
 export const createCoursePricing = async (data: PricingData): Promise<ApiResponse<Record<string, unknown>>> => {
   const response = await api.post('/accounting/course-pricing', data);
   return response.data;
 };
 
+/** DELETE /accounting/course-pricing/:id: removes one course price. */
 export const deleteCoursePricing = async (id: number) => {
   const response = await api.delete(`/accounting/course-pricing/${id}`);
   return response.data;
 };
 
+/** GET /accounting/organizations: the organizations accounting can bill. Returns an empty list if there are none. */
 export const getOrganizations = async () => {
   const response = await api.get('/accounting/organizations');
   return response.data.data || [];
@@ -357,16 +361,19 @@ export const getOrganizationPricingForOrg = async (organizationId: number) => {
   return response.data;
 };
 
+/** POST /organization-pricing/admin: sets a price for one organization and course type. */
 export const createOrganizationPricing = async (data: PricingData) => {
   const response = await api.post('/organization-pricing/admin', data);
   return response.data.data;
 };
 
+/** PUT /organization-pricing/admin/:id: changes one organization price. */
 export const updateOrganizationPricing = async (id: number, data: PricingData) => {
   const response = await api.put(`/organization-pricing/admin/${id}`, data);
   return response.data.data;
 };
 
+/** DELETE /organization-pricing/admin/:id: removes one organization price. */
 export const deleteOrganizationPricing = async (id: number) => {
   const response = await api.delete(`/organization-pricing/admin/${id}`);
   return response.data.data;
@@ -389,6 +396,7 @@ export const getBillingQueue = async () => {
   return response.data;
 };
 
+/** POST /accounting/invoices: creates an invoice for a course that was sent to billing. */
 export const createInvoice = async (courseId: number) => {
   const response = await api.post('/accounting/invoices', { courseId });
   return response.data;
@@ -410,11 +418,13 @@ export const getInvoices = async (params?: { page?: number; limit?: number }) =>
   return params ? response.data : (response.data.data || []);
 };
 
+/** GET /accounting/invoices/pending-approval: invoices waiting for approval. Returns the whole response when paged, otherwise just the list. */
 export const getPendingApprovals = async (params?: { page?: number; limit?: number }) => {
   const response = await api.get('/accounting/invoices/pending-approval', { params });
   return params ? response.data : (response.data.data || []);
 };
 
+/** PUT /accounting/invoices/:id/approval: approves a pending invoice. */
 export const approveInvoice = async (invoiceId: number) => {
   // PUT /accounting/invoices/:id/approval requires camelCase approvalStatus;
   // this sent approval_status and always 400'd, so approving an invoice
@@ -425,6 +435,7 @@ export const approveInvoice = async (invoiceId: number) => {
   return response.data;
 };
 
+/** PUT /accounting/invoices/:id/approval: rejects a pending invoice, with the reason as the note. */
 export const rejectInvoice = async (invoiceId: number, reason: string) => {
   const response = await api.put(`/accounting/invoices/${invoiceId}/approval`, {
     approvalStatus: 'rejected',
@@ -433,21 +444,25 @@ export const rejectInvoice = async (invoiceId: number, reason: string) => {
   return response.data;
 };
 
+/** GET /accounting/invoices/rejected: rejected invoices. Returns the whole response when paged, otherwise just the list. */
 export const getRejectedInvoices = async (params?: { page?: number; limit?: number }) => {
   const response = await api.get('/accounting/invoices/rejected', { params });
   return params ? response.data : (response.data.data || []);
 };
 
+/** PUT /accounting/invoices/:id/resubmit: puts a rejected invoice back to pending. */
 export const resubmitInvoice = async (invoiceId: number) => {
   const response = await api.put(`/accounting/invoices/${invoiceId}/resubmit`);
   return response.data;
 };
 
+/** GET /accounting/invoices/:id: one invoice with its details. */
 export const getInvoiceDetails = async (invoiceId: number) => {
   const response = await api.get(`/accounting/invoices/${invoiceId}`);
   return extractData(response);
 };
 
+/** PUT /accounting/invoices/:id/post-to-org: shows the invoice to its organization and emails it. */
 export const postInvoiceToOrganization = async (invoiceId: number) => {
   const response = await api.put(
     `/accounting/invoices/${invoiceId}/post-to-org`
@@ -455,6 +470,7 @@ export const postInvoiceToOrganization = async (invoiceId: number) => {
   return response.data;
 };
 
+/** POST /accounting/invoices/:id/resend-email: emails a posted invoice again. The server refuses a second send within a minute. */
 export const resendInvoiceEmail = async (invoiceId: number) => {
   const response = await api.post(
     `/accounting/invoices/${invoiceId}/resend-email`
@@ -462,6 +478,7 @@ export const resendInvoiceEmail = async (invoiceId: number) => {
   return response.data;
 };
 
+/** GET /accounting/invoices/:id/payments: the payments recorded on one invoice. */
 export const getInvoicePayments = async (invoiceId: number) => {
   const response = await api.get(
     `/accounting/invoices/${invoiceId}/payments`
@@ -469,6 +486,7 @@ export const getInvoicePayments = async (invoiceId: number) => {
   return response.data;
 };
 
+/** POST /accounting/invoices/:id/payments: records a payment on one invoice. The server refuses more than the balance still owed. */
 export const recordInvoicePayment = async (
   invoiceId: number,
   paymentData: InvoicePaymentData

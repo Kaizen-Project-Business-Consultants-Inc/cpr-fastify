@@ -12,6 +12,7 @@ const SnackbarContext = createContext<SnackbarContextType | undefined>(
   undefined
 );
 
+/** The success, error, warning and info pop-up messages. Throws if used outside `SnackbarProvider`. */
 export const useSnackbar = () => {
   const context = useContext(SnackbarContext);
   if (!context) {
@@ -26,6 +27,11 @@ interface SnackbarState {
   severity: AlertColor;
 }
 
+/**
+ * Shows the pop-up message. `showError` takes a string or an error-like object:
+ * it shows the object's `message`, else its `error`, else the object as JSON, and
+ * "An error occurred" for anything empty.
+ */
 export const SnackbarProvider: React.FC<{ children: React.ReactNode }> = ({
   children,
 }) => {

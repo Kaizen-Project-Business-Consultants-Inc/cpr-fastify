@@ -51,6 +51,7 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+/** The signed-in user and the sign-in actions (login, logout, register, refresh). Throws if used outside `AuthProvider`. */
 export function useAuth() {
   const context = useContext(AuthContext);
   if (context === undefined) {
@@ -76,6 +77,7 @@ function normalizeUser(raw: Record<string, unknown>): User {
   };
 }
 
+/** Holds who is signed in, whether that is still being checked, and the session status, and provides login, logout, register and refresh to the app. */
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
