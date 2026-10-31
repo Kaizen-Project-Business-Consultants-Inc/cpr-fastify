@@ -181,6 +181,9 @@ describe('OrganizationRepository.getOrgCourses', () => {
     await new OrganizationRepository().getOrgCourses(3, { archived: true, limit: 500, offset: 0 });
 
     expect(sqlOf(0)).toContain('cr.archived_at as archivedAt');
+    // The class times the My Courses list shows under the date
+    expect(sqlOf(0)).toContain('cr.confirmed_start_time as confirmedStartTime');
+    expect(sqlOf(0)).toContain('cr.confirmed_end_time as confirmedEndTime');
     expect(sqlOf(0)).toContain('cr.deleted_at IS NULL');
     expect(sqlOf(0)).toContain('cr.archived_at DESC, cr.id DESC');
     // Removed roster rows don't count as attended

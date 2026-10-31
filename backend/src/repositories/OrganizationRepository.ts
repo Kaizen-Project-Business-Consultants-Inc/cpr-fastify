@@ -141,6 +141,7 @@ export class OrganizationRepository extends BaseRepository<Organization> {
     const rows = await this.query<RowDataPacket>(
       `SELECT cr.*, cr.date_requested as request_submitted_date, cr.date_requested as requestSubmittedDate,
               cr.scheduled_date as scheduledDate, cr.confirmed_date as confirmedDate,
+              cr.confirmed_start_time as confirmedStartTime, cr.confirmed_end_time as confirmedEndTime,
               cr.registered_students as registeredStudents,
               cr.archived_at as archivedAt,
               ct.name as course_type_name, ct.name as courseTypeName,

@@ -17,7 +17,7 @@ import {
 } from '@mui/material';
 import { api } from '../../../../services/api';
 import { formatDisplayDate } from '../../../../utils/dateUtils';
-import { formatStudentCount } from '../../../../utils/formatters';
+import { formatStudentCount, formatClockTime } from '../../../../utils/formatters';
 import useServerPagination from '../../../../hooks/useServerPagination';
 import useDebounce from '../../../../hooks/useDebounce';
 import DataTable, { DataTableRow } from '../../../gtacpr/DataTable';
@@ -38,6 +38,8 @@ interface Course {
   instructor: string;
   notes?: string;
   confirmedDate?: string;
+  confirmedStartTime?: string | null;
+  confirmedEndTime?: string | null;
   requestSubmittedDate: string;
   scheduledDate?: string;
   studentsAttended?: number;
@@ -322,14 +324,23 @@ const OrganizationCourses: React.FC<OrganizationCoursesProps> = ({
         {filteredCourses.map((course) => {
           const uploadDisabled = isUploadDisabled(course);
           const uploadTooltip = getUploadTooltip(course);
+          const startTime = formatClockTime(course.confirmedStartTime);
+          const endTime = formatClockTime(course.confirmedEndTime);
           return (
             <DataTableRow key={course.id} columns={columns}>
               <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>
                 {course.requestSubmittedDate && !isNaN(new Date(course.requestSubmittedDate).getTime()) ? formatDisplayDate(course.requestSubmittedDate) : 'N/A'}
               </Typography>
-              <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>
-                {course.scheduledDate ? formatDisplayDate(course.scheduledDate) : '—'}
-              </Typography>
+              <Box>
+                <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>
+                  {course.scheduledDate ? formatDisplayDate(course.scheduledDate) : '—'}
+                </Typography>
+                {startTime && (
+                  <Typography sx={{ fontSize: 12, color: (theme) => theme.palette.text.secondary }}>
+                    {startTime}{endTime && ` – ${endTime}`}
+                  </Typography>
+                )}
+              </Box>
               <Typography sx={{ fontSize: 13.5, fontWeight: 600, color: (theme) => theme.palette.text.primary }}>{course.courseTypeName}</Typography>
               <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary }}>{course.location}</Typography>
               <Typography sx={{ fontSize: 13, fontWeight: 600, color: (theme) => theme.palette.text.primary, textAlign: 'right' }}>{formatStudentCount(course.registeredStudents)}</Typography>

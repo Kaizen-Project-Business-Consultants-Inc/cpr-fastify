@@ -194,6 +194,16 @@ export const formatTime = (value: DateInput): string => {
   return d.toLocaleTimeString('en-CA', { hour: 'numeric', minute: '2-digit', hour12: true });
 };
 
+/** A clock time stored as "HH:MM" or "HH:MM:SS" (a class start or end), shown as "2:30 PM". Empty if it isn't one. */
+export const formatClockTime = (value: string | null | undefined): string => {
+  const m = typeof value === 'string' ? value.match(/^(\d{1,2}):(\d{2})/) : null;
+  if (!m) return '';
+  const hour = Number(m[1]);
+  const minute = Number(m[2]);
+  if (hour > 23 || minute > 59) return '';
+  return `${hour % 12 || 12}:${m[2]} ${hour < 12 ? 'AM' : 'PM'}`;
+};
+
 /** "Jan 1, 2024, 2:30 PM" for timestamps (audit logs, submissions). */
 export const formatDateTime = (value: DateInput): string => {
   if (!value) return '—';
