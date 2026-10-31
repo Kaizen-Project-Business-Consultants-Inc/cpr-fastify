@@ -146,6 +146,7 @@ export async function courseRoutes(app: FastifyInstance) {
     const body = assignInstructorSchema.parse(request.body);
     try {
       const course = await service.assignInstructor({ courseId: parseInt(id), ...body });
+      logAudit({ userId: request.userId, action: 'assign_instructor', entityType: 'course_request', entityId: parseInt(id), details: body, ipAddress: request.ip });
       return { success: true, message: 'Instructor assigned successfully', course };
     } catch (err) { return handleCourseError(err, reply); }
   });
@@ -156,6 +157,7 @@ export async function courseRoutes(app: FastifyInstance) {
     const { reason } = cancelSchema.parse(request.body);
     try {
       const course = await service.cancel(parseInt(id), reason);
+      logAudit({ userId: request.userId, action: 'cancel_course', entityType: 'course_request', entityId: parseInt(id), details: { reason }, ipAddress: request.ip });
       return { success: true, message: 'Course cancelled successfully', course };
     } catch (err) { return handleCourseError(err, reply); }
   });
@@ -166,6 +168,7 @@ export async function courseRoutes(app: FastifyInstance) {
     const body = rescheduleSchema.parse(request.body);
     try {
       const course = await service.reschedule({ courseId: parseInt(id), ...body });
+      logAudit({ userId: request.userId, action: 'reschedule_course', entityType: 'course_request', entityId: parseInt(id), details: body, ipAddress: request.ip });
       return { success: true, message: 'Course rescheduled successfully', course };
     } catch (err) { return handleCourseError(err, reply); }
   });
@@ -197,6 +200,7 @@ export async function courseRoutes(app: FastifyInstance) {
     const { id } = request.params as { id: string };
     try {
       const course = await service.markReadyForBilling(parseInt(id));
+      logAudit({ userId: request.userId, action: 'send_course_to_billing', entityType: 'course_request', entityId: parseInt(id), ipAddress: request.ip });
       return { success: true, message: 'Course sent to billing successfully', data: course };
     } catch (err) { return handleCourseError(err, reply); }
   });

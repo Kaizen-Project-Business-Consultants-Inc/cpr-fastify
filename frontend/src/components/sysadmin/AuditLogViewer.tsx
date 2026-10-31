@@ -36,6 +36,12 @@ const ACTION_OPTIONS = [
   { value: 'update_user', label: 'Update User' },
   { value: 'create_organization', label: 'Create Organization' },
   { value: 'update_organization', label: 'Update Organization' },
+  // Running a class (routes/courses.ts)
+  { value: 'assign_instructor', label: 'Assign Instructor' },
+  { value: 'cancel_course', label: 'Cancel Course' },
+  { value: 'reschedule_course', label: 'Reschedule Course' },
+  { value: 'send_course_to_billing', label: 'Send Course to Billing' },
+  { value: 'remove_course_student', label: 'Remove Student from Course' },
   // Money actions, as written by the money routes (backend MONEY_ENTITY_TYPES in routes/admin.ts).
   { value: 'create_invoice', label: 'Create Invoice' },
   { value: 'approve_invoice', label: 'Approve Invoice' },
@@ -81,6 +87,7 @@ const ENTITY_TYPE_OPTIONS = [
   { value: 'money', label: 'All money activity' },
   { value: 'user', label: 'User' },
   { value: 'organization', label: 'Organization' },
+  { value: 'course_request', label: 'Course' },
   { value: 'invoice', label: 'Invoice' },
   { value: 'payment', label: 'Payment' },
   { value: 'course_pricing', label: 'Course Price' },
