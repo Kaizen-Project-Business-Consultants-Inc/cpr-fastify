@@ -24,6 +24,48 @@ describe('normalizeDateText', () => {
     expect(normalizeDateText('Oct 5 2026')).toBe('2026-10-05');
   });
 
+  it('accepts ISO dates written with slashes, dots or spaces', () => {
+    expect(normalizeDateText('2026/11/04')).toBe('2026-11-04');
+    expect(normalizeDateText('2026.11.4')).toBe('2026-11-04');
+    expect(normalizeDateText('2026 11 04')).toBe('2026-11-04');
+  });
+
+  it('accepts a written month before or after the day, with ordinals, a weekday or extra commas', () => {
+    expect(normalizeDateText('4 Nov 2026')).toBe('2026-11-04');
+    expect(normalizeDateText('4th of November, 2026')).toBe('2026-11-04');
+    expect(normalizeDateText('Nov 4th, 2026')).toBe('2026-11-04');
+    expect(normalizeDateText('Wednesday, November 4, 2026')).toBe('2026-11-04');
+    expect(normalizeDateText('Sept. 3 2026')).toBe('2026-09-03');
+  });
+
+  it('reads slashes month first, and day first only when the first number cannot be a month', () => {
+    expect(normalizeDateText('04/11/2026')).toBe('2026-04-11');
+    expect(normalizeDateText('25/11/2026')).toBe('2026-11-25');
+  });
+
+  it('refuses a numeric date that could be read two ways unless it uses slashes', () => {
+    expect(normalizeDateText('04.11.2026')).toBeNull();
+    expect(normalizeDateText('11-04-2026')).toBeNull();
+    expect(normalizeDateText('11 04 2026')).toBeNull();
+  });
+
+  it('refuses mixed separators and a weekday that does not match the date', () => {
+    expect(normalizeDateText('2026-11/04')).toBeNull();
+    expect(normalizeDateText('Wednesday, November 4, 2026')).toBe('2026-11-04');
+    expect(normalizeDateText('Monday, November 4, 2026')).toBeNull();
+  });
+
+  it('only returns the exact YYYY-MM-DD form unchanged, which the course-request API relies on', () => {
+    expect(normalizeDateText('2026-11-04')).toBe('2026-11-04');
+    expect(normalizeDateText('2026/11/04')).not.toBe('2026/11/04');
+    expect(normalizeDateText('2026-1-4')).not.toBe('2026-1-4');
+  });
+
+  it('does not guess a missing year or an unknown month', () => {
+    expect(normalizeDateText('Nov 4')).toBeNull();
+    expect(normalizeDateText('4 Foo 2026')).toBeNull();
+  });
+
   it('rejects an impossible calendar date instead of silently rolling over', () => {
     expect(normalizeDateText('2026-02-30')).toBeNull();
     expect(normalizeDateText('13/40/2026')).toBeNull();

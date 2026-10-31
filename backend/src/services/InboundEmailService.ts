@@ -101,32 +101,58 @@ function pad(n: number): string {
 }
 
 /**
- * Turns a date written in an email into YYYY-MM-DD. Accepts `2026-11-15`,
- * `11/15/2026` (month first) and `Nov 15, 2026` / `November 15 2026`.
- * Returns null for anything else or for a day that doesn't exist (Feb 30).
+ * Turns a date written in an email into YYYY-MM-DD. Accepts `2026-11-04` (also
+ * with `/`, `.` or spaces, used the same way twice), `11/15/2026` (month first),
+ * `15/11/2026` (day first, only when the first number can't be a month) and
+ * written months in either order: `Nov 15, 2026`, `November 15th 2026`,
+ * `15 Nov 2026`, `Mon, Nov 15, 2026`. A weekday that doesn't match the date is
+ * refused as a probable typo. A date with no year is refused, and so is a
+ * numeric one with dots, dashes or spaces that starts with the day or month
+ * (`04.11.2026`), because it could be read two ways. Slashes are read month
+ * first, as they always were. Returns null for a day that doesn't exist (Feb 30).
  */
 export function normalizeDateText(text: string): string | null {
-  const t = text.trim();
+  const trimmed = text.trim();
+  const weekdayMatch = trimmed.match(/^(mon|tue|wed|thu|fri|sat|sun)[a-z]*\.?,?\s+/i);
+  const weekday = weekdayMatch ? ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'].indexOf(weekdayMatch[1].toLowerCase()) : null;
 
-  let m = t.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
-  if (m) {
-    const [, y, mo, d] = m.map(Number) as unknown as number[];
-    return isRealCalendarDate(y, mo, d) ? `${y}-${pad(mo)}-${pad(d)}` : null;
-  }
+  // Drop the weekday, "of", ordinal endings (1st, 2nd, 3rd, 4th) and commas.
+  const t = trimmed
+    .slice(weekdayMatch ? weekdayMatch[0].length : 0)
+    .replace(/\b(\d{1,2})(st|nd|rd|th)\b/gi, '$1')
+    .replace(/\bof\b/gi, ' ')
+    .replace(/,/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  const ok = (y: number, mo: number, d: number): string | null => {
+    if (!isRealCalendarDate(y, mo, d)) return null;
+    if (weekday !== null && new Date(y, mo - 1, d).getDay() !== weekday) return null;
+    return `${y}-${pad(mo)}-${pad(d)}`;
+  };
+
+  let m = t.match(/^(\d{4})([-/. ])(\d{1,2})\2(\d{1,2})$/);
+  if (m) return ok(Number(m[1]), Number(m[3]), Number(m[4]));
 
   m = t.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
   if (m) {
-    const [, mo, d, y] = m.map(Number) as unknown as number[];
-    return isRealCalendarDate(y, mo, d) ? `${y}-${pad(mo)}-${pad(d)}` : null;
+    const a = Number(m[1]);
+    const b = Number(m[2]);
+    const y = Number(m[3]);
+    // Month first by default; day first only when the first number can't be a month.
+    return a > 12 ? ok(y, b, a) : ok(y, a, b);
   }
 
-  m = t.match(/^([A-Za-z]+)\s+(\d{1,2}),?\s+(\d{4})$/);
+  m = t.match(/^([A-Za-z]+)\.? (\d{1,2}) (\d{4})$/);
   if (m) {
     const mo = MONTHS[m[1].toLowerCase()];
-    const d = Number(m[2]);
-    const y = Number(m[3]);
-    if (!mo) return null;
-    return isRealCalendarDate(y, mo, d) ? `${y}-${pad(mo)}-${pad(d)}` : null;
+    return mo ? ok(Number(m[3]), mo, Number(m[2])) : null;
+  }
+
+  m = t.match(/^(\d{1,2}) ([A-Za-z]+)\.? (\d{4})$/);
+  if (m) {
+    const mo = MONTHS[m[2].toLowerCase()];
+    return mo ? ok(Number(m[3]), mo, Number(m[1])) : null;
   }
 
   return null;
