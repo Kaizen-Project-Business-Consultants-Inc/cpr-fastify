@@ -68,7 +68,8 @@ describe('ClassAttendanceView', () => {
   it('exposes 0/1 attendance flags as a valid aria-pressed state and counts them', async () => {
     renderView();
 
-    const avaPresent = await screen.findByRole('button', { name: 'Mark Ava Lee present' });
+    // The full suite runs many files at once, so the first render can take over the default 1 s.
+    const avaPresent = await screen.findByRole('button', { name: 'Mark Ava Lee present' }, { timeout: 10000 });
     expect(avaPresent).toHaveAttribute('aria-pressed', 'true');
     expect(screen.getByRole('button', { name: 'Mark Ava Lee absent' })).toHaveAttribute('aria-pressed', 'false');
     expect(screen.getByRole('button', { name: 'Mark Cy Ng absent' })).toHaveAttribute('aria-pressed', 'true');
