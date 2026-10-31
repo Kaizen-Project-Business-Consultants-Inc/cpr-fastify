@@ -252,7 +252,7 @@ ${body.slice(0, 4000)}
     if (!jsonMatch) return null;
     const parsed = JSON.parse(jsonMatch[0]) as Record<string, unknown>;
 
-    const scheduledDate = typeof parsed.scheduledDate === 'string' ? normalizeDateText(parsed.scheduledDate) ?? (/^\d{4}-\d{2}-\d{2}$/.test(parsed.scheduledDate) ? parsed.scheduledDate : null) : null;
+    const scheduledDate = typeof parsed.scheduledDate === 'string' ? normalizeDateText(parsed.scheduledDate) : null;
     const registeredStudents = typeof parsed.registeredStudents === 'number' && Number.isInteger(parsed.registeredStudents) && parsed.registeredStudents > 0
       ? parsed.registeredStudents : null;
     const location = typeof parsed.location === 'string' && parsed.location.trim() ? parsed.location.trim() : null;
